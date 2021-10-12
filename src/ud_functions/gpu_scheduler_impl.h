@@ -10,6 +10,7 @@
 #include <cuda_profiler_api.h>  
 #include <cublas_v2.h>
 #include <cublasLt.h>
+#include <cutensor.h>
 #include "../tensor/builtin_formats.h"
 #include "../ud_functions/builtin_functions.h"
 #include "../tensor/tensor_factory.h"
@@ -73,7 +74,8 @@ private:
   cudaEvent_t  _events[3];
 
   // the handle
-  cublasHandle_t _handles[3];
+  cublasHandle_t   _cub_handles[3];
+  cutensorHandle_t _cut_handle;
 
   // do we have something to do
   std::uint32_t _left_to_process = 0;

@@ -140,10 +140,12 @@ target_link_libraries(bbts-common ${BLAS_LIBRARIES})
 # link the cublas library
 if(${ENABLE_GPU})
     cuda_add_cublas_to_target(bbts-common)
+    target_link_libraries(bbts-common "/nix/store/3bylvh45b43fzb8arvr3kr8dhr2jg9cd-cudatoolkit-11.2-cutensor-1.2.2.5/lib/libcutensor.so")
+    #target_link_libraries(bbts-common cutensor)
 endif()
 
 # add the tests
-include(tests/Tests.cmake)
+#include(tests/Tests.cmake)
 include(integration_tests/Integration.cmake)
 include(applications/Applications.cmake)
 include(libraries/Libraries.cmake)

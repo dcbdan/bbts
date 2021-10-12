@@ -7,26 +7,28 @@ gpu_scheduler_impl_t::gpu_scheduler_impl_t(const bbts::tensor_factory_ptr_t &fac
     // create the front stream (at the current step fetch the tensor)
     cudaStreamCreate(&_streams[FRONT]);
     cudaEventCreate(&_events[FRONT]);
-    cublasCreate(&_handles[FRONT]); cublasSetStream(_handles[FRONT], _streams[FRONT]);
+    cublasCreate(&_cub_handles[FRONT]); cublasSetStream(_cub_handles[FRONT], _streams[FRONT]);
 
     // create the mid stream (at the current step do the kernel)
     cudaStreamCreate(&_streams[MID]);
     cudaEventCreate(&_events[MID]);
-    cublasCreate(&_handles[MID]); cublasSetStream(_handles[MID], _streams[MID]);
+    cublasCreate(&_cub_handles[MID]); cublasSetStream(_cub_handles[MID], _streams[MID]);
+    cutensorInit(&_cut_handle);
 
     // create the back stream (at the current step does unloading)
     cudaStreamCreate(&_streams[BACK]);
     cudaEventCreate(&_events[BACK]);
-    cublasCreate(&_handles[BACK]); cublasSetStream(_handles[BACK], _streams[BACK]);
+    cublasCreate(&_cub_handles[BACK]); cublasSetStream(_cub_handles[BACK], _streams[BACK]);
+
 }
 
 
 gpu_scheduler_impl_t::~gpu_scheduler_impl_t() {
 
-    // destroy the handle
-    cublasDestroy(_handles[FRONT]);
-    cublasDestroy(_handles[MID]);
-    cublasDestroy(_handles[BACK]);
+    // destroy the cublas handles
+    cublasDestroy(_cub_handles[FRONT]);
+    cublasDestroy(_cub_handles[MID]);
+    cublasDestroy(_cub_handles[BACK]);
 }
 
 void gpu_scheduler_impl_t::run() {
@@ -52,7 +54,8 @@ void gpu_scheduler_impl_t::run() {
 
       // set the stream and cublas handle
       _specs[MID].params.stream = _streams[MID]; 
-      _specs[MID].params.cublas_handle = _handles[MID];
+      _specs[MID].params.cublas_handle = _cub_handles[MID];
+      _specs[MID].params.cutensor_handle = _cut_handle;
 
       // call the kernel
       _specs[MID].fun->call_gpu_ud( _specs[MID].params, *_specs[MID].inputs, *_specs[MID].outputs);

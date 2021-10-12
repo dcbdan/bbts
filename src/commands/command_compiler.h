@@ -7,8 +7,8 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
-#include "abstract_command.h"
-#include "cost_model.h"
+// #include "abstract_command.h"
+// #include "cost_model.h"
 #include "../commands/command.h"
 #include "../tensor/tensor.h"
 #include "../tensor/tensor_factory.h"
@@ -17,6 +17,479 @@
 
 
 namespace bbts {
+
+enum class abstract_command_type_t : int {
+  APPLY,
+  REDUCE,
+  DELETE
+};
+
+using abstract_ud_spec_id_t = int32_t;
+
+// type:APPLY  fun:fun_id in:t1,t2,t2.. out:t3,t4.. 
+// type:REDUCE fun:fun_id in:t1,t2,t2.. out:t3,t4.. 
+// type:APPLY  fun:fun_id in:t1,t2,t2.. out:t3,t4.. 
+
+struct abstract_ud_spec_t {
+
+  // the id
+  abstract_ud_spec_id_t id;
+
+  // the name of the ud fuction
+  std::string ud_name;
+
+  // the input types of the ud function
+  std::vector<std::string> input_types;
+ 
+  // the output types
+  std::vector<std::string> output_types; 
+
+  // write the function to the file
+  void write_to_file(std::ofstream &file) {
+    
+    // write the stuff
+    file << id << " " << ud_name << " " << input_types.size() << " ";
+    for(auto &s : input_types) {
+      file << s << " ";
+    }
+    file << output_types.size() << " ";
+    for(auto &s : output_types) {
+      file << s << " ";
+    }
+    file << '\n';
+  }
+
+  void read_from_file(std::ifstream &file) {
+
+    // write the stuff
+    std::size_t num_inputs;
+    file >> id >> ud_name >> num_inputs;
+
+    // read all the input types
+    input_types.resize(num_inputs);
+    for(auto &s : input_types) {
+      file >> s;
+    }
+
+    // read the number of outputs
+    std::size_t num_outputs;
+    file >> num_outputs;
+
+    // read all the outputs
+    output_types.resize(num_outputs);
+    for(auto &s : output_types) {
+      file >> s;
+    }
+  }
+
+};
+
+class cost_model_t {
+private:
+  // the matched function
+  struct function_match_t {
+
+    // the cpu implementation
+    ud_impl_t* cpu;
+
+    // the gpu implementation
+    ud_impl_t* gpu;
+  };
+
+public:
+
+  // the choice we made
+  struct ud_choice_t {
+
+    // the cost
+    float cost;
+
+    // is this using the gpu
+    bool is_gpu;
+
+    // the pointer
+    ud_impl_t* ud;
+  };
+
+  cost_model_t(std::unordered_map<tid_t, tensor_meta_t> meta,
+               const std::vector<abstract_ud_spec_t> &funs,
+               tensor_factory_ptr_t tf, 
+               udf_manager_ptr manager, 
+               float gpu_transfer_cost_per_byte, 
+               float send_cost_per_byte) : meta(std::move(meta)),
+                                           tf(std::move(tf)),
+                                           udm(std::move(manager)),
+                                           send_cost_per_byte(send_cost_per_byte),
+                                           gpu_transfer_cost_per_byte(gpu_transfer_cost_per_byte) {
+    
+    
+    for(const auto &f : funs) {
+
+      // get the matcher
+      auto matcher = udm->get_matcher_for(f.ud_name);
+      if(matcher == nullptr) {
+        throw std::runtime_error("Could not match ud " + f.ud_name);
+      }
+
+      // the inplementation
+      auto impl_cpu = matcher->findMatch(f.input_types, f.output_types, false);
+      auto impl_gpu = matcher->findMatch(f.input_types, f.output_types, true);
+
+      if(impl_cpu == nullptr && impl_gpu == nullptr) {
+        throw std::runtime_error("Could not find a matching ud function.");
+      }
+
+      // found the match store it
+      matched_functions[f.id] = function_match_t{.cpu = impl_cpu, .gpu = impl_gpu};
+    }
+  }
+
+  // figure out the kernel cost
+  ud_choice_t get_ud_cost(abstract_ud_spec_id_t fn, 
+                          const bbts::ud_impl_t::tensor_params_t &params,
+                          const std::vector<tid_t> input_tids) {
+    
+    // find the implementations for this kernel
+    auto impls = matched_functions[fn];
+
+    // make the meta
+    _input_meta_vec.resize(input_tids.size());
+    input_meta.reinit(_input_meta_vec);
+    for(size_t idx = 0; idx < input_tids.size(); ++idx) {
+
+      
+      auto it = meta.find(input_tids[idx]);
+      if(it == meta.end()) {
+        throw std::runtime_error("Failed to find the meta for tid " + std::to_string(input_tids[idx]) + ".");
+      }
+
+      input_meta.set(idx, it->second);
+    }
+
+    // do we only have one implementation
+    if(impls.gpu == nullptr) {
+      return ud_choice_t{.cost = (float) impls.cpu->get_complexity_hint(params, input_meta), .is_gpu = false, .ud = impls.cpu};
+    }
+    else if(impls.cpu == nullptr) {
+      return ud_choice_t{.cost = (float) impls.gpu->get_complexity_hint(params, input_meta), .is_gpu = true, .ud = impls.gpu};
+    }
+
+    // figure out the cpu transfer cost
+    float cpu_cost = (float) impls.cpu->get_complexity_hint(params, input_meta);
+
+    // figure out the gpu compute cost
+    float gpu_compute_cost = (float) impls.gpu->get_complexity_hint(params, input_meta);
+    
+    // figure out the gpu transfer cost
+    float gpu_transfer_cost = 0;
+    for(size_t idx = 0; idx < input_meta.num_args(); ++idx) {
+      gpu_transfer_cost += gpu_transfer_cost_per_byte * this->tf->get_tensor_size(input_meta.get_by_idx(idx));
+    }
+
+    // check if we pick the cpu
+    if(cpu_cost < std::max(gpu_transfer_cost, gpu_compute_cost)) {
+      return ud_choice_t{.cost = cpu_cost, .is_gpu = false, .ud = impls.cpu};
+    }
+
+    // we pick the gpu
+    return ud_choice_t{.cost = std::max(gpu_transfer_cost, gpu_compute_cost), .is_gpu = true, .ud = impls.gpu}; 
+  } 
+
+
+  // here we figure out only the avarage reduce kernel operation as it is farily hard
+  // to figure out the optinal aggregation order for non-uniform reduce kernel inputs
+  ud_choice_t get_reduce_cost(abstract_ud_spec_id_t fn, 
+                              const bbts::ud_impl_t::tensor_params_t &params,
+                              const std::vector<tid_t> input_tids,
+                              const std::vector<tid_t> output_tids) {
+    
+    // find the implementations for this kernel
+    auto impls = matched_functions[fn];
+
+    // we only have two inputs to a single reduce op
+    _input_meta_vec.resize(2);
+    input_meta.reinit(_input_meta_vec);
+
+    _output_meta_vec.resize(1);
+    out_meta.reinit(_output_meta_vec);
+
+    tensor_meta_t out_gpu = meta.find(input_tids[0])->second;
+    tensor_meta_t out_cpu = out_gpu;
+
+    float average_gpu_cost = 0;
+    float average_cpu_cost = 0;
+
+    for(size_t idx = 1; idx < input_tids.size(); ++idx) {
+
+      // set the rhs
+      auto it = meta.find(input_tids[idx]);
+      if(it == meta.end()) {
+        throw std::runtime_error("Failed to find the lhs meta.");
+      }
+      input_meta.set(0, it->second);
+
+      // check if there is a gpu implementation
+      if(impls.gpu != nullptr) {
+
+        // set the lhs
+        it = meta.find(input_tids[0]);
+        if(it == meta.end()) {
+          throw std::runtime_error("Failed to find the lhs meta.");
+        }
+        input_meta.set(0, it->second);
+
+        // increase the gpu cost
+        float cur_gpu_cost = (float) impls.cpu->get_complexity_hint(params, input_meta);
+
+        // we need to get this out
+        out_meta.set(0, out_gpu);
+        impls.gpu->get_out_meta(params, input_meta, out_meta);
+
+        // calculate the transfer cost
+        float gpu_transfer_cost = 0;
+        gpu_transfer_cost += gpu_transfer_cost_per_byte * this->tf->get_tensor_size(input_meta.get_by_idx(0));
+        gpu_transfer_cost += gpu_transfer_cost_per_byte * this->tf->get_tensor_size(input_meta.get_by_idx(1));
+
+        // take the greater cost
+        average_gpu_cost += std::max(gpu_transfer_cost, cur_gpu_cost);
+      }
+
+      // check if there is a cpu implementation
+      if(impls.cpu != nullptr) {
+
+        // set the lhs
+        it = meta.find(input_tids[0]);
+        if(it == meta.end()) {
+          throw std::runtime_error("Failed to find the lhs meta.");
+        }
+        input_meta.set(0, it->second);
+
+        // increase the cpu cost
+        average_cpu_cost += (float) impls.cpu->get_complexity_hint(params, input_meta);
+
+        // we need to get this out
+        out_meta.set(0, out_cpu);
+        impls.cpu->get_out_meta(params, input_meta, out_meta);
+      }
+    }
+    
+    // we apply the ud n - 1 times
+    average_cpu_cost /= input_tids.size() - 1;
+    average_gpu_cost /= input_tids.size() - 1;
+
+    // store the meta
+    for(auto idx = 0; idx < output_tids.size(); ++idx) {
+      meta[output_tids[idx]] = out_meta.get_by_idx(idx);
+    }
+
+    // check if we have only the cpu or it is better than the gpu
+    if(impls.gpu == nullptr || average_cpu_cost < average_gpu_cost) {
+      return ud_choice_t{.cost = average_cpu_cost, .is_gpu = false, .ud = impls.cpu};
+    }
+
+    // we pick the gpu
+    return ud_choice_t{.cost = average_gpu_cost, .is_gpu = true, .ud = impls.gpu}; 
+  }
+
+  float get_transfer_cost(tid_t tensor) {
+    return send_cost_per_byte * this->tf->get_tensor_size(meta[tensor]);
+  }
+
+  void update_meta_for_ud(abstract_ud_spec_id_t fn,
+                          bool use_gpu,
+                          const bbts::ud_impl_t::tensor_params_t &params,
+                          const std::vector<tid_t> input_tids,
+                          const std::vector<tid_t> output_tids) {
+
+    // make the meta
+    _input_meta_vec.resize(input_tids.size());
+    input_meta.reinit(_input_meta_vec);
+    for(size_t idx = 0; idx < input_tids.size(); ++idx) {
+
+      auto it = meta.find(input_tids[idx]);
+      if(it == meta.end()) {
+        throw std::runtime_error("Failed to find the meta.");
+      }
+
+      input_meta.set(idx, it->second);
+    }
+
+    // find the implementations for this kernel
+    auto impls = matched_functions[fn];
+
+    // are we using the gpu
+    if(!use_gpu) {
+
+      // resize the out meta
+      if(output_tids.size() != impls.cpu->outputTypes.size()) {
+        throw std::runtime_error("");
+      }
+
+      _output_meta_vec.resize(impls.cpu->outputTypes.size());
+      out_meta.reinit(_output_meta_vec);
+      impls.cpu->get_out_meta(params, input_meta, out_meta);
+    }
+    else {
+
+      // resize the out meta
+      if(output_tids.size() != impls.gpu->outputTypes.size()) {
+        throw std::runtime_error("");
+      }
+
+      _output_meta_vec.resize(impls.gpu->outputTypes.size());
+      out_meta.reinit(_output_meta_vec);
+      impls.gpu->get_out_meta(params, input_meta, out_meta);
+    }
+
+    // store the meta
+    for(auto idx = 0; idx < output_tids.size(); ++idx) {
+      meta[output_tids[idx]] = out_meta.get_by_idx(idx);
+    }
+  }
+
+private:
+
+  // all the matched functions
+  std::unordered_map<abstract_ud_spec_id_t, function_match_t> matched_functions;
+
+  // the meta so far in the cost model
+  std::unordered_map<tid_t, tensor_meta_t> meta;
+
+  // the tensor factory
+  tensor_factory_ptr_t tf;
+
+  // the udf manager
+  udf_manager_ptr udm;
+
+  // what is the extimated cost of moving bytes
+  float send_cost_per_byte;
+
+  // what is the estimated cost of moving bytes to the gpu
+  float gpu_transfer_cost_per_byte;
+
+  // we use this so that we don't keep allocating 
+  ud_impl_t::meta_args_t input_meta;
+  std::vector<tensor_meta_t> _input_meta_vec;
+
+  // the output meta so that we don't keep allocating 
+  ud_impl_t::meta_args_t out_meta;
+  std::vector<tensor_meta_t> _output_meta_vec;
+};
+
+using cost_model_ptr_t = std::shared_ptr<cost_model_t>;
+
+
+struct abstract_command_t {
+
+  // the type 
+  abstract_ud_spec_id_t ud_id;
+
+  // the type of the command (APPLY or REDUCE)
+  abstract_command_type_t type;
+
+  // the input tids
+  std::vector<tid_t> input_tids;
+
+  // the output tids
+  std::vector<tid_t> output_tids;
+
+  // parameters
+  std::vector<command_param_t> params;
+
+  // write the command to file
+  void write_to_file(std::ofstream &file) {
+    
+    // figure out the sting label
+    std::string type_string;
+    switch (type) {
+      case abstract_command_type_t::APPLY  : type_string = "APPLY"; break;
+      case abstract_command_type_t::REDUCE : type_string = "REDUCE"; break;
+      case abstract_command_type_t::DELETE : type_string = "DELETE"; break;
+    }
+
+    // write the stuff
+    file << ud_id << " " << type_string << " " << input_tids.size() << " ";
+    for(auto &s : input_tids) {
+      file << s << " ";
+    }
+
+    file << output_tids.size() << " ";
+    for(auto &s : output_tids) {
+      file << s << " ";
+    }
+
+    file << params.size() << " ";
+    for(auto idx = 0; idx < params.size(); ++idx) {
+      file << "int ";
+      file << params[idx].i << " ";
+    }
+    file << '\n';
+  }
+
+  void read_from_file(std::ifstream &file) {
+
+    std::size_t num_input_tids;
+    std::size_t num_output_tids;
+    std::size_t num_params;
+    std::string type_string;
+
+    file >> ud_id >> type_string >> num_input_tids;
+
+    if(type_string == "APPLY") {
+      type = abstract_command_type_t::APPLY;
+    }
+    else if(type_string == "REDUCE") {
+      type = abstract_command_type_t::REDUCE;
+    }
+    else if(type_string == "DELETE") {
+      type = abstract_command_type_t::DELETE;
+    }
+    else {
+      throw std::runtime_error("Unknown type!");
+    }
+  
+    if(type == abstract_command_type_t::REDUCE) {
+      assert(num_input_tids != 0);
+    }
+
+    input_tids.resize(num_input_tids);
+    for(auto &tid : input_tids) {
+      file >> tid;
+    }
+
+    file >> num_output_tids;
+    output_tids.resize(num_output_tids);
+    for(auto &tid : output_tids) {
+      file >> tid;
+    }
+
+    file >> num_params;
+    std::string type;
+    for(auto idx = 0; idx < num_params; ++idx) {
+
+      // the parameter
+      command_param_t param;
+
+      // find the type
+      file >> type;
+      if(type == "int") {
+        file >> param.i;
+      }
+      else if(type == "float") {
+        file >> param.f;
+      }
+      else if(type == "uint") {
+        file >> param.u;
+      }
+      else {
+        throw std::runtime_error("Unknown param type!");
+      }
+
+      // store the parameter
+      params.push_back(param);
+    }
+  }
+};
 
 class command_compiler_t {
 public:

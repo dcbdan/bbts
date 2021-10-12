@@ -5,6 +5,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <cutensor.h>
 #include <memory>
 #include "../tensor/tensor.h"
 #include "../server/static_config.h"
@@ -158,6 +159,9 @@ struct ud_impl_t {
 
     // the handle to cublas
     cublasHandle_t cublas_handle;
+
+    // the handle to cutensor
+    cutensorHandle_t cutensor_handle;
   };
 
   // each apply is a call to these

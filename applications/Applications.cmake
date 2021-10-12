@@ -13,7 +13,7 @@ include("${app_path}/${folder_path}/CMakeLists.txt")
 endfunction()
 
 # add the applications
-add_aplication("bmm")
-add_aplication("cpmm")
-add_aplication("fnn")
+#add_aplication("bmm")
+#add_aplication("cpmm")
+#add_aplication("fnn")
 add_aplication("node")

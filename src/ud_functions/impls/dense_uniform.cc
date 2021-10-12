@@ -1,8 +1,8 @@
 #include "dense_uniform.h"
 #include "../../tensor/builtin_formats.h"
 #include <cstdint>
-#include <mkl/mkl_cblas.h>
-#include <mkl/mkl.h>
+#include <mkl_cblas.h>
+#include <mkl.h>
 
 bbts::dense_uniform_t::dense_uniform_t() {
 

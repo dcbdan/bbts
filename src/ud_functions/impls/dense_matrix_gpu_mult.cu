@@ -1,7 +1,7 @@
 #include "dense_matrix_gpu_mult.h"
 #include "../../tensor/builtin_formats.h"
-#include <mkl/mkl_cblas.h>
-#include <mkl/mkl.h>
+#include <mkl_cblas.h>
+#include <mkl.h>
 #include <cublas_v2.h>
 
 bbts::dense_matrix_gpu_mult_t::dense_matrix_gpu_mult_t() {
