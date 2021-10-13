@@ -15,6 +15,32 @@ using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params
 #define SIZEOFFLOAT 4   
 cudaDataType_t cutensor_scalar_type = CUDA_R_32F;
 
+void handle_error(std::string msg, cutensorStatus_t status) {
+  if(status == CUTENSOR_STATUS_SUCCESS){
+    return;
+  }
+
+  // TODO: violently die
+  std::cout << "NOT HANDLING ERROR{" << msg << "}" << std::endl;
+  switch(status) {
+    case CUTENSOR_STATUS_NOT_INITIALIZED:        std::cout << "NOT_INITIALIZED"       ; break;
+    case CUTENSOR_STATUS_ALLOC_FAILED:           std::cout << "ALLOC_FAILED"          ; break;
+    case CUTENSOR_STATUS_INVALID_VALUE:          std::cout << "INVALID_VALUE"         ; break;
+    case CUTENSOR_STATUS_ARCH_MISMATCH:          std::cout << "ARCH_MISMATCH"         ; break;
+    case CUTENSOR_STATUS_MAPPING_ERROR:          std::cout << "MAPPING_ERROR"         ; break;
+    case CUTENSOR_STATUS_EXECUTION_FAILED:       std::cout << "EXECUTION_FAILED"      ; break;
+    case CUTENSOR_STATUS_INTERNAL_ERROR:         std::cout << "INTERNAL_ERROR"        ; break;
+    case CUTENSOR_STATUS_NOT_SUPPORTED:          std::cout << "NOT_SUPPORTED"         ; break;
+    case CUTENSOR_STATUS_LICENSE_ERROR:          std::cout << "LICENSE_ERROR"         ; break;
+    case CUTENSOR_STATUS_CUBLAS_ERROR:           std::cout << "CUBLAS_ERROR"          ; break;
+    case CUTENSOR_STATUS_CUDA_ERROR:             std::cout << "CUDA_ERROR"            ; break;
+    case CUTENSOR_STATUS_INSUFFICIENT_WORKSPACE: std::cout << "INSUFFICIENT_WORKSPACE"; break;
+    case CUTENSOR_STATUS_INSUFFICIENT_DRIVER:    std::cout << "INSUFFICIENT_DRIVER"   ; break;
+    case CUTENSOR_STATUS_IO_ERROR:               std::cout << "IO_ERROR"              ; break;
+  }
+  std::cout << std::endl;
+}
+
 struct cu_meta_t : public tensor_meta_t {
 
   // returns the meta data struct
