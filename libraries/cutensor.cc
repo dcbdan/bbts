@@ -6,6 +6,7 @@
 #include "cutensor/cu.h"
 #include "cutensor/init.h"
 #include "cutensor/elementwise.h"
+#include "cutensor/misc.h"
 
 // TODO:
 //   expand
@@ -43,17 +44,14 @@ extern "C" {
     register_ew_same_shape(udf_manager, "exp",      CUTENSOR_OP_EXP,     1.0);
     register_ew_same_shape(udf_manager, "relu",     CUTENSOR_OP_RELU,    1.0);
 
-  //
-  //  // TODO
-  //  // register_ewb_same_shape
-  //  // register_ew_same_shape
-  //  // register_ewb
+    // Misc ones since cutensor has a woefully incomplete selection of scalar ops
+    register_reluderiv(udf_manager, "reluderiv");
+    register_square(   udf_manager, "square");
+    register_div_ij_i( udf_manager, "div_ij_i");
+
   //  //
   //  // register_matmul(bool, bool, size0, size1)
   //  // register_contraction(Op, shape_in, shape_out, size_in)
 
-  //  // register_reluderiv (sigmoid and then ceiling)
-  //  // register_square    (recipricoal, abs, sqrt, recipricol)
-  //  // register_div_ij_i  (recipricol second...)
   }
 }
