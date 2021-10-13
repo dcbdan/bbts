@@ -35,12 +35,13 @@ extern "C" {
     register_ewb_same_shape(udf_manager, "min", CUTENSOR_OP_MIN, 1.0,  1.0, true, true);
     register_ewb_same_shape(udf_manager, "mul", CUTENSOR_OP_MUL, 1.0,  1.0, true, true);
 
-    //register_ewb_ij_i(udf_manager, "sub_ij_i", CUTENSOR_OP_ADD, 1.0, -1.0);
-    //register_ewb_ij_i(udf_manager, "max_ij_i", CUTENSOR_OP_MAX, 1.0, 1.0);
+    // Note: register_ewb_ij_i is only valid for commutative scalar ops.
+    register_ewb_ij_i(udf_manager, "sub_ij_i", CUTENSOR_OP_ADD, 1.0, -1.0);
+    register_ewb_ij_i(udf_manager, "max_ij_i", CUTENSOR_OP_MAX, 1.0, 1.0);
 
-    register_ew_same_shape(udf_manager, "sigmoid",  1.0, CUTENSOR_OP_SIGMOID);
-    register_ew_same_shape(udf_manager, "exp",      1.0, CUTENSOR_OP_EXP);
-    register_ew_same_shape(udf_manager, "relu",     1.0, CUTENSOR_OP_RELU);
+    register_ew_same_shape(udf_manager, "sigmoid",  CUTENSOR_OP_SIGMOID, 1.0);
+    register_ew_same_shape(udf_manager, "exp",      CUTENSOR_OP_EXP,     1.0);
+    register_ew_same_shape(udf_manager, "relu",     CUTENSOR_OP_RELU,    1.0);
 
   //
   //  // TODO
