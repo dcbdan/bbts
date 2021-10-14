@@ -239,7 +239,7 @@ public:
         input_meta.set(0, it->second);
 
         // increase the gpu cost
-        float cur_gpu_cost = (float) impls.cpu->get_complexity_hint(params, input_meta);
+        float cur_gpu_cost = (float) impls.gpu->get_complexity_hint(params, input_meta);
 
         // we need to get this out
         out_meta.set(0, out_gpu);
