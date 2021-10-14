@@ -8,16 +8,12 @@
 #include "cutensor/elementwise.h"
 #include "cutensor/misc.h"
 #include "cutensor/contraction.h"
+#include "cutensor/reduction.h"
 
 // TODO:
-//   expand
-//   register_contraction               # size dependent    (matmuls)
-//   register_reduction                 # size dependent    (max_ij_i)
-//   register_elementwise               # Just op dependent (relu, relu')
-//   register_elementwise_binary        # Just op dependent (add, max)
-//
-// Need add and expand!
-// Need a factory that will create wtvr is necessary!
+//   expand cpu
+//   expand gpu
+//   cpu add
 
 extern "C" {
 
@@ -30,6 +26,7 @@ extern "C" {
     register_init(udf_manager, "init_one",   1.0);
     register_init(udf_manager, "init_two",   2.0);
     register_init(udf_manager, "init_three", 3.0);
+    register_init_random(udf_manager, "init_random", 0.0, 1.0);
 
     register_ewb_same_shape(udf_manager, "add", CUTENSOR_OP_ADD, 1.0,  1.0, true, true);
     register_ewb_same_shape(udf_manager, "sub", CUTENSOR_OP_ADD, 1.0, -1.0, true, false);
@@ -56,7 +53,8 @@ extern "C" {
     register_contraction(udf_manager, "matmul_T", {0,1}, {2,1}, {0,2});
     register_contraction(udf_manager, "matmulTT", {1,0}, {2,1}, {0,2});
 
-    // TODO: register reductions now
-
+    // reductions
+    register_reduction(udf_manager, "sum_ij_to_i", CUTENSOR_OP_ADD, {0,1}, {0});
+    register_reduction(udf_manager, "max_ij_to_i", CUTENSOR_OP_MAX, {0,1}, {0});
   }
 }

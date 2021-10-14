@@ -123,10 +123,22 @@ struct cu_t : public tensor_t {
       }
       ss << dims[rank-1] << "]" << std::endl;
       n *= dims[rank-1];
-      for(int i = 0; i != n; ++i) {
-        ss << data[i] << " "; 
-      } 
-      ss << std::endl;
+
+      if(rank != 2) {
+        for(int i = 0; i != n; ++i) {
+          ss << data[i] << " "; 
+        } 
+        ss << std::endl;
+      } else {
+        // cutensor is column major!
+        for(int row = 0; row != dims[0]; ++row) {
+          for(int col = 0; col != dims[1]; ++col) {
+            int idx = row + col*dims[0];
+            std::cout << data[idx] << " ";
+          }
+          std::cout << std::endl;
+        }
+      }
     };
 
     // return the tensor creation functions
