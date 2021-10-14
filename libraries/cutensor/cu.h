@@ -70,15 +70,20 @@ struct cu_meta_t : public tensor_meta_t {
     }
   }
 
-  size_t get_data_size() {
-    auto &meta = this->m();
-    
-    int num = 1;
+  size_t get_data_size() const {
+    size_t num = this->num_elem();
+    return SIZEOFFLOAT * num;
+  }
+
+  size_t num_elem() const {
+    auto const& meta = this->m();
+
+    size_t num = 1;
     for(int r = 0; r != meta.rank; ++r) {
       num *= meta.dims[r];
     }
 
-    return SIZEOFFLOAT * num;
+    return num;
   }
 };
 
@@ -145,5 +150,3 @@ struct cu_t : public tensor_t {
     return tensor_creation_fs_t{.get_size = size, .init_tensor = init, .print = pnt};
   }
 };
-
-

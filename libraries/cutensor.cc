@@ -9,11 +9,11 @@
 #include "cutensor/misc.h"
 #include "cutensor/contraction.h"
 #include "cutensor/reduction.h"
+#include "cutensor/expand.h"
+#include "cutensor/cpu_impl.h"
 
 // TODO:
-//   expand cpu
 //   expand gpu
-//   cpu add
 
 extern "C" {
 
@@ -56,5 +56,13 @@ extern "C" {
     // reductions
     register_reduction(udf_manager, "sum_ij_to_i", CUTENSOR_OP_ADD, {0,1}, {0});
     register_reduction(udf_manager, "max_ij_to_i", CUTENSOR_OP_MAX, {0,1}, {0});
+
+    // register expand
+    register_expand(udf_manager, "expand");
+
+    // cpu implementation of add
+    udf_manager->register_udf_impl(
+      std::make_unique<_cpu_impl::add>("add", "add_cpu"));
+    
   }
 }
