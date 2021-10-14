@@ -282,12 +282,21 @@ public:
       meta[output_tids[idx]] = out_meta.get_by_idx(idx);
     }
 
-    // check if we have only the cpu or it is better than the gpu
-    if(impls.gpu == nullptr || average_cpu_cost < average_gpu_cost) {
+    // if there is only a cpu, pick cpu
+    if(impls.gpu == nullptr) {
       return ud_choice_t{.cost = average_cpu_cost, .is_gpu = false, .ud = impls.cpu};
     }
 
-    // we pick the gpu
+    // if there is only a gpu, pick gpu
+    if(impls.cpu == nullptr) {
+      return ud_choice_t{.cost = average_gpu_cost, .is_gpu = true, .ud = impls.gpu}; 
+    }
+
+    // given that there is a cpu and gpu, pick the better one
+    if(average_cpu_cost < average_gpu_cost) {
+      return ud_choice_t{.cost = average_cpu_cost, .is_gpu = false, .ud = impls.cpu};
+    }
+
     return ud_choice_t{.cost = average_gpu_cost, .is_gpu = true, .ud = impls.gpu}; 
   }
 
