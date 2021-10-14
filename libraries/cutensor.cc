@@ -7,6 +7,7 @@
 #include "cutensor/init.h"
 #include "cutensor/elementwise.h"
 #include "cutensor/misc.h"
+#include "cutensor/contraction.h"
 
 // TODO:
 //   expand
@@ -49,9 +50,13 @@ extern "C" {
     register_square(   udf_manager, "square");
     register_div_ij_i( udf_manager, "div_ij_i");
 
-  //  //
-  //  // register_matmul(bool, bool, size0, size1)
-  //  // register_contraction(Op, shape_in, shape_out, size_in)
+    // contractions
+    register_contraction(udf_manager, "matmul",   {0,1}, {1,2}, {0,2});
+    register_contraction(udf_manager, "matmulT_", {1,0}, {1,2}, {0,2});
+    register_contraction(udf_manager, "matmul_T", {0,1}, {2,1}, {0,2});
+    register_contraction(udf_manager, "matmulTT", {1,0}, {2,1}, {0,2});
+
+    // TODO: register reductions now
 
   }
 }
