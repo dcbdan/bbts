@@ -8,32 +8,18 @@ typedef std::vector<int64_t> dims_t;
 typedef std::vector<int>     modes_t;
 
 struct op {
-  op(cutensorOperator_t scalar_op, modes_t inn, modes_t out) 
-    : one(1.0), zero(0.0), scalar_op(scalar_op), inn(inn), out(out) 
-  {}
-
-  dims_t full_dims(M const& meta_inn) const {
-    dims_t ret(inn.size());
-    for(int i = 0; i != inn.size(); ++i) {
-      ret[inn[i]] = meta_inn.dims[i];
+  op(cutensorOperator_t scalar_op, modes_t out) 
+    : one(1.0), zero(0.0), scalar_op(scalar_op), out(out) {
+    for(int r = 0; r != MAXRANK; ++r) {
+      inn[r] = r;
     }
-    return ret;
   }
 
   void set_out_meta(M const& meta_inn, M& meta_out) const {
     meta_out.rank = out.size();
-    dims_t ds = full_dims(meta_inn);
     for(int i = 0; i != out.size(); ++i) {
-      meta_out.dims[i] = ds[out[i]];
+      meta_out.dims[i] = meta_inn.dims[out[i]];
     }
-  }
-
-  size_t get_complexity_hint(M const& meta_inn) const {
-    size_t ret = 1;
-    for(int r = 0; r != meta_inn.rank; ++r) {
-      ret *= meta_inn.dims[r];
-    }
-    return ret;
   }
 
   void operator()(
@@ -66,9 +52,10 @@ struct op {
     void* data_out = ous.get<0>().as<cu_t>().data();
 
     uint64_t worksize;
+
     handle_error("get workspace", cutensorReductionGetWorkspace(
       &params.cutensor_handle,
-      data_inn, &desc_inn, inn.data(),
+      data_inn, &desc_inn, inn,
       data_out, &desc_out, out.data(),
       data_out, &desc_out, out.data(),
       scalar_op, cutensor_compute_type, 
@@ -82,7 +69,7 @@ struct op {
 
     handle_error(cutensorReduction(
       &params.cutensor_handle,
-      (void*)&one,  data_inn, &desc_inn, inn.data(),
+      (void*)&one,  data_inn, &desc_inn, inn,
       (void*)&zero, data_out, &desc_out, out.data(),
                     data_out, &desc_out, out.data(),
       scalar_op, cutensor_compute_type, 
@@ -92,12 +79,13 @@ struct op {
 
   float one, zero;
   cutensorOperator_t scalar_op;
-  modes_t inn, out;
+  int inn[MAXRANK];
+  modes_t out;
 };
 
 struct f: public ud_impl_t {
-  f(std::string name, cutensorOperator_t scalar_op, modes_t inn, modes_t out)
-    : op_(scalar_op, inn, out) {
+  f(std::string name, cutensorOperator_t scalar_op, modes_t out)
+    : op_(scalar_op, out) {
     impl_name = name;
     ud_name = name;
     inputTypes = {"cutensor"};
@@ -112,7 +100,7 @@ struct f: public ud_impl_t {
   // returns an estimate of the complexity
   size_t get_complexity_hint(const bbts::ud_impl_t::tensor_params_t &params,
                              const meta_args_t &_in) override {
-    return op_.get_complexity_hint(_in.get<0>( ).as<cu_meta_t>().m());
+    return _in.get<0>().as<cu_meta_t>().num_elem();
   }
 
   void get_out_meta(
@@ -128,14 +116,12 @@ struct f: public ud_impl_t {
   op op_;
 };
 
-
 }
 
 void register_reduction(
   udf_manager_ptr udf_manager,
   std::string name,
   cutensorOperator_t scalar_op, 
-  std::vector<int> inn, 
   std::vector<int> out) {
 
   // make an f, do the thing. 
@@ -149,6 +135,7 @@ void register_reduction(
         .impls = {}
     }));
   udf_manager->register_udf_impl(
-    std::make_unique<_register_reduction::f>(name, scalar_op, inn, out));
+    std::make_unique<_register_reduction::f>(name, scalar_op, out));
 }
+
 

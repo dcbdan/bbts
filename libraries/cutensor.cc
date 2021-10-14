@@ -54,8 +54,12 @@ extern "C" {
     register_contraction(udf_manager, "matmulTT", {1,0}, {2,1}, {0,2});
 
     // reductions
-    register_reduction(udf_manager, "sum_ij_to_i", CUTENSOR_OP_ADD, {0,1}, {0});
-    register_reduction(udf_manager, "max_ij_to_i", CUTENSOR_OP_MAX, {0,1}, {0});
+    //    a reduction with {0} will map any rank>1 tensor into a {0} tensor.
+    //    so it includes ij->i but also ijk->i and ijkl->i
+    register_reduction(udf_manager, "sum_ij_to_i",   CUTENSOR_OP_ADD, {0});
+    register_reduction(udf_manager, "max_ij_to_i",   CUTENSOR_OP_MAX, {0});
+    //    and a reduction with {} will map any >=1 rank tensor into a scalar.0
+    register_reduction(udf_manager, "sum_to_scalar", CUTENSOR_OP_ADD, {});
 
     // register expand
     register_expand(udf_manager, "expand");

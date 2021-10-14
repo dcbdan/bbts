@@ -77,12 +77,7 @@ namespace _register_ewb_same_shape {
     // returns an estimate of the complexity
     size_t get_complexity_hint(const bbts::ud_impl_t::tensor_params_t &params,
                                const meta_args_t &_in) override {
-      auto const& in0 = _in.get<0>().as<cu_meta_t>().m();
-      size_t ret = 1;
-      for(int r = 0; r != in0.rank; ++r) {
-        ret *= in0.dims[r];
-      }
-      return ret;
+      return _in.get<0>().as<cu_meta_t>().num_elem();
     }
 
     void get_out_meta(const bbts::ud_impl_t::tensor_params_t &params,
