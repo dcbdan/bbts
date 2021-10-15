@@ -120,6 +120,12 @@ struct cu_t : public tensor_t {
       auto rank = t.meta().m().rank;
       auto dims = t.meta().m().dims;
       float* data = (float*)t.data();
+
+      if(rank == 0) {
+        ss << "scalar[" << data[0] << "]" << std::endl;
+        return;
+      }
+
       size_t n = 1;
       ss << "dims[";
       for(int r = 0; r != rank-1; ++r) {

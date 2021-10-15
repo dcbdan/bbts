@@ -639,7 +639,10 @@ int main(int argc, char **argv) {
   if (node.get_rank() == 0) {
     t = std::thread([&]() { 
       load_shared_library(std::cout, node, "libbarbcu.so");
-      compile_commands(std::cout, node, "reblock_test.barb");
+      verbose(std::cout, node, true);
+      compile_commands(std::cout, node, "setup.barb");
+      run_commands(std::cout, node);
+      compile_commands(std::cout, node, "run.barb");
       //compile_commands(std::cout, node, "exp.barb");
       //run_commands(std::cout, node);
       //shutdown(std::cout, node);
