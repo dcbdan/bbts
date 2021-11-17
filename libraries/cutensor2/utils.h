@@ -49,5 +49,23 @@ struct castable_op_t {
   cutensorOperator_t cu_op;
 };
 
+struct unary_op_t {
+  int i;
+  float f;
+};
+
+void parse_uop(
+  const bbts::ud_impl_t::tensor_params_t &params,
+  unary_op_t& op,
+  int& which) {
+
+  op.i = params.get_raw(which++).i;
+  if(op.i < 0 || op.i > 6) {
+    throw std::invalid_argument("is not a valid unary op");
+  }
+  if(op.i == 6) {
+    op.f = params.get_raw(which++).f;
+  }
 }
 
+}

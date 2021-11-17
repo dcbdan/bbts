@@ -8,6 +8,7 @@
 #include "cutensor2/init.h"
 #include "cutensor/expand.h"
 #include "cutensor2/reduction.h"
+#include "cutensor2/ew.h"
 
 extern "C" {
 
@@ -20,7 +21,7 @@ extern "C" {
     register_expand(udf_manager, "expand");
     register_contraction(udf_manager, "contraction");
     register_reduction(udf_manager, "reduction");
-    //register_ew(udf_manager, "ew");
+    register_ew(udf_manager, "ew");
     //register_ewb(udf_manager, "ewb");
     //register_ewb_castable(udf_manager, "ewb");
     //register_dropout(udf_manager, "dropout");
