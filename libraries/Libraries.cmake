@@ -4,7 +4,7 @@ get_filename_component(path ${CMAKE_CURRENT_LIST_FILE} DIRECTORY)
 # enable the cuda language
 enable_language(CUDA)
 
-add_library(barbcu SHARED ${path}/cutensor.cc ${path}/cutensor/misc_cuda.cu)
+add_library(barbcu SHARED ${path}/cutensor2.cc ${path}/cutensor/misc_cuda.cu)
 
 ## compile each .cc file into a shared library
 #file(GLOB ccfiles "${path}/*.cc")

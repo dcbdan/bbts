@@ -20,7 +20,7 @@ extern "C" {
   void register_tensors(tensor_factory_ptr_t tensor_factory) {
     tensor_factory->register_fmt("cutensor", cu_t::get_creation_fs());
   }
-  
+
   void register_udfs(udf_manager_ptr udf_manager) {
     register_init(udf_manager, "init_zero",  0.0);
     register_init(udf_manager, "init_one",   1.0);
@@ -67,6 +67,6 @@ extern "C" {
     // cpu implementation of add
     udf_manager->register_udf_impl(
       std::make_unique<_cpu_impl::add>("add", "add_cpu"));
-    
+
   }
 }

@@ -5,9 +5,9 @@ project(tra_sub_sys_barbatos LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 
 # set the output directory
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY  "${PROJECT_SOURCE_DIR}/bin")
+#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY  "${PROJECT_SOURCE_DIR}/bin")
 
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/libraries")
+#set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/libraries")
 
 # set the location for cmake scripts
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
@@ -61,6 +61,8 @@ if(${ENABLE_GPU})
 
     # add the include directory
     include_directories("${CUDA_INCLUDE_DIRS}")
+
+    include_directories("/local/downloads/libcutensor/include")
 
     # add the definition
     add_compile_definitions(ENABLE_GPU)
@@ -137,10 +139,12 @@ target_link_libraries(bbts-common ${CMAKE_DL_LIBS})
 # the blas implementation
 target_link_libraries(bbts-common ${BLAS_LIBRARIES})
 
+#target_link_libraries(bbts-common ${MPI_C_LIBRARIES})
+
 # link the cublas library
 if(${ENABLE_GPU})
     cuda_add_cublas_to_target(bbts-common)
-    target_link_libraries(bbts-common "/nix/store/3bylvh45b43fzb8arvr3kr8dhr2jg9cd-cudatoolkit-11.2-cutensor-1.2.2.5/lib/libcutensor.so")
+    target_link_libraries(bbts-common "/local/downloads/libcutensor/lib/10.2/libcutensor.so")
     #target_link_libraries(bbts-common cutensor)
 endif()
 
