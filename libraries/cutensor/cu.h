@@ -3,6 +3,8 @@
 #include "../../src/tensor/tensor.h"
 #include "../../src/ud_functions/ud_function.h"
 
+#include <stdexcept>
+
 using namespace bbts;
 using tensor_args_t = ud_impl_t::tensor_args_t;
 using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params_t &params,
@@ -12,7 +14,7 @@ using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params
 #define MAXRANK   4
 
 // just assume we're using CUDA_R_32F everywhere
-#define SIZEOFFLOAT 4   
+#define SIZEOFFLOAT 4
 cudaDataType_t cutensor_scalar_type = CUDA_R_32F;
 cutensorComputeType_t cutensor_compute_type = CUTENSOR_COMPUTE_32F;
 
@@ -22,7 +24,8 @@ void handle_error(std::string msg, cutensorStatus_t status) {
   }
 
   // TODO: violently die
-  std::cout << "NOT HANDLING ERROR{" << msg << "}" << std::endl;
+  std::cout << "VIOLENTLY DIEING{" << msg << "}" << std::endl;
+  std::cout << "REASON: ";
   switch(status) {
     case CUTENSOR_STATUS_NOT_INITIALIZED:        std::cout << "NOT_INITIALIZED"       ; break;
     case CUTENSOR_STATUS_ALLOC_FAILED:           std::cout << "ALLOC_FAILED"          ; break;
@@ -40,6 +43,7 @@ void handle_error(std::string msg, cutensorStatus_t status) {
     case CUTENSOR_STATUS_IO_ERROR:               std::cout << "IO_ERROR"              ; break;
   }
   std::cout << std::endl;
+  throw std::runtime_error("cutensor didn't like something");
 }
 void handle_error(cutensorStatus_t status) {
   return handle_error("", status);
@@ -108,13 +112,13 @@ struct cu_t : public tensor_t {
       t.meta() = m;
       return t;
     };
-  
+
     // return the size
     auto size = [](const tensor_meta_t &_meta) {
       auto &m = *(cu_meta_t *) &_meta;
       return sizeof(tensor_meta_t) + m.get_data_size();
     };
-  
+
     auto pnt = [](const void* here, std::stringstream &ss) {
       auto &t = *(cu_t *) here;
       auto rank = t.meta().m().rank;
@@ -137,8 +141,8 @@ struct cu_t : public tensor_t {
 
       if(rank != 2) {
         for(int i = 0; i != n; ++i) {
-          ss << data[i] << " "; 
-        } 
+          ss << data[i] << " ";
+        }
         ss << std::endl;
       } else {
         // cutensor is column major!

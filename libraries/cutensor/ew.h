@@ -139,14 +139,40 @@ struct op {
       cutensorTensorDescriptor_t desc_out;
       create_desc_out(CUTENSOR_OP_IDENTITY, desc_out);
 
-      // alpha*x*x
-      handle_error("cutensorElementwiseBinarySQUARE", cutensorElementwiseBinary(
-        &params.cutensor_handle,
-        (void*)&p.alpha, data_inn, &desc_inn, inn,
-        (void*)&one,     data_inn, &desc_inn, inn,
-                         data_out, &desc_out, p.ordering.data(),
-        CUTENSOR_OP_MUL, cutensor_scalar_type,
-        params.stream));
+      bool can_do_binop = true;
+      for(int r = 0; r != p.ordering.size(); ++r) {
+        if(p.ordering[r] != r) {
+          can_do_binop = false;
+          break;
+        }
+      }
+      // If there is no reordering of modes, we can do cutensorElementwiseBinary
+      // directly (the last two desc have to be equal or cutensor will fail).
+      // Otherwise, first transpose, then square.
+      if(can_do_binop) {
+        // alpha*x*x
+        handle_error("cutensorElementwiseBinarySQUARE", cutensorElementwiseBinary(
+          &params.cutensor_handle,
+          (void*)&p.alpha, data_inn, &desc_inn, inn,
+          (void*)&one,     data_inn, &desc_inn, inn,
+                           data_out, &desc_inn, inn,
+          CUTENSOR_OP_MUL, cutensor_scalar_type,
+          params.stream));
+      } else {
+        handle_error("cutensorPermutationSQuarae", cutensorPermutation(
+          &params.cutensor_handle,
+          (void*)&one, data_inn, &desc_inn, inn,
+                       data_out, &desc_out, p.ordering.data(),
+          cutensor_scalar_type,
+          params.stream));
+        handle_error("cutensorElementwiseBinarySQUARE_", cutensorElementwiseBinary(
+          &params.cutensor_handle,
+          (void*)&p.alpha, data_out, &desc_out, inn,
+          (void*)&one,     data_out, &desc_out, inn,
+                           data_out, &desc_out, inn,
+          CUTENSOR_OP_MUL, cutensor_scalar_type,
+          params.stream));
+      }
     } else if(p.uop.i == 3) {
       cutensorTensorDescriptor_t desc_inn;
       create_desc_inn(CUTENSOR_OP_RELU, desc_inn);

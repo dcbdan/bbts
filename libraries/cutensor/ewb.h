@@ -48,7 +48,7 @@ void set_out_meta(
 }
 
 struct op {
-  op() {
+  op(): zero(0.0) {
     std::iota(ordering_out, ordering_out + MAXRANK, 0);
   }
 
@@ -81,6 +81,22 @@ struct op {
           NULL,
           cutensor_scalar_type,
           op));
+    };
+
+    // Cutensor only supports the binary element operator when the rhs
+    // description is the out description... So we have to detect that..
+    // And the only wat cutensor knows that descriptions are the same is
+    // by checking the memory location is the same...
+    auto is_outable = [&](modes_t const& ms) {
+      if(ms.size() != meta_out.rank) {
+        return false;
+      }
+      for(int r = 0; r != ms.size(); ++r) {
+        if(ms[r] != r) {
+          return false;
+        }
+      }
+      return true;
     };
 
     /* The binary operators
@@ -122,13 +138,34 @@ struct op {
       throw std::invalid_argument("invalid binary op!");
     }
 
-    handle_error("cutensorElementwiseBinary", cutensorElementwiseBinary(
-        &params.cutensor_handle,
-        (void*)&alpha, data_lhs, &desc_lhs, p.ordering_lhs.data(),
-        (void*)&beta,  data_rhs, &desc_rhs, p.ordering_rhs.data(),
-                       data_out, &desc_out, ordering_out,
-        op, cutensor_scalar_type, params.stream));
+    if(is_outable(p.ordering_rhs) && p.i != 5) {
+      handle_error("cutensorElementwiseBinary", cutensorElementwiseBinary(
+          &params.cutensor_handle,
+          (void*)&alpha, data_lhs, &desc_lhs, p.ordering_lhs.data(),
+          (void*)&beta,  data_rhs, &desc_out, ordering_out,
+                         data_out, &desc_out, ordering_out,
+          op, cutensor_scalar_type, params.stream));
+    } else if(is_outable(p.ordering_lhs)) {
+      handle_error("cutensorElementwiseBinary", cutensorElementwiseBinary(
+          &params.cutensor_handle,
+          (void*)&beta,  data_rhs, &desc_rhs, p.ordering_rhs.data(),
+          (void*)&alpha, data_lhs, &desc_out, ordering_out,
+                         data_out, &desc_out, ordering_out,
+          op, cutensor_scalar_type, params.stream));
+    } else {
+      // out = +(op(alpha*lhs, beta*rhs), 0*out)
+      // ^ I think cutensor supports this if the first two cases don't work TODO
+      handle_error("cutensorElementwieTrinary", cutensorElementwiseTrinary(
+          &params.cutensor_handle,
+          (void*)&alpha, data_lhs, &desc_lhs, p.ordering_lhs.data(),
+          (void*)&beta,  data_rhs, &desc_rhs, p.ordering_rhs.data(),
+          (void*)&zero,  data_out, &desc_out, ordering_out,
+                         data_out, &desc_out, ordering_out,
+          op, CUTENSOR_OP_ADD, cutensor_scalar_type, params.stream));
+    }
   }
+
+  float zero;
   int ordering_out[MAXRANK];
 };
 
