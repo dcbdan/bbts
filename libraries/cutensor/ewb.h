@@ -1,4 +1,4 @@
-#include "../cutensor/cu.h"
+#include "cu.h"
 #include "utils.h"
 
 #include <algorithm>

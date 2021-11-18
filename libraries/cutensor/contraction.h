@@ -1,82 +1,130 @@
+#pragma once
+
 #include "cu.h"
 #include "misc_cuda.h"
+#include "utils.h"
 
 #include <shared_mutex>
 
 namespace _register_contraction {
 
-using M = std::remove_reference<decltype(cu_meta_t(0).m())>::type;
-
-typedef std::vector<int64_t> dims_t;
-typedef std::vector<int>     modes_t;
+using namespace _cutensor_utils;
 
 struct key_t {
-  dims_t dims;
-  uint32_t lhs, rhs, out;
+  dims_t dims;                         // all of the dimensions
+  modes_t m_lhs, m_rhs, m_out;         // mode orderings for inputs and output
+  uint32_t ali_lhs, ali_rhs, ali_out;  // the tensor alignment values
+  float alpha;
 };
 
-bool operator==(const key_t& x, const key_t& y) {
-  // if this is being called, dims is of the same size
-  for(int i = 0; i != x.dims.size(); ++i) {
-    if(x.dims[i] != y.dims[i]) {
+template <typename T>
+bool compare_vec(std::vector<T> const& lhs, std::vector<T> const& rhs) {
+  if(lhs.size() != rhs.size()) {
+    return false;
+  }
+  for(int i = 0; i != lhs.size(); ++i) {
+    if(lhs[i] != rhs[i]) {
       return false;
     }
   }
-  return x.lhs == y.lhs && x.rhs == y.rhs && x.out == y.out;
+  return true;
+}
+
+bool operator==(const key_t& x, const key_t& y) {
+  return compare_vec(x.dims, y.dims)   &&
+         compare_vec(x.m_lhs, y.m_lhs) &&
+         compare_vec(x.m_rhs, y.m_rhs) &&
+         compare_vec(x.m_out, y.m_out) &&
+         x.ali_lhs == y.ali_lhs        &&
+         x.ali_rhs == y.ali_rhs        &&
+         x.ali_out == y.ali_out;
 }
 
 // just makin something up; I don't think typical use cases
 // will have much more than 10 items in a map.
 struct key_hash {
   size_t operator()(key_t const& k) const {
-    size_t out = 0;
-    for(int i = 0; i != k.dims.size(); ++i) {
-      out += (i+1)*(k.dims[i]+7) % 123456;
+    size_t out = 1;
+    for(auto d: k.dims) {
+      out *= d;
     }
-    out += k.lhs + k.rhs + k.out;
+    out += 7;
+    int i = 1;
+    for(auto m: k.m_lhs) {
+      out += m*(i++);
+    }
+    for(auto m: k.m_rhs) {
+      out += m*(i++);
+    }
+    for(auto m: k.m_out) {
+      out += m*(i++);
+    }
+    out += (k.ali_lhs + k.ali_rhs + k.ali_out);
     return out;
   }
 };
 
+struct plan_t {
+  cutensorContractionPlan_t plan;
+  size_t worksize;
+};
+
 struct op {
-  op(modes_t lhs, modes_t rhs, modes_t out) 
-    : one(1.0), zero(0.0), lhs(lhs), rhs(rhs), out(out) {
+  op(): zero(0.0) {}
 
-    num_dims = 0;
-    for(auto const& l: lhs) {
-      num_dims = std::max(l + 1, num_dims);
-    }
-    for(auto const& r: rhs) {
-      num_dims = std::max(r + 1, num_dims);
-    }
-  }
-
-  // whenever this gets copied, the parameter map is reset
-  op(const op& other)
-    : one(1.0), zero(0.0), lhs(other.lhs), rhs(other.rhs), out(other.out), 
-      num_dims(other.num_dims)
-  {}
+  // TODO: should copy over plans too?
+  op(const op& other): zero(0.0) {}
 
   struct plan_t {
     cutensorContractionPlan_t plan;
     size_t worksize;
   };
 
-  plan_t const& get(
+  key_t build_key_sans_alignment(
+    const bbts::ud_impl_t::tensor_params_t &params,
+    M const& meta_lhs,
+    M const& meta_rhs) const {
+    key_t ret;
+    auto const& rank_lhs = params.get_int<0>(); ret.m_lhs.reserve(rank_lhs);
+    auto const& rank_rhs = params.get_int<1>(); ret.m_rhs.reserve(rank_rhs);
+    auto const& rank_out = params.get_int<2>(); ret.m_out.reserve(rank_out);
+    int i = 3;
+    int m = 0;
+    for(; i != 3 + rank_lhs; ++i) {
+      ret.m_lhs.push_back(params.get_raw(i).i);
+      m = std::max(m, ret.m_lhs.back());
+    }
+    for(; i != 3 + rank_lhs + rank_rhs; ++i) {
+      ret.m_rhs.push_back(params.get_raw(i).i);
+      m = std::max(m, ret.m_rhs.back());
+    }
+    for(; i != 3 + rank_lhs + rank_rhs + rank_out; ++i) {
+      ret.m_out.push_back(params.get_raw(i).i);
+    }
+    ret.alpha = params.get_raw(i).f;
+    ret.dims = dims_t(m);
+    for(int j = 0; j != meta_lhs.rank; ++j) {
+      ret.dims[ret.m_lhs[j]] = meta_lhs.dims[j];
+    }
+    for(int j = 0; j != meta_rhs.rank; ++j) {
+      ret.dims[ret.m_rhs[j]] = meta_rhs.dims[j];
+    }
+    return ret;
+  }
+
+  plan_t const& get_plan_set_alpha(
     const bbts::ud_impl_t::tensor_params_t &params,
     const tensor_args_t &ins,
     const tensor_args_t &ous,
-    const dims_t& full_dims) {
-
-    // figure out what the key is;
-    // the only thing remaning is the tensor alignments
-    key_t key;
-    key.dims = full_dims;
+    float& alpha) {
 
     // the meta for everything is already set
     auto const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
     auto const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
     auto const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+
+    key_t key = build_key_sans_alignment(params, meta_lhs, meta_rhs);
+    alpha = key.alpha;
 
     cutensorTensorDescriptor_t desc_lhs;
     handle_error("init lhs", cutensorInitTensorDescriptor(
@@ -101,26 +149,26 @@ struct op {
       meta_out.rank,
       meta_out.dims,
       NULL, cutensor_scalar_type, CUTENSOR_OP_IDENTITY));
-   
+
     void* data_lhs = ins.get<0>().as<cu_t>().data();
     void* data_rhs = ins.get<1>().as<cu_t>().data();
     void* data_out = ous.get<0>().as<cu_t>().data();
 
-    handle_error("ali lhs", cutensorGetAlignmentRequirement( 
+    handle_error("ali lhs", cutensorGetAlignmentRequirement(
       &params.cutensor_handle,
       data_lhs,
       &desc_lhs,
-      &key.lhs));
-    handle_error("ali rhs", cutensorGetAlignmentRequirement( 
+      &key.ali_lhs));
+    handle_error("ali rhs", cutensorGetAlignmentRequirement(
       &params.cutensor_handle,
       data_rhs,
       &desc_rhs,
-      &key.rhs));
-    handle_error("ali out", cutensorGetAlignmentRequirement( 
+      &key.ali_rhs));
+    handle_error("ali out", cutensorGetAlignmentRequirement(
       &params.cutensor_handle,
       data_out,
       &desc_out,
-      &key.out));
+      &key.ali_out));
 
     // get a shared lock and see if you can get a plan
     {
@@ -132,16 +180,16 @@ struct op {
     }
 
     // ok, there wasn't a plan. create a new plan,
-    // and insert it once an exclusive lock is had 
+    // and insert it once an exclusive lock is had
 
     cutensorContractionDescriptor_t desc_op;
     handle_error("desc op", cutensorInitContractionDescriptor(
       &params.cutensor_handle,
       &desc_op,
-      &desc_lhs, lhs.data(), key.lhs,
-      &desc_rhs, rhs.data(), key.rhs,
-      &desc_out, out.data(), key.out,
-      &desc_out, out.data(), key.out,
+      &desc_lhs, key.m_lhs.data(), key.ali_lhs,
+      &desc_rhs, key.m_rhs.data(), key.ali_rhs,
+      &desc_out, key.m_out.data(), key.ali_out,
+      &desc_out, key.m_out.data(), key.ali_out,
       cutensor_compute_type));
 
     cutensorContractionFind_t find;
@@ -155,7 +203,7 @@ struct op {
       &params.cutensor_handle,
       &desc_op,
       &find,
-      CUTENSOR_WORKSPACE_RECOMMENDED, 
+      CUTENSOR_WORKSPACE_RECOMMENDED,
       &plan.worksize));
 
     handle_error("plan", cutensorInitContractionPlan(
@@ -171,53 +219,19 @@ struct op {
     auto iter = plans.insert({key, plan}).first;
     return iter->second;
   }
- 
-  dims_t full_dims(M const& meta_lhs, M const& meta_rhs) const {
-    dims_t dims(num_dims);
-    for(int i = 0; i != meta_lhs.rank; ++i) {
-       dims[lhs[i]] = meta_lhs.dims[i];
-     }
-     for(int i = 0; i != meta_rhs.rank; ++i) {
-       dims[rhs[i]] = meta_rhs.dims[i];
-     }
-     return dims;
-  }
-  
-  dims_t set_out_meta(M const& x, M const& y, M& z) const {
-    dims_t dims = full_dims(x, y);
-    z.rank = out.size();
-    for(int r = 0; r != z.rank; ++r) {
-      z.dims[r] = dims[out[r]];
-    }
-    return dims;
-  }
-
-  size_t get_complexity_hint(M const& x, M const& y) const {
-    dims_t dims = full_dims(x, y);
-    size_t ret = 1;
-    for(int i = 0; i != dims.size(); ++i) {
-      ret *= dims[i];
-    }
-    return ret;
-  }
 
   void operator()(
     const bbts::ud_impl_t::tensor_params_t &params,
-    const tensor_args_t &ins, 
+    const tensor_args_t &ins,
     tensor_args_t &ous) {
 
-    // set the out meta
-    dims_t full_dims = set_out_meta(
-      ins.get<0>().as<cu_meta_t>().m(),
-      ins.get<1>().as<cu_meta_t>().m(),
-      ous.get<0>().as<cu_meta_t>().m());
-  
-    plan_t const& plan = get(params, ins, ous, full_dims);
-  
+    float alpha;
+    plan_t const& plan = get_plan_set_alpha(params, ins, ous, alpha);
+
     void* data_lhs = ins.get<0>().as<cu_t>().data();
     void* data_rhs = ins.get<1>().as<cu_t>().data();
     void* data_out = ous.get<0>().as<cu_t>().data();
-  
+
     void* work = nullptr;
     size_t worksize = plan.worksize;
     // this is a bit goofy: Instead of making this a .cu file, s
@@ -227,20 +241,27 @@ struct op {
       work = nullptr;
       worksize = 0;
     }
-  
+
     handle_error("cutensorContraction", cutensorContraction(
       &params.cutensor_handle,
       &plan.plan,
-      (void*)&one,  data_lhs, data_rhs,
+      (void*)&alpha,  data_lhs, data_rhs,
       (void*)&zero, data_out, data_out,
       work, worksize, params.stream));
   }
 
-  // these vectors contain integers from 0 to num_dims-1.
-  float one, zero;
-  modes_t lhs, rhs, out;
-  int num_dims;
-  // a mapping from num_dims dimension sizes to plans.
+  void set_out_meta(key_t const& k, M& z) const {
+    z.rank = k.m_out.size();
+    for(int r = 0; r != z.rank; ++r) {
+      z.dims[r] = k.dims[k.m_out[r]];
+    }
+  }
+
+  size_t get_complexity_hint(key_t const& k) const {
+    return product(k.dims);
+  }
+
+  float zero;
   std::unordered_map<key_t, plan_t, key_hash> plans;
   // just in case, we want it so that many items can read plans
   // at the same time, but writes can only happen on their own
@@ -248,36 +269,36 @@ struct op {
 };
 
 struct f: public ud_impl_t {
-  f(std::string name, modes_t lhs, modes_t rhs, modes_t out)
-    : op_(lhs, rhs, out) {
-    impl_name = name;
-    ud_name = name;
-    inputTypes = {"cutensor", "cutensor"};
-    outputTypes = {"cutensor"};
-    inputInplace = {};
-    is_gpu = true;
-    fn     = op_; // TODO: not really sure what is happening by converting
-                  //       this guy to std::function. Maybe this stores
-                  //       2 op instances, but that isn't an issue.
-  } 
+  f(std::string name) : op_() {
+  impl_name = name;
+  ud_name = name;
+  inputTypes = {"cutensor", "cutensor"};
+  outputTypes = {"cutensor"};
+  inputInplace = {};
+  is_gpu = true;
+  fn     = op_; // TODO: not really sure what is happening by converting
+                //       this guy to std::function. Maybe this stores
+                //       2 op instances, but that isn't an issue.
+  }
 
-  // returns an estimate of the complexity
   size_t get_complexity_hint(const bbts::ud_impl_t::tensor_params_t &params,
                              const meta_args_t &_in) override {
-    return op_.get_complexity_hint(
-      _in.get<0>( ).as<cu_meta_t>().m(),
-      _in.get<1>( ).as<cu_meta_t>().m());
+    auto k = op_.build_key_sans_alignment(
+               params,
+               _in.get<0>().as<cu_meta_t>().m(),
+               _in.get<1>().as<cu_meta_t>().m());
+    return op_.get_complexity_hint(k);
   }
 
   void get_out_meta(
     const bbts::ud_impl_t::tensor_params_t &params,
-    const meta_args_t &_in, 
+    const meta_args_t &_in,
     meta_args_t &_out) const override {
-
-    op_.set_out_meta(
-      _in.get<0>( ).as<cu_meta_t>().m(),
-      _in.get<1>( ).as<cu_meta_t>().m(),
-      _out.get<0>().as<cu_meta_t>().m());
+    auto k = op_.build_key_sans_alignment(
+               params,
+               _in.get<0>().as<cu_meta_t>().m(),
+               _in.get<1>().as<cu_meta_t>().m());
+    op_.set_out_meta(k, _out.get<0>().as<cu_meta_t>().m());
   }
 
   op op_;
@@ -287,12 +308,9 @@ struct f: public ud_impl_t {
 
 void register_contraction(
   udf_manager_ptr udf_manager,
-  std::string name,
-  std::vector<int> lhs, 
-  std::vector<int> rhs, 
-  std::vector<int> out) {
+  std::string name) {
 
-  // make an f, do the thing. 
+  // make an f, do the thing.
   udf_manager->register_udf(std::make_unique<ud_func_t>(
     ud_func_t {
         .ud_name = name,
@@ -303,6 +321,6 @@ void register_contraction(
         .impls = {}
     }));
   udf_manager->register_udf_impl(
-    std::make_unique<_register_contraction::f>(name, lhs, rhs, out));
+    std::make_unique<_register_contraction::f>(name));
 }
 

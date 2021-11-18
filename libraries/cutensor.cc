@@ -4,16 +4,14 @@
 #include "../src/ud_functions/udf_manager.h"
 
 #include "cutensor/cu.h"
-#include "cutensor/init.h"
-#include "cutensor/elementwise.h"
-#include "cutensor/misc.h"
 #include "cutensor/contraction.h"
-#include "cutensor/reduction.h"
+#include "cutensor/init.h"
 #include "cutensor/expand.h"
-#include "cutensor/cpu_impl.h"
-
-// TODO:
-//   expand gpu
+#include "cutensor/reduction.h"
+#include "cutensor/ew.h"
+#include "cutensor/ewb.h"
+#include "cutensor/ewb_castable.h"
+#include "cutensor/dropout.h"
 
 extern "C" {
 
@@ -22,51 +20,14 @@ extern "C" {
   }
 
   void register_udfs(udf_manager_ptr udf_manager) {
-    register_init(udf_manager, "init_zero",  0.0);
-    register_init(udf_manager, "init_one",   1.0);
-    register_init(udf_manager, "init_two",   2.0);
-    register_init(udf_manager, "init_three", 3.0);
-    register_init_random(udf_manager, "init_random", 0.0, 1.0);
-
-    register_ewb_same_shape(udf_manager, "add", CUTENSOR_OP_ADD, 1.0,  1.0, true, true);
-    register_ewb_same_shape(udf_manager, "sub", CUTENSOR_OP_ADD, 1.0, -1.0, true, false);
-    register_ewb_same_shape(udf_manager, "max", CUTENSOR_OP_MAX, 1.0,  1.0, true, true);
-    register_ewb_same_shape(udf_manager, "min", CUTENSOR_OP_MIN, 1.0,  1.0, true, true);
-    register_ewb_same_shape(udf_manager, "mul", CUTENSOR_OP_MUL, 1.0,  1.0, true, true);
-
-    // Note: register_ewb_ij_i is only valid for commutative scalar ops.
-    register_ewb_ij_i(udf_manager, "sub_ij_i", CUTENSOR_OP_ADD, 1.0, -1.0);
-    register_ewb_ij_i(udf_manager, "max_ij_i", CUTENSOR_OP_MAX, 1.0, 1.0);
-
-    register_ew_same_shape(udf_manager, "sigmoid",  CUTENSOR_OP_SIGMOID, 1.0);
-    register_ew_same_shape(udf_manager, "exp",      CUTENSOR_OP_EXP,     1.0);
-    register_ew_same_shape(udf_manager, "relu",     CUTENSOR_OP_RELU,    1.0);
-
-    // Misc ones since cutensor has a woefully incomplete selection of scalar ops
-    register_reluderiv(udf_manager, "reluderiv");
-    register_square(   udf_manager, "square");
-    register_div_ij_i( udf_manager, "div_ij_i");
-
-    // contractions
-    register_contraction(udf_manager, "matmul",   {0,1}, {1,2}, {0,2});
-    register_contraction(udf_manager, "matmulT_", {1,0}, {1,2}, {0,2});
-    register_contraction(udf_manager, "matmul_T", {0,1}, {2,1}, {0,2});
-    register_contraction(udf_manager, "matmulTT", {1,0}, {2,1}, {0,2});
-
-    // reductions
-    //    a reduction with {0} will map any rank>1 tensor into a {0} tensor.
-    //    so it includes ij->i but also ijk->i and ijkl->i
-    register_reduction(udf_manager, "sum_ij_to_i",   CUTENSOR_OP_ADD, {0});
-    register_reduction(udf_manager, "max_ij_to_i",   CUTENSOR_OP_MAX, {0});
-    //    and a reduction with {} will map any >=1 rank tensor into a scalar.0
-    register_reduction(udf_manager, "sum_to_scalar", CUTENSOR_OP_ADD, {});
-
-    // register expand
+    register_init(udf_manager, "init");
     register_expand(udf_manager, "expand");
-
-    // cpu implementation of add
-    udf_manager->register_udf_impl(
-      std::make_unique<_cpu_impl::add>("add", "add_cpu"));
-
+    register_contraction(udf_manager, "contraction");
+    register_reduction(udf_manager, "reduction");
+    register_ew(udf_manager, "ew");
+    register_ewb(udf_manager, "ewb");
+    register_ewb_castable(udf_manager, "ewb_castable");
+    register_dropout(udf_manager, "dropout");
   }
+
 }
