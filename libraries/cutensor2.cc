@@ -11,6 +11,7 @@
 #include "cutensor2/ew.h"
 #include "cutensor2/ewb.h"
 #include "cutensor2/ewb_castable.h"
+#include "cutensor2/dropout.h"
 
 extern "C" {
 
@@ -26,7 +27,7 @@ extern "C" {
     register_ew(udf_manager, "ew");
     register_ewb(udf_manager, "ewb");
     register_ewb_castable(udf_manager, "ewb_castable");
-    //register_dropout(udf_manager, "dropout");
+    register_dropout(udf_manager, "dropout");
   }
 
 }

@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <stdexcept>
 
-
 namespace _register_ewb {
 
 using namespace _cutensor_utils;
@@ -39,7 +38,7 @@ void set_out_meta(
   M const& lhs,
   M const& rhs,
   M& out) {
-  out.rank = std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
+  out.rank = 1 + std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
   for(int r = 0; r != lhs.rank; ++r) {
     out.dims[p.ordering_lhs[r]] = lhs.dims[r];
   }
@@ -152,8 +151,8 @@ struct f : public ud_impl_t {
     auto const& lhs =  _in.get<0>().as<cu_meta_t>().m();
     auto const& rhs =  _in.get<1>().as<cu_meta_t>().m();
 
-    int rank = std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
-    dims_t dims(rank);
+    int rank = 1 + std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
+    dims_t dims(rank, 0);
     for(int r = 0; r != lhs.rank; ++r) {
       dims[p.ordering_lhs[r]] = lhs.dims[r];
     }
