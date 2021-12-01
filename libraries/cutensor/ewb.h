@@ -73,7 +73,7 @@ struct op {
         int rank, const int64_t* dims,
         cutensorOperator_t op,
         cutensorTensorDescriptor_t& desc) {
-      handle_error("cutensorInitTensorDescriptorLHS", cutensorInitTensorDescriptor(
+      handle_error("cutensorInitTensorDescriptor create_desc", cutensorInitTensorDescriptor(
           &params.cutensor_handle,
           &desc,
           rank,

@@ -92,11 +92,11 @@ struct op {
     int m = 0;
     for(; i != 3 + rank_lhs; ++i) {
       ret.m_lhs.push_back(params.get_raw(i).i);
-      m = std::max(m, ret.m_lhs.back());
+      m = std::max(m, 1 + ret.m_lhs.back());
     }
     for(; i != 3 + rank_lhs + rank_rhs; ++i) {
       ret.m_rhs.push_back(params.get_raw(i).i);
-      m = std::max(m, ret.m_rhs.back());
+      m = std::max(m, 1 + ret.m_rhs.back());
     }
     for(; i != 3 + rank_lhs + rank_rhs + rank_out; ++i) {
       ret.m_out.push_back(params.get_raw(i).i);
@@ -112,19 +112,21 @@ struct op {
     return ret;
   }
 
-  plan_t const& get_plan_set_alpha(
+  plan_t const& get_plan_set_alpha_and_out(
     const bbts::ud_impl_t::tensor_params_t &params,
     const tensor_args_t &ins,
-    const tensor_args_t &ous,
+    tensor_args_t &ous,
     float& alpha) {
 
     // the meta for everything is already set
     auto const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
     auto const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
-    auto const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+    auto&       meta_out = ous.get<0>().as<cu_meta_t>().m();
 
     key_t key = build_key_sans_alignment(params, meta_lhs, meta_rhs);
     alpha = key.alpha;
+
+    set_out_meta(key, meta_out);
 
     cutensorTensorDescriptor_t desc_lhs;
     handle_error("init lhs", cutensorInitTensorDescriptor(
@@ -226,7 +228,7 @@ struct op {
     tensor_args_t &ous) {
 
     float alpha;
-    plan_t const& plan = get_plan_set_alpha(params, ins, ous, alpha);
+    plan_t const& plan = get_plan_set_alpha_and_out(params, ins, ous, alpha);
 
     void* data_lhs = ins.get<0>().as<cu_t>().data();
     void* data_rhs = ins.get<1>().as<cu_t>().data();
