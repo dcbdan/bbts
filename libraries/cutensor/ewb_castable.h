@@ -9,6 +9,8 @@ namespace _register_ewb_castable {
 
 using namespace _cutensor_utils;
 
+using op_t = ud_impl_t::ud_impl_callable;
+
 template <typename M>
 void set_out_meta(
   M const& lhs,
@@ -19,16 +21,41 @@ void set_out_meta(
   }
 }
 
-struct op {
-  op() : one(1.0) {
+struct cpu_op {
+  cpu_op() {}
+
+  void operator()(
+    const bbts::ud_impl_t::tensor_params_t &params,
+    const tensor_args_t &_in,
+    tensor_args_t &_out) const
+  {
+    castable_op_t op(params.get_int<0>());
+
+    cu_shape_t const& meta_lhs =  _in.get<0>().as<cu_meta_t>().m();
+    cu_shape_t      & meta_out = _out.get<0>().as<cu_meta_t>().m();
+
+    set_out_meta(meta_lhs, meta_out);
+
+    int n = _in.get<0>().as<cu_meta_t>().num_elem();
+
+    float* data_lhs = (float*)(_in.get<0>().as<cu_t>().data());
+    float* data_rhs = (float*)(_in.get<1>().as<cu_t>().data());
+    float* data_out = (float*)(_out.get<0>().as<cu_t>().data());
+
+    op.mkl_op(n, data_lhs, data_rhs, data_out);
+  }
+};
+
+struct gpu_op {
+  gpu_op() : one(1.0) {
     std::iota(ordering, ordering + MAXRANK, 0);
   }
 
   void operator()(
     const bbts::ud_impl_t::tensor_params_t &params,
     const tensor_args_t &_in,
-    tensor_args_t &_out) const {
-
+    tensor_args_t &_out) const
+  {
     castable_op_t op(params.get_int<0>());
 
     auto const& meta_lhs =  _in.get<0>().as<cu_meta_t>().m();
@@ -64,14 +91,14 @@ struct op {
 };
 
 struct f : public ud_impl_t {
-  f(std::string name) {
+  f(std::string name, bool is_gpu_, op_t op) {
     impl_name = name;
     ud_name = name;
     inputTypes = {"cutensor", "cutensor"};
     outputTypes = {"cutensor"};
     inputInplace = {0,1};
-    is_gpu = true;
-    fn     = op();
+    is_gpu = is_gpu_;
+    fn     = op;
   }
 
   // returns an estimate of the complexity
@@ -97,8 +124,8 @@ struct f : public ud_impl_t {
 
 void register_ewb_castable(
   udf_manager_ptr udf_manager,
-  std::string name) {
-
+  std::string name)
+{
   // make an f, do the thing.
   udf_manager->register_udf(std::make_unique<ud_func_t>(
     ud_func_t {
@@ -110,5 +137,9 @@ void register_ewb_castable(
         .impls = {}
     }));
   udf_manager->register_udf_impl(
-    std::make_unique<_register_ewb_castable::f>(name));
+    std::make_unique<_register_ewb_castable::f>(
+      name, true, _register_ewb_castable::gpu_op()));
+  udf_manager->register_udf_impl(
+    std::make_unique<_register_ewb_castable::f>(
+      name, false, _register_ewb_castable::cpu_op()));
 }

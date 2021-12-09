@@ -1,7 +1,7 @@
 #include "dense_matrix_gpu_mult.h"
 #include "../../tensor/builtin_formats.h"
-#include <mkl/mkl_cblas.h>
-#include <mkl/mkl.h>
+#include <mkl_cblas.h>
+#include <mkl.h>
 #include <cublas_v2.h>
 
 bbts::dense_matrix_gpu_mult_t::dense_matrix_gpu_mult_t() {
@@ -76,8 +76,8 @@ void bbts::dense_matrix_gpu_mult_t::mult(const bbts::ud_impl_t::tensor_params_t 
   float *in2Data = b.data();
 
   // run the matrix multiply
-  float alpha=1.0f;                                             
-  float beta=0.0f;                                              
+  float alpha=1.0f;
+  float beta=0.0f;
   cublasSgemm(params.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, I, J, K, &alpha, in1Data, K, in2Data, J, &beta, outData, J);
 
   // set the new meta data

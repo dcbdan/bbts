@@ -55,7 +55,7 @@ if(${ENABLE_GPU})
 
     # set the cuda flags
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --default-stream per-thread -Xcompiler -fPIC")
-    
+
     # try to find cuda
     find_package(CUDA REQUIRED)
 
@@ -66,7 +66,7 @@ if(${ENABLE_GPU})
 
     # add the definition
     add_compile_definitions(ENABLE_GPU)
-    
+
     # auto cuda paths
     file(GLOB UD_SOURCE_CUDA "src/ud_functions/impls/*.cu")
     set (UD_SOURCE_CUDA ${UD_SOURCE_CUDA} "src/ud_functions/gpu_scheduler_impl.cc")
@@ -83,7 +83,7 @@ if(${ENABLE_STORAGE})
 endif()
 
 # try to find mkl
-set(BLA_VENDOR Intel10_64lp_seq)
+#set(BLA_VENDOR Intel11_64lp_seq)
 find_package(BLAS)
 
 # try to find the mpi library
@@ -144,8 +144,8 @@ target_link_libraries(bbts-common ${BLAS_LIBRARIES})
 # link the cublas library
 if(${ENABLE_GPU})
     cuda_add_cublas_to_target(bbts-common)
-    target_link_libraries(bbts-common "/local/downloads/libcutensor/lib/10.2/libcutensor.so")
-    #target_link_libraries(bbts-common cutensor)
+    #target_link_libraries(bbts-common "/local/downloads/libcutensor/lib/10.2/libcutensor.so")
+    target_link_libraries(bbts-common cutensor)
 endif()
 
 # add the tests
@@ -159,11 +159,11 @@ include(libraries/Libraries.cmake)
 if(${ENABLE_EINKORN})
 
 # build einkorn
-add_custom_target(build_einkorn 
+add_custom_target(build_einkorn
                   COMMAND cabal build VERBATIM
                   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/third_party/einkorn/)
-                  
-add_custom_target(copy_einkorn 
+
+add_custom_target(copy_einkorn
                   COMMAND cp ${PROJECT_SOURCE_DIR}/third_party/einkorn/dist/build/toBarbaTos/toBarbaTos ${PROJECT_SOURCE_DIR}/bin VERBATIM)
 
 # add dependencies

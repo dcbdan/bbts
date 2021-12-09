@@ -33,12 +33,16 @@ struct castable_op_t {
   castable_op_t(int i) {
     if( i == 0) {
       cu_op = CUTENSOR_OP_ADD;
+      mkl_op = vsAdd;
     } else if (i == 1) {
       cu_op = CUTENSOR_OP_MAX;
+      mkl_op = vsFmax;
     } else if (i == 2) {
       cu_op = CUTENSOR_OP_MIN;
+      mkl_op = vsFmin;
     } else if (i == 3) {
       cu_op = CUTENSOR_OP_MUL;
+      mkl_op = vsMul;
     } else {
       throw std::invalid_argument("is not a castable operator");
     }
@@ -47,6 +51,7 @@ struct castable_op_t {
 
   castable_op_t(): cu_op(CUTENSOR_OP_ADD) {}
 
+  decltype(vsAdd)* mkl_op;
   cutensorOperator_t cu_op;
 };
 

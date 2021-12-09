@@ -117,8 +117,8 @@ struct cpu_op {
   void operator()(
     const bbts::ud_impl_t::tensor_params_t &params,
     const tensor_args_t &_in,
-    tensor_args_t &_out) const {
-
+    tensor_args_t &_out) const
+  {
     params_t p = parse(params);
 
     cu_shape_t const& meta_lhs =  _in.get<0>().as<cu_meta_t>().m();
@@ -324,13 +324,13 @@ struct gpu_op {
 };
 
 struct f : public ud_impl_t {
-  f(std::string name, bool is_gpu, op_t op) {
+  f(std::string name, bool is_gpu_, op_t op) {
     impl_name = name;
     ud_name = name;
     inputTypes = {"cutensor", "cutensor"};
     outputTypes = {"cutensor"};
     inputInplace = {};
-    is_gpu = is_gpu;
+    is_gpu = is_gpu_;
     fn     = op;
   }
 
@@ -373,8 +373,8 @@ struct f : public ud_impl_t {
 
 void register_ewb(
   udf_manager_ptr udf_manager,
-  std::string name) {
-
+  std::string name)
+{
   // make an f, do the thing.
   udf_manager->register_udf(std::make_unique<ud_func_t>(
     ud_func_t {
