@@ -9,6 +9,8 @@ namespace _register_ew {
 
 using namespace _cutensor_utils;
 
+using op_t = ud_impl_t::ud_impl_callable;
+
 struct params_t {
   unary_op_t uop;
   float alpha;
@@ -37,8 +39,67 @@ void set_out_meta(
   }
 }
 
-struct op {
-  op() : one(1.0), two(2.0), zero(0.0) {
+struct cpu_op {
+  void operator()(
+    const bbts::ud_impl_t::tensor_params_t &params,
+    const tensor_args_t &_in,
+    tensor_args_t &_out) const
+  {
+    params_t p = parse(params);
+
+    cu_shape_t const& meta_inn =  _in.get<0>().as<cu_meta_t>().m();
+    cu_shape_t      & meta_out = _out.get<0>().as<cu_meta_t>().m();
+
+    if(maximum(p.ordering) >= meta_inn.rank) {
+      throw std::invalid_argument("input rank is not great enough");
+    }
+
+    set_out_meta(p, meta_inn, meta_out);
+
+    int n = _in.get<0>().as<cu_meta_t>().num_elem();
+
+    float* data_inn = (float*)(_in.get<0>().as<cu_t>().data());
+    float* data_out = (float*)(_out.get<0>().as<cu_t>().data());
+
+    if(p.uop.i == 0) {
+      // sigmoid
+      // (I couldn't find a direct mkl implementation)
+      vsExp(n, data_inn, data_out);
+      for(int i = 0; i != n; ++i) {
+        data_out[i] = data_out[i] / (1 + data_out[i]);
+      }
+    } else if(p.uop.i == 1 ){
+      // exp
+      vsExp(n, data_inn, data_out);
+    } else if(p.uop.i == 2 ){
+      // Square
+      vsSqr(n, data_inn, data_out);
+    } else if(p.uop.i == 3 ){
+      // Relu
+      float zero = 0.0;
+      vsFmaxI(n, data_inn, 1, &zero, 0, data_out, 1);
+    } else if(p.uop.i == 4 ){
+      // Relu'
+      // (it wasn't immediately obvious how to do this with mkl)
+      for(int i = 0; i != n; ++i) {
+        data_out[i] = data_inn[i] < 0.0 ? 0.0 : 1.0;
+      }
+    } else if(p.uop.i == 5 ){
+      // sqrt
+      vsSqrt(n, data_inn, data_out);
+    } else if(p.uop.i == 6 ){
+      // add a constant value
+      vsAddI(n, data_inn, 1, &p.uop.f, 0, data_out, 1);
+    }
+
+    // now do an in place permutation (if needed)
+    inplace_permute(cu_shape_as_vec(meta_inn), p.ordering, data_out);
+  }
+
+};
+
+struct gpu_op {
+  gpu_op() : one(1.0), two(2.0), zero(0.0) {
     std::iota(inn, inn + MAXRANK, 0);
   }
 
@@ -213,14 +274,14 @@ struct op {
 };
 
 struct f : public ud_impl_t {
-  f(std::string name) {
+  f(std::string name, bool is_gpu_, op_t op) {
     impl_name = name;
     ud_name = name;
     inputTypes = {"cutensor"};
     outputTypes = {"cutensor"};
     inputInplace = {};
-    is_gpu = true;
-    fn     = op();
+    is_gpu = is_gpu_;
+    fn     = op;
   }
 
   // returns an estimate of the complexity
@@ -264,7 +325,9 @@ void register_ew(
         .impls = {}
     }));
   udf_manager->register_udf_impl(
-    std::make_unique<_register_ew::f>(name));
+    std::make_unique<_register_ew::f>(name, true, _register_ew::gpu_op()));
+  udf_manager->register_udf_impl(
+    std::make_unique<_register_ew::f>(name, false, _register_ew::cpu_op()));
 }
 
 

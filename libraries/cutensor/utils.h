@@ -80,12 +80,18 @@ dims_t cu_shape_as_vec(cu_shape_t s) {
   return ret;
 }
 
-
 struct permute_t {
   // COLUMN MAJOR
-  permute_t(dims_t dims_, modes_t ordering_, float* inn_):
+  permute_t(dims_t dims_, modes_t ordering_, float* inn_, bool always_in_place=false):
     dims(dims_), ordering(ordering_), inn(inn_), ret(nullptr)
   {
+    if(inn == nullptr) {
+      throw std::invalid_argument("input pointer cannot be null ptr");
+    }
+    if(always_in_place) {
+      // force in place computation always
+      ret = inn;
+    }
     // at each iteration, put the highest dim in the last spot
     int rank = ordering.size();
     for(int r = rank-1; r > 0; --r) {
@@ -182,5 +188,10 @@ struct permute_t {
   float* inn;
   float* ret;
 };
+
+void inplace_permute(dims_t const& dims, modes_t const& ordering, float* ptr) {
+  // call the constructor, tell it to always do in place
+  permute_t p(dims, ordering, ptr, true);
+}
 
 }
