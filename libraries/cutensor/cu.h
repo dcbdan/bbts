@@ -27,6 +27,7 @@ void handle_error(std::string msg, cutensorStatus_t status) {
   std::cout << "VIOLENTLY DIEING{" << msg << "}" << std::endl;
   std::cout << "REASON: ";
   switch(status) {
+    case CUTENSOR_STATUS_SUCCESS:                                                       break;
     case CUTENSOR_STATUS_NOT_INITIALIZED:        std::cout << "NOT_INITIALIZED"       ; break;
     case CUTENSOR_STATUS_ALLOC_FAILED:           std::cout << "ALLOC_FAILED"          ; break;
     case CUTENSOR_STATUS_INVALID_VALUE:          std::cout << "INVALID_VALUE"         ; break;
@@ -49,18 +50,17 @@ void handle_error(cutensorStatus_t status) {
   return handle_error("", status);
 }
 
+struct cu_shape_t {
+  uint32_t rank;
+  int64_t dims[MAXRANK];
+};
+
 struct cu_meta_t : public tensor_meta_t {
 
-  // returns the meta data struct
-  auto &m() const {
-
-    struct m {
-      uint32_t rank;
-      int64_t dims[MAXRANK];
-    };
-
-    // we use it as the blob
-    return *((m*) _blob);
+  // returns the shape
+  cu_shape_t& m() const {
+    // which is placed at the start of the blob
+    return *((cu_shape_t*) _blob);
   }
 
   cu_meta_t(tfid_t _id) : tensor_meta_t{.fmt_id = _id} {}
