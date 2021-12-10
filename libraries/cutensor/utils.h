@@ -29,20 +29,29 @@ size_t maximum(modes_t const& ms) {
   return ret;
 }
 
+float scalarAdd(float lhs, float rhs) { return lhs + rhs; }
+float scalarMax(float lhs, float rhs) { return lhs > rhs ? lhs : rhs; }
+float scalarMin(float lhs, float rhs) { return lhs < rhs ? lhs : rhs; }
+float scalarMul(float lhs, float rhs) { return lhs * rhs; }
+
 struct castable_op_t {
   castable_op_t(int i) {
     if( i == 0) {
       cu_op = CUTENSOR_OP_ADD;
       mkl_op = vsAdd;
+      scalar_op = scalarAdd;
     } else if (i == 1) {
       cu_op = CUTENSOR_OP_MAX;
       mkl_op = vsFmax;
+      scalar_op = scalarMax;
     } else if (i == 2) {
       cu_op = CUTENSOR_OP_MIN;
       mkl_op = vsFmin;
+      scalar_op = scalarMin;
     } else if (i == 3) {
       cu_op = CUTENSOR_OP_MUL;
       mkl_op = vsMul;
+      scalar_op = scalarMul;
     } else {
       throw std::invalid_argument("is not a castable operator");
     }
@@ -51,8 +60,10 @@ struct castable_op_t {
 
   castable_op_t(): cu_op(CUTENSOR_OP_ADD) {}
 
-  decltype(vsAdd)* mkl_op;
   cutensorOperator_t cu_op;
+  decltype(vsAdd)* mkl_op;
+  decltype(scalarAdd)* scalar_op;
+
 };
 
 struct unary_op_t {
