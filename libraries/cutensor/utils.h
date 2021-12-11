@@ -176,6 +176,10 @@ struct permute_t {
     }
   }
 
+  bool will_delete() const {
+    return ret != nullptr;
+  }
+
   float* get() {
     if(ret != nullptr) {
       return ret;
