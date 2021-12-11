@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <stdexcept>
 
-
 namespace _register_ew {
 
 using namespace _cutensor_utils;
@@ -324,10 +323,14 @@ void register_ew(
         .num_out = 1,
         .impls = {}
     }));
+#ifdef CU_BARB_USE_GPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_ew::f>(name, true, _register_ew::gpu_op()));
+#endif
+#ifdef CU_BARB_USE_CPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_ew::f>(name, false, _register_ew::cpu_op()));
+#endif
 }
 
 

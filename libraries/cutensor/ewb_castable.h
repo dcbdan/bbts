@@ -136,10 +136,14 @@ void register_ewb_castable(
         .num_out = 1,
         .impls = {}
     }));
+#ifdef CU_BARB_USE_GPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_ewb_castable::f>(
       name, true, _register_ewb_castable::gpu_op()));
+#endif
+#ifdef CU_BARB_USE_CPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_ewb_castable::f>(
       name, false, _register_ewb_castable::cpu_op()));
+#endif
 }

@@ -372,15 +372,17 @@ struct cpu_op {
         data_out, plan.ni, plan.ni*plan.nk,
         plan.nb);
     } else {
+      // Consider ij,jk->ki
+      // OR       jk,ij->ki    (B'*A')
       cblas_sgemm_batch_strided(CblasColMajor,
         plan.t_rhs ? CblasNoTrans : CblasTrans,
         plan.t_lhs ? CblasNoTrans : CblasTrans,
         plan.nk, plan.ni, plan.nj,
         info.alpha,
-        red_rhs.get(), plan.t_rhs ? plan.nj : plan.nk, plan.nj*plan.nk,
-        red_lhs.get(), plan.t_lhs ? plan.ni : plan.nj, plan.ni*plan.nj,
+        red_rhs.get(), plan.t_rhs ? plan.nk : plan.nj, plan.nj*plan.nk,
+        red_lhs.get(), plan.t_lhs ? plan.nj : plan.ni, plan.ni*plan.nj,
         0.0,
-        data_out, plan.ni, plan.ni*plan.nk,
+        data_out, plan.nk, plan.ni*plan.nk,
         plan.nb);
     }
 
@@ -601,11 +603,15 @@ void register_contraction(
         .num_out = 1,
         .impls = {}
     }));
+#ifdef CU_BARB_USE_GPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_contraction::f>(
       name, true, _register_contraction::gpu_op()));
+#endif
+#ifdef CU_BARB_USE_CPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_contraction::f>(
       name, false, _register_contraction::cpu_op()));
+#endif
 }
 

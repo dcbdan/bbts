@@ -219,11 +219,14 @@ void register_reduction(
         .num_out = 1,
         .impls = {}
     }));
+#ifdef CU_BARB_USE_GPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_reduction::f>(name, true, _register_reduction::gpu_op()));
+#endif
+#ifdef CU_BARB_USE_CPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_reduction::f>(name, false, _register_reduction::cpu_op()));
-
+#endif
 }
 
 

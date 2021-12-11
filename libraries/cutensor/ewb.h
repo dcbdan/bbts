@@ -385,9 +385,13 @@ void register_ewb(
         .num_out = 1,
         .impls = {}
     }));
+#ifdef CU_BARB_USE_GPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_ewb::f>(name, true, _register_ewb::gpu_op()));
+#endif
+#ifdef CU_BARB_USE_CPU
   udf_manager->register_udf_impl(
     std::make_unique<_register_ewb::f>(name, false, _register_ewb::cpu_op()));
+#endif
 }
 
