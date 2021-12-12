@@ -15,7 +15,7 @@ using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params
 
 #define MAXRANK   4
 
-// #define CU_BARB_USE_GPU
+//#define CU_BARB_USE_GPU
 #define CU_BARB_USE_CPU
 
 // just assume we're using CUDA_R_32F everywhere

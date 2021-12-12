@@ -53,7 +53,13 @@ struct stride_increment_t {
   using stride_op_t = std::function<void(int64_t,int64_t,int64_t)>;
 
   // COLUMN MAJOR
-  stride_increment_t(dims_t const& dims, modes_t const& ordering_lhs, modes_t const& ordering_rhs):
+  stride_increment_t(
+    dims_t const& dims,
+    modes_t const& ordering_lhs,
+    modes_t const& ordering_rhs,
+    int64_t l, // the initial stride sizes
+    int64_t r,
+    int64_t o):
     dims(dims)
   {
     rank = dims.size();
@@ -65,9 +71,6 @@ struct stride_increment_t {
     auto lhs_iter = ordering_lhs.begin();
     auto rhs_iter = ordering_rhs.begin();
 
-    int64_t l = 1;
-    int64_t r = 1;
-    int64_t o = 1;
     for(int s = 0; s != rank; ++s) {
       if(lhs_iter != ordering_lhs.end() && *lhs_iter == s) {
         stride_lhs[s] = l;
@@ -134,9 +137,9 @@ struct cpu_op {
     permute_t v_lhs(cu_shape_as_vec(meta_lhs), p.ordering_lhs, _data_lhs);
     permute_t v_rhs(cu_shape_as_vec(meta_rhs), p.ordering_rhs, _data_rhs);
 
-    // if mode meta_out.rank-1 is in the tensor, increment is 1 else 0
-    int inc_lhs = v_lhs.ordering.back() == meta_out.rank-1 ? 1 : 0;
-    int inc_rhs = v_rhs.ordering.back() == meta_out.rank-1 ? 1 : 0;
+    // if mode 0 is in the tensor, increment is 1 else 0
+    int inc_lhs = v_lhs.ordering.size() > 0 && v_lhs.ordering[0] == 0 ? 1 : 0;
+    int inc_rhs = v_rhs.ordering.size() > 0 && v_rhs.ordering[0] == 0 ? 1 : 0;
 
     // get the transposed input data; it'll be deleted on exit if it did an
     // out-of-place transform.
@@ -172,30 +175,59 @@ struct cpu_op {
       dims_t ds(meta_out.rank-1);
       std::copy(meta_out.dims+1, meta_out.dims+meta_out.rank, ds.begin());
 
-      modes_t olhs;
-      if(v_lhs.ordering[0] == 0) {
-        olhs = v_lhs.ordering;
-      } else {
-        olhs.resize(v_lhs.ordering.size()-1);
-        std::copy(v_lhs.ordering.begin()+1, v_lhs.ordering.end(), olhs.begin());
-      }
+      auto get_stride_ordering = [](modes_t const& xs) {
+        // Example: xs = [0,1,2,3]
+        //   Then 0 is covered by do_it,
+        //   so [1,2,3] with respect to all dims.
+        //   But stride is 0 indexed, not 1 indexed, so
+        //      [0,1,2] is the output
+        // Example: xs = [1,3]
+        //   The increment is 0 and that dim isn't iterated,
+        //   so [1,3] with resepect to all dims.
+        //   Bu stride is 0 indexed, not 1 indexed, so
+        //      [0,2] is the output.
+        modes_t ys;
+        if(xs[0] == 0) {
+          ys.resize(xs.size()-1);
+          std::copy(xs.begin()+1, xs.end(), ys.begin());
+        } else {
+          ys = xs;
+        }
+        for(auto& y: ys) {
+          y -= 1;
+        }
+        return ys;
+      };
 
-      modes_t orhs;
-      if(v_rhs.ordering[0] == 0) {
-        orhs = v_rhs.ordering;
-      } else {
-        orhs.resize(v_rhs.ordering.size()-1);
-        std::copy(v_rhs.ordering.begin()+1, v_rhs.ordering.end(), orhs.begin());
-      }
+      modes_t olhs = get_stride_ordering(v_lhs.ordering);
+      modes_t orhs = get_stride_ordering(v_rhs.ordering);
+
+      auto size_lhs = product(cu_shape_as_vec(meta_lhs));
+      auto size_rhs = product(cu_shape_as_vec(meta_rhs));
+      auto size_out = product(cu_shape_as_vec(meta_out));
 
       auto do_it = [&](int64_t lhs, int64_t rhs, int64_t out) {
+        //if(lhs + inc_lhs*meta_out.dims[0] > size_lhs) {
+        //  throw std::invalid_argument("LHS");
+        //}
+        //if(rhs + inc_rhs*meta_out.dims[0] > size_rhs) {
+        //  throw std::invalid_argument("RHS");
+        //}
+        //if(out + 1*meta_out.dims[0] > size_out) {
+        //  throw std::invalid_argument("OUT");
+        //}
         vec_op(
           meta_out.dims[0],
           data_lhs + lhs, inc_lhs,
           data_rhs + rhs, inc_rhs,
           data_out + out, 1);
       };
-      stride_increment_t strider = stride_increment_t(ds, olhs, orhs);
+
+      stride_increment_t strider = stride_increment_t(
+        ds, olhs, orhs,
+        inc_lhs == 0 ? 1 : meta_out.dims[0],
+        inc_rhs == 0 ? 1 : meta_out.dims[0],
+                           meta_out.dims[0]);
       strider(do_it);
     }
   }
