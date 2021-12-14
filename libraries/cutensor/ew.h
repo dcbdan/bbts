@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include <cmath> // only used in _register_ew::reference
+
 namespace _register_ew {
 
 using namespace _cutensor_utils;
@@ -38,6 +40,94 @@ void set_out_meta(
   }
 }
 
+// Run the same computation
+// to verify that the output in ous is correct.
+void reference(
+  const bbts::ud_impl_t::tensor_params_t &params,
+  const tensor_args_t &ins,
+  const tensor_args_t &ous)
+{
+  std::cout << "REFERENCE EW" << std::endl;
+  std::string errmsg = "Elementwise reference error. ";
+
+  // assuming parse is corract
+  params_t p = parse(params);
+
+  cu_shape_t const& meta_inn = ins.get<0>().as<cu_meta_t>().m();
+  cu_shape_t const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+
+  float* data_inn       = (float*)(ins.get<0>().as<cu_t>().data());
+  float* data_out_check = (float*)(ous.get<0>().as<cu_t>().data());
+
+  dims_t dims_out(meta_inn.rank, 0);
+  for(int i = 0; i != meta_inn.rank; ++i) {
+    dims_out[p.ordering[i]] = meta_inn.dims[i];
+  }
+
+  if(meta_out.rank != dims_out.size()) {
+    throw std::runtime_error(errmsg + "ranks");
+  }
+  for(int i = 0; i != dims_out.size(); ++i) {
+    if(dims_out[i] == 0 || meta_out.dims[i] != dims_out[i]) {
+      throw std::runtime_error(errmsg + "meta_out");
+    }
+  }
+
+  auto n_out = product(dims_out);
+  float* ref = new float[n_out];
+
+  auto do_it= [&](dims_t idxs) {
+    size_t i = get_offset_wrt_ordering(dims_out, idxs, p.ordering);
+    size_t o = get_offset(dims_out, idxs);
+    float v = data_inn[i];
+    if(p.uop.i == 0) {
+      // sigmoid
+      ref[o] = exp(v);
+      ref[o] = ref[o] / (1 + ref[o]);
+    } else if(p.uop.i == 1 ){
+      // exp
+      ref[o] = exp(v);
+    } else if(p.uop.i == 2 ){
+      // Square
+      ref[o] = v*v;
+    } else if(p.uop.i == 3 ){
+      // Relu
+      ref[o] = v > 0.0 ? v : 0.0;
+    } else if(p.uop.i == 4 ){
+      // Relu'
+      ref[o] = v > 0.0 ? 1.0 : 0.0;
+    } else if(p.uop.i == 5 ){
+      // sqrt
+      ref[o] = sqrt(v);
+    } else if(p.uop.i == 6 ){
+      // add a constant value
+      ref[o] = v + p.uop.f;
+    } else {
+      throw std::runtime_error(errmsg + "no op!");
+    }
+    ref[o] *= p.alpha;
+  };
+  for_each_index f(dims_out);
+  f(do_it);
+
+  float err = max_difference(n_out, ref, data_out_check);
+  if(err > 0.00001) {
+    //std::cout << "op: " << p.uop.i << std::endl;
+    //std::cout << "alpha: " << p.alpha << std::endl;
+    //std::cout << "ordering: ";
+    //for(auto i: p.ordering) {
+    //  std::cout << i << " ";
+    //} std::cout << std::endl;
+
+    //for(int i = 0; i != n_out; ++i) {
+    //  std::cout << data_inn[i] << ", " << ref[i] << ", " << data_out_check[i] << std::endl;
+    //}
+    throw std::runtime_error(errmsg);
+  }
+
+  delete[] ref;
+}
+
 struct cpu_op {
   void operator()(
     const bbts::ud_impl_t::tensor_params_t &params,
@@ -49,8 +139,10 @@ struct cpu_op {
     cu_shape_t const& meta_inn =  _in.get<0>().as<cu_meta_t>().m();
     cu_shape_t      & meta_out = _out.get<0>().as<cu_meta_t>().m();
 
-    if(maximum(p.ordering) >= meta_inn.rank) {
-      throw std::invalid_argument("input rank is not great enough");
+    if(p.ordering.size() != meta_inn.rank ||
+       (p.ordering.size() > 0 && 1 + maximum(p.ordering) != meta_inn.rank))
+    {
+      throw std::invalid_argument("input rank is incorrect");
     }
 
     set_out_meta(p, meta_inn, meta_out);
@@ -65,7 +157,7 @@ struct cpu_op {
       // (I couldn't find a direct mkl implementation)
       vsExp(n, data_inn, data_out);
       for(int i = 0; i != n; ++i) {
-        data_out[i] = data_out[i] / (1 + data_out[i]);
+        data_out[i] = data_out[i] / (1.0 + data_out[i]);
       }
     } else if(p.uop.i == 1 ){
       // exp
@@ -91,8 +183,14 @@ struct cpu_op {
       vsAddI(n, data_inn, 1, &p.uop.f, 0, data_out, 1);
     }
 
+    cblas_sscal(n, p.alpha, data_out, 1);
+
     // now do an in place permutation (if needed)
     inplace_permute(cu_shape_as_vec(meta_inn), p.ordering, data_out);
+
+#ifdef CU_BARB_REFERENCE
+    reference(params, _in, _out);
+#endif
   }
 
 };
@@ -112,8 +210,10 @@ struct gpu_op {
     auto const& meta_inn =  _in.get<0>().as<cu_meta_t>().m();
     auto      & meta_out = _out.get<0>().as<cu_meta_t>().m();
 
-    if(maximum(p.ordering) >= meta_inn.rank) {
-      throw std::invalid_argument("input rank is not great enough");
+    if(p.ordering.size() != meta_inn.rank ||
+       (p.ordering.size() > 0 && 1 + maximum(p.ordering) != meta_inn.rank))
+    {
+      throw std::invalid_argument("input rank is incorrect");
     }
 
     set_out_meta(p, meta_inn, meta_out);
@@ -299,8 +399,10 @@ struct f : public ud_impl_t {
     auto const& meta_inn =  _in.get<0>().as<cu_meta_t>().m();
     auto      & meta_out = _out.get<0>().as<cu_meta_t>().m();
 
-    if(maximum(p.ordering) >= meta_inn.rank) {
-      throw std::invalid_argument("input rank is not great enough");
+    if(p.ordering.size() != meta_inn.rank ||
+       (p.ordering.size() > 0 && 1 + maximum(p.ordering) != meta_inn.rank))
+    {
+      throw std::invalid_argument("input rank is incorrect");
     }
 
     set_out_meta(p, meta_inn, meta_out);

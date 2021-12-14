@@ -126,6 +126,81 @@ struct plan_t {
   size_t worksize;
 };
 
+// Run the same computation
+// to verify that the output in ous is correct.
+void reference(
+  const bbts::ud_impl_t::tensor_params_t &params,
+  const tensor_args_t &ins,
+  const tensor_args_t &ous)
+{
+  std::cout << "REFERENCE CONTRACTION" << std::endl;
+  std::string errmsg = "Contraction reference error. ";
+
+  cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
+  cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
+  cu_shape_t const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+
+  // assuming parse is correct
+  info_t info = parse(params, meta_lhs, meta_rhs);
+
+  float* data_lhs       = (float*)(ins.get<0>().as<cu_t>().data());
+  float* data_rhs       = (float*)(ins.get<1>().as<cu_t>().data());
+  float* data_out_check = (float*)(ous.get<0>().as<cu_t>().data());
+
+  dims_t dims_out;
+  for(auto const& m: info.m_out){
+    dims_out.push_back(info.dims[m]);
+  }
+  if(meta_out.rank != dims_out.size()) {
+    throw std::runtime_error(errmsg + "ranks");
+  }
+  for(int i = 0; i != dims_out.size(); ++i) {
+    if(meta_out.dims[i] != dims_out[i]) {
+      throw std::runtime_error(errmsg + "meta_out");
+    }
+  }
+
+  auto n_out = product(dims_out);
+  float* ref = new float[n_out];
+  std::fill(ref, ref + n_out, 0.0);
+
+  auto do_it= [&](dims_t idxs) {
+    size_t o = get_offset_wrt_ordering(info.dims, idxs, info.m_out);
+    size_t l = get_offset_wrt_ordering(info.dims, idxs, info.m_lhs);
+    size_t r = get_offset_wrt_ordering(info.dims, idxs, info.m_rhs);
+    ref[o] += data_lhs[l]*data_rhs[r];
+  };
+  for_each_index f(info.dims);
+  f(do_it);
+
+  for(int i = 0; i != n_out; ++i) {
+    ref[i] *= info.alpha;
+  }
+
+  float err = max_difference(n_out, ref, data_out_check);
+  // turns out the reference solution might not be numerically
+  // stable? ... the maxerr is increased by 10..
+  float maxerr = 0.0001;
+  if(err > maxerr) {
+    //std::cout << "ERR, max err: " << err << ", " << maxerr << std::endl;
+    //std::cout << "alpha: " << info.alpha << std::endl;
+    //std::cout << "inc dims: ";
+    //for(auto d: info.dims) { std::cout << d << " "; } std::cout << std::endl;
+    //std::cout << "m_lhs: ";
+    //for(auto d: info.m_lhs) { std::cout << d << " "; } std::cout << std::endl;
+    //std::cout << "m_rhs: ";
+    //for(auto d: info.m_rhs) { std::cout << d << " "; } std::cout << std::endl;
+    //std::cout << "m_out: ";
+    //for(auto d: info.m_out) { std::cout << d << " "; } std::cout << std::endl;
+    //for(int i = 0; i != n_out; ++i) {
+    //  std::cout << ref[i] << ", " << data_out_check[i] << std::endl;
+    //}
+    throw std::runtime_error(errmsg);
+  }
+
+  delete[] ref;
+}
+
 struct cpu_op {
   // The computation is
   //   remove lhs only modes and permute lhs
@@ -307,7 +382,7 @@ struct cpu_op {
 
     ~reduce_t() {
       if(ret != nullptr) {
-        delete ret;
+        delete[] ret;
       }
     }
 
@@ -387,6 +462,10 @@ struct cpu_op {
     }
 
     inplace_permute(cu_shape_as_vec(meta_out), plan.permute_out, data_out);
+
+#ifdef CU_BARB_REFERENCE
+    reference(params, ins, ous);
+#endif
   }
 };
 
@@ -614,4 +693,3 @@ void register_contraction(
       name, false, _register_contraction::cpu_op()));
 #endif
 }
-

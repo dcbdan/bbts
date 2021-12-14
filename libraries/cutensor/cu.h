@@ -18,6 +18,8 @@ using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params
 //#define CU_BARB_USE_GPU
 #define CU_BARB_USE_CPU
 
+//#define CU_BARB_REFERENCE
+
 // just assume we're using CUDA_R_32F everywhere
 #define SIZEOFFLOAT 4
 cudaDataType_t cutensor_scalar_type = CUDA_R_32F;

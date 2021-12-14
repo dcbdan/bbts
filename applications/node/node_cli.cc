@@ -639,17 +639,15 @@ int main(int argc, char **argv) {
   if (node.get_rank() == 0) {
     t = std::thread([&]() {
       load_shared_library(std::cout, node, "libbarbcu.so");
-      //verbose(std::cout, node, true);
-      compile_commands(std::cout, node, "../cutensor/x.barb");
-      run_commands(std::cout, node);
-      compile_commands(std::cout, node, "../cutensor/y.barb");
+      verbose(std::cout, node, true);
+      compile_commands(std::cout, node, "../cutensor/optest.barb");
       run_commands(std::cout, node);
       //compile_commands(std::cout, node, "setup.barb");
       //compile_commands(std::cout, node, "run.barb");
       //compile_commands(std::cout, node, "exp.barb");
       //run_commands(std::cout, node);
-      //shutdown(std::cout, node);
-      prompt(node);
+      shutdown(std::cout, node);
+      //prompt(node);
     });
   }
 

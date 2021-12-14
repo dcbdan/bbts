@@ -40,7 +40,10 @@ void set_out_meta(
   cu_shape_t const& lhs,
   cu_shape_t const& rhs,
   cu_shape_t& out) {
-  out.rank = 1 + std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
+  out.rank =
+      lhs.rank == 0 && rhs.rank== 0
+    ? 0
+    : 1 + std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
   for(int r = 0; r != lhs.rank; ++r) {
     out.dims[p.ordering_lhs[r]] = lhs.dims[r];
   }
@@ -114,6 +117,95 @@ struct stride_increment_t {
   dims_t stride_out;
 };
 
+// Run the same computation
+// to verify that the output in ous is correct.
+void reference(
+  const bbts::ud_impl_t::tensor_params_t &params,
+  const tensor_args_t &ins,
+  const tensor_args_t &ous)
+{
+  std::cout << "REFERENCE EWB" << std::endl;
+  std::string errmsg = "Elementwise binary reference error. ";
+
+  // assuming parse is corract
+  params_t p = parse(params);
+
+  cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
+  cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
+  cu_shape_t const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+
+  float* data_lhs       = (float*)(ins.get<0>().as<cu_t>().data());
+  float* data_rhs       = (float*)(ins.get<1>().as<cu_t>().data());
+  float* data_out_check = (float*)(ous.get<0>().as<cu_t>().data());
+
+  int rank_out = p.ordering_lhs.size() == 0 && p.ordering_rhs.size() == 0
+                   ? 0
+                   : 1 + std::max(maximum(p.ordering_lhs), maximum(p.ordering_rhs));
+  dims_t dims_out(rank_out, 0);
+  if(rank_out != 0) {
+    for(int i = 0; i != meta_rhs.rank; ++i) {
+      dims_out[p.ordering_rhs[i]] = meta_rhs.dims[i];
+    }
+    for(int i = 0; i != meta_lhs.rank; ++i) {
+      dims_out[p.ordering_lhs[i]] = meta_lhs.dims[i];
+    }
+
+    if(meta_out.rank != dims_out.size()) {
+      throw std::runtime_error(errmsg + "ranks");
+    }
+    for(int i = 0; i != dims_out.size(); ++i) {
+      if(dims_out[i] == 0 || meta_out.dims[i] != dims_out[i]) {
+        throw std::runtime_error(errmsg + "meta_out");
+      }
+    }
+  }
+
+  auto n_out = product(dims_out);
+  float* ref = new float[n_out];
+
+  auto do_it= [&](dims_t idxs) {
+    size_t l = get_offset_wrt_ordering(dims_out, idxs, p.ordering_lhs);
+    size_t r = get_offset_wrt_ordering(dims_out, idxs, p.ordering_rhs);
+    size_t o = get_offset(dims_out, idxs);
+    float vL = p.alpha*data_lhs[l];
+    float vR = p.beta*data_rhs[r];
+    if(p.i ==0) {
+      ref[o] = vL + vR;
+    } else if(p.i == 1) {
+      ref[o] = vL > vR ? vL : vR;
+    } else if(p.i == 2) {
+      ref[o] = vL > vR ? vR : vL;
+    } else if(p.i == 3) {
+      ref[o] = vL * vR;
+    } else if(p.i == 4) {
+      ref[o] = vL - vR;
+    } else if(p.i == 5) {
+      ref[o] = vL / vR;
+    } else {
+      throw std::runtime_error(errmsg + "no op!");
+    }
+  };
+  for_each_index f(dims_out);
+  f(do_it);
+
+  float err = max_difference(n_out, ref, data_out_check);
+  if(err > 0.00001) {
+    std::cout << "i " << p.i << std::endl;
+    std::cout << "alpha " << p.alpha << std::endl;
+    std::cout << "beta " << p.beta << std::endl;
+    std::cout << "ord_lhs ";
+    for(auto d: p.ordering_lhs){ std::cout << d << " "; } std::cout << std::endl;
+    std::cout << "ord_rhs ";
+    for(auto d: p.ordering_rhs){ std::cout << d << " "; } std::cout << std::endl;
+    for(int i = 0; i != n_out; ++i) {
+      std::cout << ref[i] << ", " << data_out_check[i] << std::endl;
+    }
+    throw std::runtime_error(errmsg);
+  }
+
+  delete[] ref;
+}
+
 struct cpu_op {
   cpu_op() {}
 
@@ -135,7 +227,10 @@ struct cpu_op {
     float*  data_out = (float*)(_out.get<0>().as<cu_t>().data());
 
     permute_t v_lhs(cu_shape_as_vec(meta_lhs), p.ordering_lhs, _data_lhs);
+    v_lhs.scale(p.alpha);
+
     permute_t v_rhs(cu_shape_as_vec(meta_rhs), p.ordering_rhs, _data_rhs);
+    v_rhs.scale(p.beta);
 
     // if mode 0 is in the tensor, increment is 1 else 0
     int inc_lhs = v_lhs.ordering.size() > 0 && v_lhs.ordering[0] == 0 ? 1 : 0;
@@ -230,6 +325,9 @@ struct cpu_op {
                            meta_out.dims[0]);
       strider(do_it);
     }
+#ifdef CU_BARB_REFERENCE
+    reference(params, _in, _out);
+#endif
   }
 };
 

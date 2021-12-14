@@ -29,5 +29,4 @@ extern "C" {
     register_ewb_castable(udf_manager, "ewb_castable");
     register_dropout(udf_manager, "dropout");
   }
-
 }

@@ -91,6 +91,80 @@ dims_t cu_shape_as_vec(cu_shape_t s) {
   return ret;
 }
 
+int64_t get_offset(dims_t const& dims, dims_t const& idxs) {
+  int64_t s = 1;
+  dims_t stride;
+  for(int64_t const& d: dims) {
+    stride.push_back(s);
+    s *= d;
+  }
+  int64_t ret = 0;
+  for(int r = 0; r != dims.size(); ++r){
+    ret += stride[r]*idxs[r];
+  }
+  return ret;
+}
+
+float max_difference(int n, float* lhs, float* rhs) {
+  float ret = 0.0;
+  for(int i = 0; i != n; ++i) {
+    float v = lhs[i] > rhs[i] ? lhs[i] - rhs[i] : rhs[i] - lhs[i];
+    if(v > ret) {
+      ret = v;
+    }
+  }
+  return ret;
+}
+
+int64_t get_offset_wrt_ordering(
+  dims_t const& inc_dims,
+  dims_t const& inc_idxs,
+  modes_t const& ordering)
+{
+  dims_t dims, idxs;
+  for(auto m: ordering) {
+    dims.push_back(inc_dims[m]);
+    idxs.push_back(inc_idxs[m]);
+  }
+  return get_offset(dims, idxs);
+}
+
+struct for_each_index {
+  for_each_index(dims_t const& dims_):
+    dims(dims_)
+  {}
+
+  using op_t = std::function<void(dims_t)>;
+
+  void operator()(op_t op) {
+    if(dims.size() == 0) {
+      op(dims_t());
+    } else {
+      dims_t index(dims.size(), 0);
+      recurse(dims.size()-1, index, op);
+    }
+  }
+
+  void recurse(int s, dims_t idx, op_t op) {
+    if(s == 0) {
+      for(int i = 0; i != dims[0]; ++i) {
+        idx[0] = i;
+        op(idx);
+      }
+    } else {
+      for(int i = 0; i != dims[s]; ++i) {
+        idx[s] = i;
+        recurse(s-1, idx, op);
+      }
+    }
+  }
+
+  dims_t const& dims;
+};
+
+// TODO: permute_t has a scale method, which isn't really related to permuting..
+// Rename this to something else.. Basically it is a "do these ops and only allocate
+// temporary memory when required and if you do allocate, delete it on the way out"
 struct permute_t {
   // COLUMN MAJOR
   permute_t(dims_t dims_, modes_t ordering_, float* inn_, bool always_in_place=false):
@@ -190,9 +264,22 @@ struct permute_t {
 
   void free() {
     if(delete_ret && ret != nullptr) {
-      delete ret;
+      delete[] ret;
     }
     ret = nullptr;
+  }
+
+  void scale(float v) {
+    // not using an is-close comparison makes sense here, right?
+    if(v != 1.0) {
+      int n = product(dims);
+      if(ret == nullptr) {
+        ret = new float[n];
+        vsMulI(n, inn, 1, &v, 0, ret, 1);
+      } else {
+        cblas_sscal(n, v, ret, 1);
+      }
+    }
   }
 
   ~permute_t() {

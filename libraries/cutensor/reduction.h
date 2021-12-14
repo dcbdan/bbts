@@ -37,6 +37,72 @@ void set_out_meta(
   }
 }
 
+// Run the same computation
+// to verify that the output in ous is correct.
+void reference(
+  const bbts::ud_impl_t::tensor_params_t &params,
+  const tensor_args_t &ins,
+  const tensor_args_t &ous)
+{
+  std::cout << "REFERENCE REDUCTION" << std::endl;
+  std::string errmsg = "Reduction reference error. ";
+
+  // assuming parse is corract
+  params_t p = parse(params);
+
+  cu_shape_t const& meta_inn = ins.get<0>().as<cu_meta_t>().m();
+  cu_shape_t const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+
+  float* data_inn       = (float*)(ins.get<0>().as<cu_t>().data());
+  float* data_out_check = (float*)(ous.get<0>().as<cu_t>().data());
+
+  dims_t dims_out;
+  for(auto m: p.ordering) {
+    dims_out.push_back(meta_inn.dims[m]);
+  }
+
+  if(meta_out.rank != dims_out.size()) {
+    throw std::runtime_error(errmsg + "ranks");
+  }
+  for(int i = 0; i != dims_out.size(); ++i) {
+    if(dims_out[i] == 0 || meta_out.dims[i] != dims_out[i]) {
+      throw std::runtime_error(errmsg + "meta_out");
+    }
+  }
+
+  auto n_out = product(dims_out);
+  float* ref  = new float[n_out];
+  std::fill(ref, ref + n_out, 0.0);
+
+  dims_t dims_inn = cu_shape_as_vec(meta_inn);
+  auto do_it= [&](dims_t idxs) {
+    size_t i = get_offset(dims_inn, idxs);
+    size_t o = get_offset_wrt_ordering(dims_inn, idxs, p.ordering);
+    float v = data_inn[i];
+    ref[o] = p.bop.scalar_op(ref[o], v);
+  };
+  for_each_index f(dims_inn);
+  f(do_it);
+
+  for(int i = 0; i != n_out; ++i) {
+    ref[i] *= p.alpha;
+  }
+
+  float err = max_difference(n_out, ref, data_out_check);
+  if(err > 0.00001) {
+    //std::cout << "bop: ?" << std::endl;
+    //std::cout << "alpha: " << p.alpha << std::endl;
+    //std::cout << "ordering: ";
+    //for(auto d: p.ordering){ std::cout << d << " "; } std::cout << std::endl;
+    //for(int i = 0; i != n_out; ++i) {
+    //  std::cout << ref[i] << ", " << data_out_check[i] << std::endl;
+    //}
+    throw std::runtime_error(errmsg);
+  }
+
+  delete[] ref;
+}
+
 struct cpu_op {
   void operator()(
     const bbts::ud_impl_t::tensor_params_t &params,
@@ -65,7 +131,7 @@ struct cpu_op {
     // ordering = [3,0]
 
     // permute meta_inn so that it has shape agg modes + output modes
-    // so that each output then each agg mode can be traverse in order
+    // so that each output then each agg mode can be traversed in order
     modes_t permutation(meta_inn.rank, -1);
     {
       int rank_agg = meta_inn.rank - meta_out.rank;
@@ -84,9 +150,10 @@ struct cpu_op {
     float* data_inn = permute.get();
 
     // now for each output, sum up the items into the result
-    int n = _out.get<0>().as<cu_meta_t>().num_elem();
-    int num_agg = n / _in.get<0>().as<cu_meta_t>().num_elem();
-    for(int i = 0; i != n; ++i) {
+    int num_out = _out.get<0>().as<cu_meta_t>().num_elem();
+    int num_inn = _in.get<0>().as<cu_meta_t>().num_elem();
+    int num_agg = num_inn / num_out;
+    for(int i = 0; i != num_out; ++i) {
       data_out[i] = data_inn[i*num_agg+0];
       for(int j = 1; j < num_agg; ++j) {
         data_out[i] = p.bop.scalar_op(data_out[i], data_inn[i*num_agg+j]);
@@ -94,7 +161,11 @@ struct cpu_op {
     }
 
     // multiply by alpha
-    cblas_sscal(n, p.alpha, data_out, 1);
+    cblas_sscal(num_out, p.alpha, data_out, 1);
+
+#ifdef CU_BARB_REFERENCE
+    reference(params, _in, _out);
+#endif
   }
 };
 
