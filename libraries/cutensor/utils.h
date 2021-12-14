@@ -35,7 +35,7 @@ float scalarMin(float lhs, float rhs) { return lhs < rhs ? lhs : rhs; }
 float scalarMul(float lhs, float rhs) { return lhs * rhs; }
 
 struct castable_op_t {
-  castable_op_t(int i) {
+  castable_op_t(int i): i(i) {
     if( i == 0) {
       cu_op = CUTENSOR_OP_ADD;
       mkl_op = vsAdd;
@@ -63,7 +63,7 @@ struct castable_op_t {
   cutensorOperator_t cu_op;
   decltype(vsAdd)* mkl_op;
   decltype(scalarAdd)* scalar_op;
-
+  int i;
 };
 
 struct unary_op_t {

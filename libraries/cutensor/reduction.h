@@ -72,14 +72,20 @@ void reference(
 
   auto n_out = product(dims_out);
   float* ref  = new float[n_out];
-  std::fill(ref, ref + n_out, 0.0);
+  bool* check = new bool[n_out];
+  std::fill(check, check + n_out, false);
 
   dims_t dims_inn = cu_shape_as_vec(meta_inn);
   auto do_it= [&](dims_t idxs) {
     size_t i = get_offset(dims_inn, idxs);
     size_t o = get_offset_wrt_ordering(dims_inn, idxs, p.ordering);
     float v = data_inn[i];
-    ref[o] = p.bop.scalar_op(ref[o], v);
+    if(check[o]) {
+      ref[o] = p.bop.scalar_op(ref[o], v);
+    } else {
+      ref[o] = v;
+      check[o] = true;
+    }
   };
   for_each_index f(dims_inn);
   f(do_it);
@@ -90,7 +96,7 @@ void reference(
 
   float err = max_difference(n_out, ref, data_out_check);
   if(err > 0.00001) {
-    //std::cout << "bop: ?" << std::endl;
+    //std::cout << "bop: " << p.bop.i << std::endl;
     //std::cout << "alpha: " << p.alpha << std::endl;
     //std::cout << "ordering: ";
     //for(auto d: p.ordering){ std::cout << d << " "; } std::cout << std::endl;
@@ -101,6 +107,7 @@ void reference(
   }
 
   delete[] ref;
+  delete[] check;
 }
 
 struct cpu_op {
