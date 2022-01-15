@@ -210,13 +210,13 @@ struct cpu_op {
   //
   // Batched matmul covers the following multiplications:
   //   ijbl,jkbr->ikb
-  //   ij  kj     ik
-  //   ji  jk     ik
-  //   ji  kj     ik
-  //   ij  jk     ki * if t_out, then the left and right
-  //   ij  kj     ki * arguments are swapped
-  //   ji  jk     ki * and transposed in the batch matmul call
-  //   ji  kj     ki *
+  //   ij   kj    ik
+  //   ji   jk    ik
+  //   ji   kj    ik
+  //   ij   jk    ki   * if t_out, then the left and right
+  //   ij   kj    ki   * arguments are swapped
+  //   ji   jk    ki   * and transposed in the batch matmul call
+  //   ji   kj    ki   *
 
   //
   struct plan_t {

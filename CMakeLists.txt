@@ -90,6 +90,7 @@ find_package(BLAS)
 find_package(MPI REQUIRED)
 if (MPI_FOUND)
     include_directories(SYSTEM ${MPI_INCLUDE_PATH})
+    #set(MPI_CXX_COMPILE_OPTIONS "-mt_mpi")
 endif (MPI_FOUND)
 
 # include the third party stuff
@@ -139,7 +140,7 @@ target_link_libraries(bbts-common ${CMAKE_DL_LIBS})
 # the blas implementation
 target_link_libraries(bbts-common ${BLAS_LIBRARIES})
 
-#target_link_libraries(bbts-common ${MPI_C_LIBRARIES})
+target_link_libraries(bbts-common ${MPI_C_LIBRARIES})
 
 # link the cublas library
 if(${ENABLE_GPU})
@@ -154,23 +155,3 @@ include(integration_tests/Integration.cmake)
 include(applications/Applications.cmake)
 include(libraries/Libraries.cmake)
 
-
-# enable einkorn if necesasry
-if(${ENABLE_EINKORN})
-
-# build einkorn
-add_custom_target(build_einkorn
-                  COMMAND cabal build VERBATIM
-                  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/third_party/einkorn/)
-
-add_custom_target(copy_einkorn
-                  COMMAND cp ${PROJECT_SOURCE_DIR}/third_party/einkorn/dist/build/toBarbaTos/toBarbaTos ${PROJECT_SOURCE_DIR}/bin VERBATIM)
-
-# add dependencies
-add_dependencies(build_einkorn copy_einkorn)
-add_dependencies(node_cli build_einkorn)
-
-# add the definition for einkorn
-add_compile_definitions(ENABLE_EINKORN)
-
-endif()
