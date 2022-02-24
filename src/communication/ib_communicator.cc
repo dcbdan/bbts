@@ -360,6 +360,8 @@ bool ib_communicator_t::expect_coord_cmds(
 bool ib_communicator_t::send_tensor_meta(
   std::vector<std::tuple<tid_t, tensor_meta_t>> const& meta)
 {
+  _IBC_COUT_("send_tensor_meta");
+
   // send the meta info to node 0
 
   // the number of bytes
@@ -375,6 +377,7 @@ bool ib_communicator_t::recv_meta(
   node_id_t node,
   std::vector<std::tuple<tid_t, tensor_meta_t>> &data)
 {
+  _IBC_COUT_("recv_meta");
   // TODO: this method does an extra copy
   // One could do two connection.send messages, one with the size. But that'd be silly
   // because the connection class is already sending size information in it's communication.

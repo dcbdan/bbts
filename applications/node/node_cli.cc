@@ -85,7 +85,7 @@ void compile_commands(std::ostream &out, bbts::node_t &node, const std::string &
   // compile the commands and load them
   auto [did_compile, message] = node.compile_commands(file_path);
 
-  // finish the loading message  
+  // finish the loading message
   b = true; t.join();
 
   if(!did_compile) {
@@ -139,12 +139,12 @@ bool load_shared_library(std::ostream &out, bbts::node_t &node, const std::strin
     return true;
   }
 
-  
+
 }
 
-void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_kernel_size, 
+void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_kernel_size,
                               const std::string &file_path, std::vector<std::string> file_args) {
-  
+
   std::vector<std::string> args;
 
   std::filesystem::path p = "./bin/toBarbaTos";
@@ -169,7 +169,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
     command += arg + " ";
   }
   command.pop_back();
-  
+
   // execute the file
   FILE* pipe = popen(command.c_str(), "r");
   if (!pipe)
@@ -192,7 +192,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
 
   out << bbts::green << "SUCCESS!\n" << bbts::reset;
   out << "Gnerated multiple kernels pick one : \n";
-  
+
   int32_t idx = 0;
   while(true) {
 
@@ -208,7 +208,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
     return;
   }
   out << "Options : [" << 0 << " ... " << idx - 1 << "] or -1 for exit\n";
-  
+
   // input chose one of the kernels
   int kernel_choice;
   while (true) {
@@ -217,7 +217,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
 
     if(kernel_choice >= 0 && kernel_choice < idx) { break; }
   }
-  
+
   // compiling kernel
   out << "Compiling kernel " << kernel_choice << " which compiler to use : \n";
   out << "-1) to abort\n";
@@ -229,7 +229,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
       cmds.push_back(path);
     }
   }
-  
+
   // compiler choice
   int compiler_choice;
   while (true) {
@@ -265,7 +265,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
 
   // great we compiled this now we need to load the libarry
   out << bbts::green << "COMPILED!\n";
-  bool didLoad = load_shared_library(out, node, "./generated/libkernel.so"); 
+  bool didLoad = load_shared_library(out, node, "./generated/libkernel.so");
   if(!didLoad) {
     return;
   }
@@ -576,13 +576,13 @@ void prompt(bbts::node_t &node) {
       max_kernel_size = std::stoi(args[0].c_str(), &ptr);
     }
     catch(std::exception ignore) {
-      out << bbts::red << "Wrong kernel size" << bbts::reset;  
+      out << bbts::red << "Wrong kernel size" << bbts::reset;
       return;
     }
 
     // get the file
     std::string file = args[1];
-    
+
     // copy the argments
     std::vector<std::string> file_args;
     for(size_t idx = 2; idx < args.size(); idx++) {
@@ -601,6 +601,20 @@ void prompt(bbts::node_t &node) {
     clear(out, node);
 
   },"Clears the tensor operating system.\n");
+
+  rootMenu->Insert("a", [&](std::ostream &out) {
+
+    compile_commands(out, node, "cmds/setup.barb");
+    run_commands(out, node);
+
+  }, "compile and run cmds/setup.barb\n");
+
+  rootMenu->Insert("b", [&](std::ostream &out) {
+
+    compile_commands(out, node, "cmds/run.barb");
+    run_commands(out, node);
+
+  }, "compile and run cmds/run.barb\n");
 
   rootMenu->Insert("set",[&](std::ostream &out, const std::string &what, const std::string &val) {
 
@@ -638,7 +652,12 @@ int main(int argc, char **argv) {
   std::thread t;
   if (node.get_rank() == 0) {
     t = std::thread([&]() {
-      //verbose(std::cout, node, true);
+      load_shared_library(
+          std::cout,
+          node,
+          "bbts/libraries/libbarbcu.so");
+      // verbose(std::cout, node, true);
+      // shutdown(std::cout, node);
       prompt(node);
     });
   }
