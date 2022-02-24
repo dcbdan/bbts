@@ -11,6 +11,7 @@
 
 #ifdef ENABLE_GPU
 #include <cublas_v2.h>
+#include <cutensor.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #endif
@@ -177,6 +178,9 @@ struct ud_impl_t {
 
     // the handle to cublas
     cublasHandle_t cublas_handle;
+
+    // the handle to cutensor
+    cutensorHandle_t cutensor_handle;
 #endif
   };
 

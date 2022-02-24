@@ -15,6 +15,7 @@ gpu_scheduler_impl_t::gpu_scheduler_impl_t(const bbts::tensor_factory_ptr_t &fac
     cudaStreamCreate(&_streams[MID]);
     cudaEventCreate(&_events[MID]);
     cublasCreate(&_handles[MID]); cublasSetStream(_handles[MID], _streams[MID]);
+    cutensorInit(&_cut_handle);
 
     // create the back stream (at the current step does unloading)
     cudaStreamCreate(&_streams[BACK]);
@@ -34,7 +35,7 @@ gpu_scheduler_impl_t::~gpu_scheduler_impl_t() {
 void gpu_scheduler_impl_t::run() {
 
   while (true) {
-  
+
     // sync the phases
     cudaEventSynchronize(_events[FRONT]);
     cudaEventSynchronize(_events[MID]);
@@ -43,7 +44,7 @@ void gpu_scheduler_impl_t::run() {
     // wait until we have something here
     std::unique_lock<std::mutex> lk(_m);
     _cv.wait(lk, [&]{ return _left_to_process != 0 || !_q.empty() || _shutdown; });
-    
+
     // are we done?
     if(_shutdown && _left_to_process == 0) {
       break;
@@ -53,8 +54,9 @@ void gpu_scheduler_impl_t::run() {
     if(_has_something[MID]) {
 
       // set the stream and cublas handle
-      _specs[MID].params.stream = _streams[MID]; 
+      _specs[MID].params.stream = _streams[MID];
       _specs[MID].params.cublas_handle = _handles[MID];
+      _specs[MID].params.cutensor_handle = _cut_handle;
 
       // call the kernel
       _specs[MID].fun->call_gpu_ud( _specs[MID].params, *_specs[MID].inputs, *_specs[MID].outputs);
@@ -93,14 +95,14 @@ void gpu_scheduler_impl_t::run() {
         auto num_bytes = _factory->get_tensor_size(_specs[BACK].outputs->get_by_idx(i)._meta) - sizeof(bbts::tensor_meta_t);
 
         // load out on back
-        cudaMemPrefetchAsync(&ts, num_bytes, cudaCpuDeviceId, _streams[BACK]); 
+        cudaMemPrefetchAsync(&ts, num_bytes, cudaCpuDeviceId, _streams[BACK]);
       }
-      cudaEventRecord(_events[BACK], _streams[BACK]); 
+      cudaEventRecord(_events[BACK], _streams[BACK]);
       _has_something[BACK] = false;
 
       // we finished
       _specs[BACK].success.set_value(true);
-      
+
       // we processed one
       _left_to_process--;
     }
@@ -122,7 +124,7 @@ std::future<bool> gpu_scheduler_impl_t::execute_kernel(bbts::ud_impl_t* fun,
 
     // lock this thing
     std::unique_lock<std::mutex> lk(_m);
-    
+
     // schedule
     _q.push(kernel_spec_t{.fun = fun, .params = *params, .inputs = inputs, .outputs = outputs, .success = std::move(success)});
     _cv.notify_one();

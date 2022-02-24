@@ -62,6 +62,8 @@ if(${ENABLE_GPU})
     # add the include directory
     include_directories("${CUDA_INCLUDE_DIRS}")
 
+    include_directories("${CUTENSOR_INCLUDE_DIR}")
+
     # add the definition
     add_compile_definitions(ENABLE_GPU)
 
@@ -144,6 +146,7 @@ target_link_libraries(bbts-common ibverbs)
 # link the cublas library
 if(${ENABLE_GPU})
     cuda_add_cublas_to_target(bbts-common)
+    target_link_libraries(bbts-common "/opt/libcutensor-linux-x86_64-1.4.0.6-archive/lib/10.2/libcutensor.so")
 endif()
 
 target_link_libraries(bbts-common ${MPI_CXX_LIBRARIES})

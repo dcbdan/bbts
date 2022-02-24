@@ -8,9 +8,10 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <cuda_profiler_api.h>  
+#include <cuda_profiler_api.h>
 #include <cublas_v2.h>
 #include <cublasLt.h>
+#include <cutensor.h>
 #include "../tensor/builtin_formats.h"
 #include "../ud_functions/builtin_functions.h"
 #include "../tensor/tensor_factory.h"
@@ -20,7 +21,7 @@ namespace bbts {
 
 struct gpu_scheduler_impl_t {
 
-  // 
+  //
   gpu_scheduler_impl_t(const bbts::tensor_factory_ptr_t &fact);
 
   // free everything
@@ -61,8 +62,8 @@ private:
     // did succeed running it?
     std::promise<bool> success;
   };
-  
-  // used to sync 
+
+  // used to sync
   std::mutex _m;
   std::condition_variable _cv;
 
@@ -75,6 +76,7 @@ private:
 
   // the handle
   cublasHandle_t _handles[3];
+  cutensorHandle_t _cut_handle;
 
   // do we have something to do
   std::uint32_t _left_to_process = 0;
@@ -85,7 +87,7 @@ private:
   // do we have something to do on the FRONT, MID, BACK stream
   bool _has_something[3] = {false, false, false};
 
-  // the kernels we are running  
+  // the kernels we are running
   kernel_spec_t _specs[3] = {0};
 
   // the tensor factory

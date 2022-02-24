@@ -18,8 +18,8 @@ lib/lib*
 tmp.*
 *.nvprof
 *.nvvp
-libraries
 generated/commands*
 generated/kernels*
 generated
 external
+libraries/*.so
