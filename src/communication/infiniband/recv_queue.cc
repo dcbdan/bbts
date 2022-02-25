@@ -3,23 +3,6 @@
 namespace bbts {
 namespace ib {
 
-bool recv_item_t::acquire() {
-  if(pr.index() == which_pr::rank_bytes || pr.index() == which_pr::rank_success) {
-    bool prev_value = _acquired.fetch_or(true);
-    // if it wasn't previously acquired, we have got it now
-    return !prev_value;
-  } else {
-    return true;
-  }
-}
-
-bool recv_item_t::is_acquired() const {
-  if(which_state != wait_open_send || pr.index() == which_pr::no_pr) {
-    return false;
-  }
-  return _acquired;
-}
-
 void recv_item_t::set_fail(int32_t rank) {
   auto which = pr.index();
   if(which == which_pr::no_pr) {
@@ -59,9 +42,9 @@ void recv_item_t::set_success(int32_t rank) {
 }
 
 void virtual_recv_queue_t::insert_item(recv_item_ptr_t item) {
-  // if the item is acquired, we didn't acquire it,
+  // if the item has advanced it's state, we don't own it,
   // so there is no need to deal with it
-  if(item->is_acquired()) {
+  if(item->which_state != recv_item_t::state::wait_open_send) {
     return;
   }
 
@@ -76,20 +59,15 @@ void virtual_recv_queue_t::insert_item(recv_item_ptr_t item) {
       throw std::runtime_error("insert item: virtual recv queue invalid state");
     }
 
-    // at this point, we want to own item in it's entirety
-    // so that no other queue can deal with it
-    bool acquired = item->acquire();
-    // if we don't own it, someone else owns it so that is ok
-    if(!acquired) {
-      return;
-    }
+    // at this point, we want to own the item in it's entirety
+    // so that no other queue can deal with it.
+    // do that by updating the state
+    item->which_state = recv_item_t::state::wait_post;
+    // we're waiting to be in the front of the queue to post the recv
 
     // this is the size used when posting recv
     item->sz = pending_sizes.front();
     pending_sizes.pop();
-
-    // we're waiting to be in the front of the queue to post the recv
-    item->which_state = recv_item_t::state::wait_post;
 
     in_process_items.push(item);
     if(in_process_items.size() == 1) {
@@ -111,7 +89,9 @@ void virtual_recv_queue_t::recv_open_send(int64_t size) {
   while(!waiting_open_send_items.empty()) {
     auto maybe_item = waiting_open_send_items.front();
     waiting_open_send_items.pop();
-    if(maybe_item->acquire()) {
+    // someone else may have taken this item since we added it to our
+    // wait_open_send_items
+    if(maybe_item->which_state == recv_item_t::state::wait_open_send) {
       item = maybe_item;
       break;
     }
@@ -123,13 +103,10 @@ void virtual_recv_queue_t::recv_open_send(int64_t size) {
     return;
   }
 
-  if(item->which_state != recv_item_t::state::wait_open_send) {
-    throw std::runtime_error("acquired recv item has incorrect state");
-  }
-
+  // we've acquired it
   // tell the item we have an open send
-  item->sz = size;
   item->which_state = recv_item_t::state::wait_post;
+  item->sz = size;
   in_process_items.push(item);
   if(in_process_items.size() == 1) {
     // item is at the head of queue, post recv
@@ -208,14 +185,15 @@ void virtual_recv_queue_t::post_open_recv() {
 }
 
 // INVARIANT: we own this recv_item_t and no one else will modify it
-// (No item should end up at the head of our queue unless we have activaly acquired it)
+// (No item should end up at the head of our queue unless we have activaly moved it
+//  from wait_open_send state)
 recv_item_t* virtual_recv_queue_t::get_head(recv_item_t::state correct_state) {
   if(in_process_items.empty()) {
     throw std::runtime_error("verify head: empty queue");
   }
   recv_item_t* item = in_process_items.front().get();
   if(item->which_state != correct_state) {
-    _DCB_COUT_("expected state " << correct_state << " | which state " << (item->which_state) << std::endl);
+    std::cout << "expected state " << correct_state << " | which state " << (item->which_state) << std::endl;
 
     throw std::runtime_error("verify head: invalid head state");
   }

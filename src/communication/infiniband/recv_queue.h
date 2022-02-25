@@ -12,25 +12,25 @@ struct recv_item_t {
   explicit recv_item_t(
     memory_region_bytes_t && b,
     promise<tuple<bool, int32_t, own_bytes_t>> && pr):
-      bytes(std::move(b)), pr(std::move(pr)), _acquired(0),
+      bytes(std::move(b)), pr(std::move(pr)),
       which_state(state::wait_open_send)
   {}
   explicit recv_item_t(
     memory_region_bytes_t && b,
     promise<tuple<bool, int32_t>>              && pr):
-      bytes(std::move(b)), pr(std::move(pr)), _acquired(0),
+      bytes(std::move(b)), pr(std::move(pr)),
       which_state(state::wait_open_send)
   {}
   explicit recv_item_t(
     memory_region_bytes_t && b,
     promise<tuple<bool, own_bytes_t>>          && pr):
-      bytes(std::move(b)), pr(std::move(pr)), _acquired(0),
+      bytes(std::move(b)), pr(std::move(pr)),
       which_state(state::wait_open_send)
   {}
   explicit recv_item_t(
     memory_region_bytes_t && b,
     promise<bool>                              && pr):
-      bytes(std::move(b)), pr(std::move(pr)), _acquired(0),
+      bytes(std::move(b)), pr(std::move(pr)),
       which_state(state::wait_open_send)
   {}
 
@@ -41,8 +41,8 @@ struct recv_item_t {
   // There are multiple futures one can get. If this recv item is attached
   // to a specific queue, then the future will not include the rank and
   // pr will refer to bytes or success. If this recv item is attached
-  // to any queue, then a recv queue must acquire this item via the
-  // atomic bool.
+  // to any queue, then the recv queue that advances the state from
+  // opening send comes to own it
   std::variant<
     std::monostate,                             // does not have an associated promise,
                                                 // which state should be waiting recv
@@ -52,14 +52,6 @@ struct recv_item_t {
     promise<bool>                               // success
   > pr;
   enum which_pr { no_pr, rank_bytes, rank_success, just_bytes, just_success };
-
-  // only necc when pr is rank_bytes or rank_success
-  // should only be called when in waiting_open_send state
-  std::atomic<int> _acquired;
-  // ^ pretend this is an atomic<bool>.. the fetch_or member function isn't implemented for
-  //   atomic<bool> but it is for atomic<int>...
-  bool acquire();
-  bool is_acquired() const;
 
   void set_fail(int32_t rank);
   void set_success(int32_t rank);
@@ -79,7 +71,6 @@ struct recv_item_t {
     post_recv,
     post_fail
   } which_state;
-  // NOTE: don't check which state until we acquire the recv_item_ptr_t
 
   int64_t sz; // after waiting open send, this is set
 };

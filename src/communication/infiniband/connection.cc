@@ -974,8 +974,9 @@ void connection_t::send_to_self(tag_t tag, send_item_t&& send_item) {
     // If we don't acquire it, we won't need it in recvs.
     recvs.pop();
 
-    if(recv_item->acquire()) {
-      // we have found a match
+    if(recv_item->which_state == recv_item_t::state::wait_open_send) {
+      // we have found a match, so acquire it
+      recv_item->which_state = recv_item_t::state::wait_post;
       set_send_recv_self_items(send_item, recv_item);
 
       // If both queues are empty, remove em both
@@ -1013,8 +1014,9 @@ void connection_t::recv_from_self(tag_t tag, recv_item_ptr_t recv_item) {
   }
 
   // recvs empty, sends not empty
-  if(recv_item->acquire()) {
-    // we have a match
+  if(recv_item->which_state == recv_item_t::state::wait_open_send) {
+    // we have a match, so acquire it
+    recv_item->which_state = recv_item_t::state::wait_post;
     set_send_recv_self_items(sends.front(), recv_item);
 
     sends.pop();
