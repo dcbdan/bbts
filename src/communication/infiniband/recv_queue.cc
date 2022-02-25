@@ -4,10 +4,6 @@ namespace bbts {
 namespace ib {
 
 bool recv_item_t::acquire() {
-  if(which_state != wait_open_send || pr.index() == which_pr::no_pr) {
-    throw std::runtime_error("invalid acquire");
-  }
-
   if(pr.index() == which_pr::rank_bytes || pr.index() == which_pr::rank_success) {
     bool prev_value = _acquired.fetch_or(true);
     // if it wasn't previously acquired, we have got it now
@@ -63,7 +59,8 @@ void recv_item_t::set_success(int32_t rank) {
 }
 
 void virtual_recv_queue_t::insert_item(recv_item_ptr_t item) {
-  // if the item is acquired, there is no need to deal with it
+  // if the item is acquired, we didn't acquire it,
+  // so there is no need to deal with it
   if(item->is_acquired()) {
     return;
   }
@@ -112,9 +109,10 @@ void virtual_recv_queue_t::recv_open_send(int64_t size) {
   // See if we can acquire one.
   recv_item_ptr_t item = nullptr;
   while(!waiting_open_send_items.empty()) {
-    item = waiting_open_send_items.front();
+    auto maybe_item = waiting_open_send_items.front();
     waiting_open_send_items.pop();
-    if(item->acquire()) {
+    if(maybe_item->acquire()) {
+      item = maybe_item;
       break;
     }
   }
