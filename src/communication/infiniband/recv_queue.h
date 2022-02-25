@@ -101,6 +101,7 @@ struct virtual_recv_queue_t {
   void completed_fail_recv();
 
   bool empty() const;
+  size_t size() const;
 private:
   void process_next();
   void post_open_recv();

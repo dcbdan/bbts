@@ -295,8 +295,10 @@ bool ib_communicator_t::send_coord_op(const bbts::coordinator_op_t &op) {
 
 bbts::coordinator_op_t ib_communicator_t::expect_coord_op() {
   _IBC_COUT_("expect coord op");
+  // recv coord cmds from node zero
   bbts::coordinator_op_t op{};
-  auto [success, from_rank] = connection.recv_with_bytes(
+  bool success = connection.recv_from_with_bytes(
+    0,
     com_tag::coordinator_tag,
     to_bytes_t(&op, 1)).get();
 
@@ -339,10 +341,12 @@ bool ib_communicator_t::expect_coord_cmds(
   std::vector<command_ptr_t> &out)
 {
   _IBC_COUT_("expect_coord_cmds");
-  // recv one command at a time and if any fails, stop
+  // recv one command at a time from node zero and if any fails, stop
   out.reserve(num_cmds);
   for(size_t i = 0; i < num_cmds; ++i) {
-    auto [success, _, own_bytes] = connection.recv(com_tag::coordinator_bcast_cmd_tag).get();
+    auto [success, own_bytes] = connection.recv_from(
+        0,
+        com_tag::coordinator_bcast_cmd_tag).get();
     if(success){
       // cast it to the command
       auto p_rel = own_bytes.ptr.release();

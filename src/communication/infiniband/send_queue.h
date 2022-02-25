@@ -27,6 +27,7 @@ struct virtual_send_queue_t {
   void completed_fail_send();
 
   bool empty() const;
+  size_t size() const;
 private:
   //  -- waiting to post open send
   //  -- an open send has posted

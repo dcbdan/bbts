@@ -170,6 +170,12 @@ bool virtual_recv_queue_t::empty() const {
          pending_sizes.empty();
 }
 
+size_t virtual_recv_queue_t::size() const {
+  return in_process_items.size() +
+         waiting_open_send_items.size() +
+         pending_sizes.size();
+}
+
 void virtual_recv_queue_t::process_next() {
   if(!in_process_items.empty()) {
     post_open_recv();

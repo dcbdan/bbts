@@ -14,6 +14,9 @@
 #include <infiniband/verbs.h>
 
 #define _DCB_COUT_(x) // std::cout << x
+#define WC12_COUT(x) // std::cout << "WMWMW: " << x << std::endl
+#define WC_COUT(tag, rank, x) // std::cout << "WC [ tag " << tag << ", rank " << rank << "] " << x << std::endl
+#define WRID_COUT(rank, wrid) // std::cout << "[rank " << rank << "] " << wrid << std::endl
 
 namespace bbts {
 namespace ib {

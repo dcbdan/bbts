@@ -76,6 +76,10 @@ bool virtual_send_queue_t::empty() const {
   return items.empty();
 }
 
+size_t virtual_send_queue_t::size() const {
+  return items.size();
+}
+
 void virtual_send_queue_t::process_next() {
   if(!items.empty()) {
     post_open_send();

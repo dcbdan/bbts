@@ -162,12 +162,12 @@ bbts_context_t* bbts_init_context(
   // Give default values for when num_send_per_qp is not specified
   // or given an invalid zero value
   if(num_send_per_qp == 0) {
-    // Max ability to send 128 messages to a node
-    num_send_per_qp = 128;
+    // Max ability to send this many messages at a tiem to a node
+    num_send_per_qp = 16;
   }
   if(num_write_per_qp == 0) {
     // Max ability to do this many rdma writes
-    num_write_per_qp = 32;
+    num_write_per_qp = 4;
   }
 
   bbts_context_t *ctx = new bbts_context_t;
@@ -247,7 +247,7 @@ bbts_context_t* bbts_init_context(
       .recv_cq = ctx->cq,
       .srq     = ctx->srq,
       .cap     = {
-        .max_send_wr  = num_send_per_qp + num_write_per_qp,
+        .max_send_wr  = (num_send_per_qp + num_write_per_qp),
         .max_recv_wr  = 0,
         .max_send_sge = 1,
         .max_recv_sge = 1
@@ -731,6 +731,7 @@ future<bool>
 }
 
 void connection_t::post_send(int32_t dest_rank, bbts_message_t const& msg) {
+  WC12_COUT("send_wr_cnts at " << dest_rank << ": " << send_wr_cnts[dest_rank]);
   if(send_wr_cnts[dest_rank] == 0) {
     pending_msgs[dest_rank].push(msg);
   } else {
@@ -740,6 +741,7 @@ void connection_t::post_send(int32_t dest_rank, bbts_message_t const& msg) {
     available_send_msgs.pop();
 
     send_msgs[i] = msg;
+    WRID_COUT(dest_rank, i << " send msg");
     bbts_post_send_message(queue_pairs[dest_rank], i, send_msgs_mr->lkey, send_msgs[i]);
   }
 }
@@ -784,11 +786,13 @@ void connection_t::post_fail_send(int32_t dest_rank, tag_t tag){
 
 void connection_t::post_rdma_write(int32_t dest_rank, bbts_rdma_write_t const& r) {
   _DCB_COUT_("connection_t::post_rdma_write" << std::endl);
+  WC12_COUT("write_wr_cnts at " << dest_rank << ": " << write_wr_cnts[dest_rank]);
   if(write_wr_cnts[dest_rank] == 0) {
     pending_writes[dest_rank].push(r);
   } else {
     write_wr_cnts[dest_rank] -= 1;
 
+    WRID_COUT(dest_rank, r.wr_id << " rdma write");
     bbts_post_rdma_write(queue_pairs[dest_rank], r);
   }
 }
@@ -858,6 +862,19 @@ void connection_t::poll() {
         }
         if(int err = work_completion.status) {
           _DCB_COUT_("work completion status " << err << std::endl);
+
+          // The only valid items in a work completion with a non success
+          // status are:
+          //   status, wr_id, qp_num and vendor_err.
+          // Printing out the first three of those...
+          std::cout
+            << "WR ID of failed work completion: "
+            << work_completion.wr_id << std::endl;
+          std::cout << "ibv wc STATUS " <<
+            ibv_wc_status_str(work_completion.status) << std::endl;
+          std::cout << "wc has RANK of " <<
+            get_recv_rank(work_completion) << std::endl;
+
           throw std::runtime_error("work completion error");
         }
         handle_work_completion(work_completion);
@@ -1060,7 +1077,7 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
     // then update the pending writes queue
     auto& tag = work_completion.wr_id;
     auto& dest_rank = wc_rank;
-    _DCB_COUT_("finished rdma write " << tag << std::endl);
+    WC_COUT(tag, dest_rank, "finished rdma write");
 
     virtual_send_queues.at({tag, dest_rank}).completed_rdma_write();
 
@@ -1072,6 +1089,9 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
       // making an rdma write, decement it back
       write_wr_cnts[dest_rank] -= 1;
       // get the meta data and do the write
+      WRID_COUT(
+        dest_rank,
+        pending_writes[dest_rank].front().wr_id << " rdma write");
       bbts_post_rdma_write(
         queue_pairs[dest_rank],
         pending_writes[dest_rank].front());
@@ -1087,13 +1107,13 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
     auto& [tag, dest_rank] = tag_rank;
 
     if(msg.type == bbts_message_t::message_type::open_send) {
-      _DCB_COUT_("handle: sent open send" << std::endl);
+      WC_COUT(tag, dest_rank, "handle: sent open send");
       virtual_send_queues.at(tag_rank).completed_open_send();
     } else if(msg.type == bbts_message_t::message_type::open_recv) {
-      _DCB_COUT_("handle: sent open recv" << std::endl);
+      WC_COUT(tag, dest_rank, "handle: sent open recv");
       virtual_recv_queues.at(tag_rank).completed_open_recv();
     } else if(msg.type == bbts_message_t::message_type::close_send) {
-      _DCB_COUT_("handle: sent close send" << std::endl);
+      WC_COUT(tag, dest_rank, "handle: sent close send");
       virtual_send_queue_t& v_send_queue = virtual_send_queues.at(tag_rank);
       v_send_queue.completed_close_send();
       // A message has been completed, so it could be the case that
@@ -1103,7 +1123,7 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
         virtual_send_queues.erase(tag_rank);
       }
     } else if(msg.type == bbts_message_t::message_type::fail_send) {
-      _DCB_COUT_("handle: sent fail send" << std::endl);
+      WC_COUT(tag, dest_rank, "handle: sent fail send");
       virtual_send_queue_t& v_send_queue = virtual_send_queues.at(tag_rank);
       v_send_queue.completed_fail_send();
       // A message has been completed.
@@ -1111,7 +1131,7 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
         virtual_send_queues.erase(tag_rank);
       }
     } else if(msg.type == bbts_message_t::message_type::fail_recv) {
-      _DCB_COUT_("handle: sent fail recv" << std::endl);
+      WC_COUT(tag, dest_rank, "handle: sent fail recv");
       virtual_recv_queue_t& v_recv_queue = virtual_recv_queues.at(tag_rank);
       v_recv_queue.completed_fail_recv();
       // A message has been completed.
@@ -1143,6 +1163,7 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
       send_msgs[i] = pending_msgs[dest_rank].front();
       pending_msgs[dest_rank].pop();
 
+      WRID_COUT(dest_rank, i << " send msg");
       bbts_post_send_message(
         queue_pairs[dest_rank],
         i,
@@ -1169,18 +1190,18 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
     tag_rank_t tag_rank = {msg.tag, msg.from_rank};
     auto& [tag, from_rank] = tag_rank;
     if(msg.type == bbts_message_t::message_type::open_send) {
-      _DCB_COUT_("handle: recv open send: from " << from_rank << ", tag " << tag << std::endl);
+      WC_COUT(tag, from_rank, "handle: recv open send");
       // Note: this can recv an open send without there being an open channel
       virtual_recv_queue_t& recv_queue = get_recv_queue(msg.tag, msg.from_rank);
       recv_queue.recv_open_send(msg.m.open_send.size);
     } else if(msg.type == bbts_message_t::message_type::open_recv) {
-      _DCB_COUT_("handle: recv open recv: from " << from_rank << ", tag " << tag << std::endl);
+      WC_COUT(tag, from_rank, "handle: recv open recv");
       virtual_send_queues.at(tag_rank).recv_open_recv(
         msg.m.open_recv.addr,
         msg.m.open_recv.size,
         msg.m.open_recv.key);
     } else if(msg.type == bbts_message_t::message_type::close_send) {
-      _DCB_COUT_("handle: recv close send" << std::endl);
+      WC_COUT(tag, from_rank, "handle: recv close send");
       virtual_recv_queue_t& v_recv_queue = virtual_recv_queues.at(tag_rank);
       v_recv_queue.recv_close_send();
       // A message has been completed
@@ -1188,7 +1209,7 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
         virtual_recv_queues.erase(tag_rank);
       }
     } else if(msg.type == bbts_message_t::message_type::fail_send) {
-      _DCB_COUT_("handle: recv fail send" << std::endl);
+      WC_COUT(tag, from_rank, "handle: recv fail send");
       virtual_recv_queue_t& v_recv_queue = virtual_recv_queues.at(tag_rank);
       v_recv_queue.recv_fail_send();
       // A message has been completed
@@ -1196,7 +1217,7 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
         virtual_recv_queues.erase(tag_rank);
       }
     } else if(msg.type == bbts_message_t::message_type::fail_recv) {
-      _DCB_COUT_("handle: recv fail recv" << std::endl);
+      WC_COUT(tag, from_rank, "handle: recv fail recv");
       virtual_send_queue_t& v_send_queue = virtual_send_queues.at(tag_rank);
       v_send_queue.recv_fail_recv();
       // A message has been completed.
