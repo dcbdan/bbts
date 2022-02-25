@@ -142,139 +142,6 @@ bool load_shared_library(std::ostream &out, bbts::node_t &node, const std::strin
 
 }
 
-void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_kernel_size,
-                              const std::string &file_path, std::vector<std::string> file_args) {
-
-  std::vector<std::string> args;
-
-  std::filesystem::path p = "./bin/toBarbaTos";
-  auto absPath = std::filesystem::absolute(p);
-
-  // the command we want to run
-  std::string command;
-  command += absPath.c_str();
-  command += ' ';
-
-  // the generator parameters
-  command += "-n ";
-  command += "0 ";
-  command += "-x ";
-  command += std::to_string(max_kernel_size) + " ";
-  command += "-l generated/kernels ";
-  command += "-c generated/commands ";
-
-  // the file and the arguments
-  command += file_path + " ";
-  for(auto &arg : file_args) {
-    command += arg + " ";
-  }
-  command.pop_back();
-
-  // execute the file
-  FILE* pipe = popen(command.c_str(), "r");
-  if (!pipe)
-  {
-      out << bbts::red << "The toBarbaTos command not found!" << bbts::reset << std::endl;
-      return;
-  }
-
-  // write out the output
-  char buffer[128];
-  std::string result = "";
-  while (fgets(buffer, 128, pipe) != NULL) {
-      out << buffer;
-  }
-  auto success = pclose(pipe) == 0;
-  if(!success) {
-    out << bbts::red << "ERROR\n" << bbts::reset;
-    return;
-  }
-
-  out << bbts::green << "SUCCESS!\n" << bbts::reset;
-  out << "Gnerated multiple kernels pick one : \n";
-
-  int32_t idx = 0;
-  while(true) {
-
-    // check if the file exists if it does check for the next one
-    if(std::filesystem::exists("./generated/commands" + std::to_string(idx))) {
-      idx++;
-      continue;
-    }
-    break;
-  }
-  if(idx == 0) {
-    out << bbts::red << "ERROR no kenels generated!\n" << bbts::reset;
-    return;
-  }
-  out << "Options : [" << 0 << " ... " << idx - 1 << "] or -1 for exit\n";
-
-  // input chose one of the kernels
-  int kernel_choice;
-  while (true) {
-    std::cin >> kernel_choice;
-    if(kernel_choice == -1) { return; }
-
-    if(kernel_choice >= 0 && kernel_choice < idx) { break; }
-  }
-
-  // compiling kernel
-  out << "Compiling kernel " << kernel_choice << " which compiler to use : \n";
-  out << "-1) to abort\n";
-  std::vector<std::string> cmds;
-  for(size_t cv = 0; cv <= 12; ++cv) {
-    std::string path = "/usr/bin/clang++" + (cv == 0 ? "" : "-" + std::to_string(cv));
-    if(std::filesystem::exists(path)) {
-      out << cmds.size() << ") " << path << '\n';
-      cmds.push_back(path);
-    }
-  }
-
-  // compiler choice
-  int compiler_choice;
-  while (true) {
-
-    // get the choice
-    std::cin >> compiler_choice;
-
-    // check the choice
-    if(compiler_choice == -1) { return; }
-    if(compiler_choice >= 0 && compiler_choice < cmds.size()) { break; }
-  }
-
-  // try to find the compiler
-  command = cmds[compiler_choice] + " -shared -fPIC -rdynamic -o ./generated/libkernel.so ./generated/kernels"  + std::to_string(kernel_choice) + ".cc";
-  pipe = popen(command.c_str(), "r");
-  if (!pipe)
-  {
-      out << bbts::red << "Could not find the compiler!" << bbts::reset << std::endl;
-      return;
-  }
-
-  // get the compile output
-  out << bbts::yellow;
-  while (fgets(buffer, 128, pipe) != NULL) {
-      out << buffer;
-  }
-  out << bbts::reset;
-  success = pclose(pipe) == 0;
-  if(!success) {
-    out << bbts::red << "ERROR\n" << bbts::reset;
-    return;
-  }
-
-  // great we compiled this now we need to load the libarry
-  out << bbts::green << "COMPILED!\n";
-  bool didLoad = load_shared_library(out, node, "./generated/libkernel.so");
-  if(!didLoad) {
-    return;
-  }
-
-  // compile the commands
-  std::string cmdsPath = "./generated/commands" + std::to_string(kernel_choice);
-  compile_commands(out, node, cmdsPath);
-}
-
 void run_commands(std::ostream &out, bbts::node_t &node) {
 
   // kick of a loading message
@@ -561,39 +428,6 @@ void prompt(bbts::node_t &node) {
 
   },"Compiles a command raw .sbbts file. Usage : compile raw <file>\n");
 
-  compileSubMenu->Insert("einkorn",[&](std::ostream &out, const std::vector<std::string> &args) {
-
-    // check the number of arguments
-    if(args.size() < 2) {
-      out << bbts::red << "Wong number of arguments" << bbts::reset;
-      return;
-    }
-
-    int32_t max_kernel_size;
-    try {
-
-      size_t ptr;
-      max_kernel_size = std::stoi(args[0].c_str(), &ptr);
-    }
-    catch(std::exception ignore) {
-      out << bbts::red << "Wrong kernel size" << bbts::reset;
-      return;
-    }
-
-    // get the file
-    std::string file = args[1];
-
-    // copy the argments
-    std::vector<std::string> file_args;
-    for(size_t idx = 2; idx < args.size(); idx++) {
-      file_args.push_back(args[idx]);
-    }
-
-    // compile einkorn
-    compile_einkorn_commands(out, node, max_kernel_size, file, file_args);
-
-  },"Compiles a einkorn program and loads it as .sbbts commands. Usage : compile einkorn <max_kernel_size> <file> <arg1> <arg2>...\n");
-
   rootMenu->Insert(std::move(compileSubMenu));
 
   rootMenu->Insert("clear",[&](std::ostream &out) {
@@ -656,9 +490,16 @@ int main(int argc, char **argv) {
           std::cout,
           node,
           "bbts/libraries/libbarbcu.so");
-      // verbose(std::cout, node, true);
-      // shutdown(std::cout, node);
-      prompt(node);
+
+      for(int i = 0; i != 4; ++i) {
+        compile_commands(std::cout, node, "cmds/setup.barb");
+        run_commands(std::cout, node);
+        compile_commands(std::cout, node, "cmds/run.barb");
+        run_commands(std::cout, node);
+        clear(std::cout, node);
+      }
+
+      shutdown(std::cout, node);
     });
   }
 

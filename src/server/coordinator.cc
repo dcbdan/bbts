@@ -116,7 +116,7 @@ std::tuple<bool, std::string> bbts::coordinator_t::schedule_commands(const std::
   if(!std::get<0>(out) || !std::get<1>(out).empty()) {
     return {false, std::get<1>(out).empty() ? "Unknown error\n" : std::get<1>(out)};
   }
-  
+
   // we succeded
   return {true, "Scheduled " + std::to_string(cmds.size()) + " commands\n"};
 }
@@ -126,7 +126,7 @@ std::tuple<bool, std::string> bbts::coordinator_t::compile_commands(float gpu_tr
                                                                     const std::vector<abstract_command_t> &cmds,
                                                                     const std::vector<abstract_ud_spec_t> &funs) {
 
-  // fetch the info about the tensors  
+  // fetch the info about the tensors
   std::unordered_map<bbts::tid_t, bbts::tensor_meta_t> meta;
   std::vector<std::unordered_set<bbts::tid_t>> locations;
   _fetch_tensor_info(meta, locations);
@@ -136,9 +136,9 @@ std::tuple<bool, std::string> bbts::coordinator_t::compile_commands(float gpu_tr
     // make the cost
     cost_model_ptr_t cost = std::make_shared<cost_model_t>(meta,
                                                           funs,
-                                                          _tf, 
-                                                          _udf_manager, 
-                                                          gpu_transfer_cost_per_byte, 
+                                                          _tf,
+                                                          _udf_manager,
+                                                          gpu_transfer_cost_per_byte,
                                                           send_cost_per_byte);
 
     // init the compiler
@@ -151,7 +151,7 @@ std::tuple<bool, std::string> bbts::coordinator_t::compile_commands(float gpu_tr
     for(auto &c : compiled_cmds) {
       c->print(ss2);
     }
-    std::cout << ss2.str() << '\n';
+    //std::cout << ss2.str() << '\n';
 
     // schedule the compiled commands
     return schedule_commands(compiled_cmds);
@@ -203,15 +203,15 @@ std::tuple<bool, std::string> bbts::coordinator_t::set_verbose(bool val) {
 }
 
 std::tuple<bool, std::string> bbts::coordinator_t::set_num_threads(std::uint32_t set_num_threads) {
-  
+
   // TODO - need some work
   return {false, "Not supported for now!"};
 }
 
 std::tuple<bool, std::string> bbts::coordinator_t::set_max_storage(size_t val) {
-  
+
   // send the command
-  if (!_comm->send_coord_op(coordinator_op_t{._type = coordinator_op_types_t::MAX_STORAGE, 
+  if (!_comm->send_coord_op(coordinator_op_t{._type = coordinator_op_types_t::MAX_STORAGE,
                                              ._val = val})) {
 
     return {false, "Failed to set the maximum storage flag!\n"};
@@ -297,9 +297,9 @@ std::tuple<bool, std::string> bbts::coordinator_t::shutdown_cluster() {
   return out;
 }
 
-std::tuple<bool, std::string> bbts::coordinator_t::_fetch_tensor_info(std::unordered_map<bbts::tid_t, bbts::tensor_meta_t> &meta, 
+std::tuple<bool, std::string> bbts::coordinator_t::_fetch_tensor_info(std::unordered_map<bbts::tid_t, bbts::tensor_meta_t> &meta,
                                                                       std::vector<std::unordered_set<bbts::tid_t>> &locations) {
-  
+
   // send the request to get all the meta
   if (!_comm->send_coord_op(coordinator_op_t{._type = coordinator_op_types_t::FETCH_META, ._val = 0})) {
     return {false, "Failed to shutdown the cluster!\n"};
@@ -318,7 +318,7 @@ std::tuple<bool, std::string> bbts::coordinator_t::_fetch_tensor_info(std::unord
   // recive all the meta from other nodes
   bool success = true;
   for(node_id_t node = 1; node < _comm->get_num_nodes(); ++node) {
-    
+
     // fetch the meta
     if(!_comm->recv_meta(node, m)) {
       success = false;
@@ -355,7 +355,7 @@ std::tuple<bool, std::string> bbts::coordinator_t::load_shared_library(char* fil
   if (!_comm->send_bytes(file_bytes, file_size)) {
     return {false, "Could not send file to register!\n"};
   }
-  
+
   // do the actual registering, on this node
   std::stringstream ss;
   bool val = _register_from_bytes(file_bytes, file_size, ss);
@@ -454,7 +454,7 @@ void bbts::coordinator_t::_print_tensor(tid_t id, std::stringstream &ss) {
     // the get the tensor
     auto ts = res.get[0].get().tensor;
     if(ts != nullptr) {
-      
+
       // print the tensor since we found it
       ss << bbts::green << "<<< On Node " << _comm->get_rank() << ">>>\n" << bbts::reset;
       _tf->print_tensor(ts, ss);
@@ -512,7 +512,7 @@ bool bbts::coordinator_t::_register_from_bytes(char* file_bytes, size_t file_siz
     return false;
   }
 
-  // The .so should have atleast one of the two (unmangled) functions, register_tensors, register_udfs. 
+  // The .so should have atleast one of the two (unmangled) functions, register_tensors, register_udfs.
   bool had_something = false;
   void* register_tensors_ = dlsym(so_handle, "register_tensors");
   if(register_tensors_) {
@@ -534,7 +534,7 @@ bool bbts::coordinator_t::_register_from_bytes(char* file_bytes, size_t file_siz
   // check if we have actually loaded something
   if(!had_something) {
     ss << bbts::red << "Shared library object did not have a valid \"register_tensors\" or \"register_udfs\"!\n" << std::endl;
-  }  
+  }
 
   // keep track of the stuff here so the system can clean it up later
   shared_libs.emplace_back(filename, so_handle);

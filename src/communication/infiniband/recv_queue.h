@@ -59,6 +59,7 @@ struct recv_item_t {
   // ^ pretend this is an atomic<bool>.. the fetch_or member function isn't implemented for
   //   atomic<bool> but it is for atomic<int>...
   bool acquire();
+  bool is_acquired() const;
 
   void set_fail(int32_t rank);
   void set_success(int32_t rank);
@@ -78,6 +79,7 @@ struct recv_item_t {
     post_recv,
     post_fail
   } which_state;
+  // NOTE: don't check which state until we acquire the recv_item_ptr_t
 
   int64_t sz; // after waiting open send, this is set
 };

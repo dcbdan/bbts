@@ -434,7 +434,8 @@ bool ib_communicator_t::expect_bytes(size_t num_bytes, std::vector<char> &out) {
   _IBC_COUT_("expect bytes");
   out.reserve(num_bytes);
 
-  auto [success, _] = connection.recv_with_bytes(
+  bool success = connection.recv_from_with_bytes(
+    0,
     com_tag::coordinator_bcast_bytes,
     {(void*)out.data(), num_bytes}).get();
 

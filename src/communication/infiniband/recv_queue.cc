@@ -17,6 +17,13 @@ bool recv_item_t::acquire() {
   }
 }
 
+bool recv_item_t::is_acquired() const {
+  if(which_state != wait_open_send || pr.index() == which_pr::no_pr) {
+    return false;
+  }
+  return _acquired;
+}
+
 void recv_item_t::set_fail(int32_t rank) {
   auto which = pr.index();
   if(which == which_pr::no_pr) {
@@ -56,8 +63,9 @@ void recv_item_t::set_success(int32_t rank) {
 }
 
 void virtual_recv_queue_t::insert_item(recv_item_ptr_t item) {
-  if(item->which_state != recv_item_t::state::wait_open_send) {
-    throw std::runtime_error("virtual_recv_queue_t::insert_item");
+  // if the item is acquired, there is no need to deal with it
+  if(item->is_acquired()) {
+    return;
   }
 
   // are there pending open sends?
@@ -115,6 +123,10 @@ void virtual_recv_queue_t::recv_open_send(int64_t size) {
     // we'll deal with this when we have a recv
     pending_sizes.push(size);
     return;
+  }
+
+  if(item->which_state != recv_item_t::state::wait_open_send) {
+    throw std::runtime_error("acquired recv item has incorrect state");
   }
 
   // tell the item we have an open send
@@ -191,6 +203,8 @@ void virtual_recv_queue_t::post_open_recv() {
   }
 }
 
+// INVARIANT: we own this recv_item_t and no one else will modify it
+// (No item should end up at the head of our queue unless we have activaly acquired it)
 recv_item_t* virtual_recv_queue_t::get_head(recv_item_t::state correct_state) {
   if(in_process_items.empty()) {
     throw std::runtime_error("verify head: empty queue");

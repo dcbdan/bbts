@@ -796,7 +796,7 @@ void connection_t::post_rdma_write(int32_t dest_rank, bbts_rdma_write_t const& r
 void connection_t::post_open_recv(
   int32_t dest_rank, tag_t tag, uint64_t addr, uint64_t size, uint32_t key)
 {
-  _DCB_COUT_("post open recv to dest " << dest_rank << ", tag " << tag << ", key " << key << ", address " << addr << std::endl);
+  _DCB_COUT_("post open recv to dest " << dest_rank << ", tag " << tag << std::endl);
   this->post_send(dest_rank,
   {
     .type = bbts_message_t::message_type::open_recv,
@@ -921,7 +921,6 @@ void connection_t::empty_recv_init_queue() {
 void connection_t::empty_recv_anywhere_queue() {
   std::lock_guard<std::mutex> lk(recv_anywhere_m);
   for(auto& [tag, recv_ptr]: recv_anywhere_init_queue) {
-    _DCB_COUT_("a" << std::endl);
     for(int from_rank = 0; from_rank != num_rank; ++from_rank) {
       if(from_rank == rank) {
         recv_from_self(tag, recv_ptr);
@@ -1170,12 +1169,12 @@ void connection_t::handle_work_completion(ibv_wc const& work_completion) {
     tag_rank_t tag_rank = {msg.tag, msg.from_rank};
     auto& [tag, from_rank] = tag_rank;
     if(msg.type == bbts_message_t::message_type::open_send) {
-      _DCB_COUT_("handle: recv open send" << std::endl);
+      _DCB_COUT_("handle: recv open send: from " << from_rank << ", tag " << tag << std::endl);
       // Note: this can recv an open send without there being an open channel
       virtual_recv_queue_t& recv_queue = get_recv_queue(msg.tag, msg.from_rank);
       recv_queue.recv_open_send(msg.m.open_send.size);
     } else if(msg.type == bbts_message_t::message_type::open_recv) {
-      _DCB_COUT_("handle: recv open recv" << std::endl);
+      _DCB_COUT_("handle: recv open recv: from " << from_rank << ", tag " << tag << std::endl);
       virtual_send_queues.at(tag_rank).recv_open_recv(
         msg.m.open_recv.addr,
         msg.m.open_recv.size,
