@@ -1,33 +1,50 @@
 #include "memory_storage.h"
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <stdexcept>
 
-#ifdef ENABLE_GPU
-#include <cstddef>
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cuda_profiler_api.h>  
-#endif
-
+#include "../communication/ib_communicator.h"
+#include "../communication/infiniband/mr_bytes.h"
 #include "../server/static_config.h"
 #include "../utils/terminal_color.h"
 #include <iostream>
 #include <sstream>
-
+#include <sys/mman.h>
+//#include <jemalloc/jemalloc.h>
 
 namespace bbts {
 
-memory_storage_t::~memory_storage_t() {
+memory_storage_t::memory_storage_t(communicator_ptr_t com,
+                                   size_t to_allocate)
+{
 
+  // just empty hooks
+  _tensor_create_hook = [](tid_t _) {};
+  _tensor_delete_hook = [](tid_t _) {};
+
+  // get ourselves a memory region
+    _tensor_memory = com->create_and_use_tensor_memory_region(to_allocate);
+  // and just copy the address to _mem
+  _mem = (uint8_t*)_tensor_memory->get_bytes().data;
+
+  // make the block allocator
+  _allocator = std::make_shared<block_allocator_t>(to_allocate);
+}
+
+memory_storage_t::~memory_storage_t() {
   // go through each allocated tensor and free it
   for(auto &it : _tensor_nfo) {
-    free_tensor(it.second.address);
+    free_tensor(it.second.address, it.second.num_bytes);
   }
 }
 
-memory_storage_t::tensor_ref_t memory_storage_t::_get_by_tid(tid_t _id) { 
+memory_storage_t::tensor_ref_t memory_storage_t::_get_by_tid(tid_t _id) {
 
-  // try to find the tensor if we find it return the address 
+  // try to find the tensor if we find it return the address
   auto it = _tensor_nfo.find(_id);
-  return it != _tensor_nfo.end() ? tensor_ref_t{ .id = _id, .tensor = it->second.address } : 
+  return it != _tensor_nfo.end() ? tensor_ref_t{ .id = _id, .tensor = it->second.address } :
                                    tensor_ref_t{ .id = _id, .tensor = nullptr };
 }
 
@@ -73,36 +90,17 @@ tensor_t *memory_storage_t::_allocate_tensor(size_t num_bytes) {
   // malloc the tensor
   tensor_t *ts;
 
-  // check if we even support the GPU
-  if constexpr(static_config::enable_gpu) {
-    #ifdef ENABLE_GPU
-    // allocate the GPU
-    checkCudaErrors(cudaMallocManaged(&ts, num_bytes));
-    #endif
-  }
-  else {
-
-    // we can not do this
-    ts = (tensor_t*) malloc(num_bytes); 
-  }
+  // allocate the host pinned memory
+  auto offset = _allocator->allocate(num_bytes);
+  ts = (tensor_t*) (_mem + offset);
 
   return ts;
 }
 
-void memory_storage_t::free_tensor(tensor_t *tensor) {
-
-  // check if we even support the GPU
-  if constexpr(static_config::enable_gpu) {
-    #ifdef ENABLE_GPU
-    // free the GPU
-    checkCudaErrors(cudaFree(tensor));
-    #endif
-  }
-  else {
-
-    // free the regular tensor
-    free(tensor);
-  }
+void memory_storage_t::free_tensor(tensor_t *tensor, size_t num_bytes) {
+  // free the memory
+  size_t offset = (size_t)((uint8_t*) tensor - _mem);
+  _allocator->free(offset, num_bytes);
 }
 
 bool memory_storage_t::has_tensor(tid_t _id) {
@@ -115,7 +113,7 @@ bool memory_storage_t::has_tensor(tid_t _id) {
 }
 
 bool memory_storage_t::remove_by_tid(tid_t _id) {
-  
+
   // lock this thing
   std::unique_lock<std::mutex> lck (_m);
 
@@ -126,7 +124,7 @@ bool memory_storage_t::remove_by_tid(tid_t _id) {
   }
 
   // free the tensor
-  free_tensor(it->second.address);
+  free_tensor(it->second.address, it->second.num_bytes);
 
   // remove the tensor
   _tensor_nfo.erase(it);
@@ -142,7 +140,7 @@ bool memory_storage_t::remove_by_tid(tid_t _id) {
 }
 
 bool memory_storage_t::assign_tid(tid_t _anon_id, tid_t _id) {
-  
+
   // lock this thing
   std::unique_lock<std::mutex> lck (_m);
 
@@ -155,7 +153,7 @@ bool memory_storage_t::assign_tid(tid_t _anon_id, tid_t _id) {
   // rewire
   _tensor_nfo[_id] = it->second;
   _tensor_nfo.erase(it);
-  
+
   return true;
 }
 
@@ -196,9 +194,9 @@ void memory_storage_t::clear() {
 
   // go through each allocated tensor and free it
   for(auto &it : _tensor_nfo) {
-    
+
     // is it gpu
-    free_tensor(it.second.address);
+    free_tensor(it.second.address, it.second.num_bytes);
   }
   _tensor_nfo.clear();
 }
@@ -235,7 +233,7 @@ std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> memory_storage_t::extr
 
   // lock this thing
   std::unique_lock<std::mutex> lck (_m);
-  
+
   std::size_t idx = 0;
   std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> out(_tensor_nfo.size());
   for(auto nfo : _tensor_nfo) {
@@ -245,5 +243,4 @@ std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> memory_storage_t::extr
   return std::move(out);
 }
 
-
-}
+} // namespace bbts

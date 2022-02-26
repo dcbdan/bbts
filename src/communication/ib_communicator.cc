@@ -52,8 +52,9 @@ parse_connection_args(node_config_ptr_t const& cfg) {
 }
 
 ib_communicator_t::ib_communicator_t(node_config_ptr_t const& _cfg):
-    connection(parse_connection_args(_cfg), com_tag::free_tag)
-    // ^ pin all tags before the free tag
+    connection(parse_connection_args(_cfg), com_tag::free_tag),
+                           // ^ pin all tags before the free tag
+    tensor_memory(nullptr)
 {}
 
 ib_communicator_t::~ib_communicator_t() {}
@@ -111,11 +112,20 @@ bool ib_communicator_t::recv_sync(
   int32_t tag)
 {
   _IBC_COUT_("recv_sync");
-  return connection.recv_from_with_bytes(
-    from_rank,
-    com_tag::free_tag + tag,
-    {bytes, num_bytes}
-  ).get();
+  if(tensor_memory) {
+    return connection.recv_from_with_bytes(
+      from_rank,
+      com_tag::free_tag + tag,
+      {bytes, num_bytes},
+      tensor_memory->get_memory_region()
+    ).get();
+  } else {
+    return connection.recv_from_with_bytes(
+      from_rank,
+      com_tag::free_tag + tag,
+      {bytes, num_bytes}
+    ).get();
+  }
 }
 
 std::future<bool> ib_communicator_t::send_async(
@@ -125,10 +135,18 @@ std::future<bool> ib_communicator_t::send_async(
   int32_t tag)
 {
   _IBC_COUT_("send_async");
-  return connection.send(
-    dest_rank,
-    com_tag::free_tag + tag,
-    {(void*)bytes, num_bytes});
+  if(tensor_memory) {
+    return connection.send(
+      dest_rank,
+      com_tag::free_tag + tag,
+      {(void*)bytes, num_bytes},
+      tensor_memory->get_memory_region());
+  } else {
+    return connection.send(
+      dest_rank,
+      com_tag::free_tag + tag,
+      {(void*)bytes, num_bytes});
+  }
 }
 
 bool ib_communicator_t::tensors_created_notification(
@@ -444,6 +462,29 @@ bool ib_communicator_t::expect_bytes(size_t num_bytes, std::vector<char> &out) {
     {(void*)out.data(), num_bytes}).get();
 
   return success;
+}
+
+std::shared_ptr<ib::memory_region_bytes_t>
+  ib_communicator_t::create_and_use_tensor_memory_region(size_t num_bytes)
+{
+  auto ret = std::shared_ptr<ib::memory_region_bytes_t>(new ib::memory_region_bytes_t());
+
+  if(get_num_nodes() > 1) {
+    if(!ret->setup_bytes_and_mr(
+          num_bytes,
+          &connection,
+          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE))
+    {
+      throw std::runtime_error("Couldn't allocate and register memory!");
+    }
+  } else {
+    if(!ret->setup_bytes(num_bytes))
+    {
+      throw std::runtime_error("Couldn't allocate memory!");
+    }
+  }
+
+  return ret;
 }
 
 // return the rank

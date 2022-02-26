@@ -24,6 +24,10 @@ bytes_t memory_region_bytes_t::get_bytes() {
   return bytes;
 }
 
+ibv_mr* memory_region_bytes_t::get_memory_region() {
+  return bytes_mr;
+}
+
 own_bytes_t memory_region_bytes_t::extract_bytes() {
   if(!own_bytes) {
     throw std::runtime_error("cannot extract bytes");

@@ -19,14 +19,15 @@ void bbts::node_t::init() {
   if constexpr(static_config::enable_storage) {
 
     // create the storage with 90% of the total ram
-    _storage = std::make_shared<storage_t>(_comm, 
+    _storage = std::make_shared<storage_t>(_comm,
                                           (size_t) (0.9f * (float) _config->total_ram),
                                           "./tmp.ts" + std::to_string(_comm->get_rank()));
   }
   else {
 
     // memory storage is not limited
-    _storage = std::make_shared<storage_t>(_comm);
+    _storage = std::make_shared<storage_t>(_comm,
+                                          (size_t) (0.6f * (float) _config->total_ram));
   }
 
   // init the factory
@@ -190,7 +191,7 @@ std::tuple<bool, std::string> bbts::node_t::load_commands(const bbts::parsed_com
 }
 
 std::tuple<bool, std::string> bbts::node_t::compile_commands(const std::string &file_path) {
-  
+
   // load the file with commands
   compile_source_file_t sf;
   try {
@@ -215,7 +216,7 @@ std::tuple<bool, std::string> bbts::node_t::compile_commands(const std::string &
     // schedule all commands
     return _coordinator->compile_commands(_config->gpu_transfer_cost_per_byte,
                                           _config->send_cost_per_byte,
-                                          sf.commands, 
+                                          sf.commands,
                                           sf.function_specs);
   }
   catch (const std::runtime_error& ex) {

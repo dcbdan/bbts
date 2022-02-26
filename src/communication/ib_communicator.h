@@ -9,6 +9,7 @@
 #include "../server/coordinator_ops.h"
 
 #include "infiniband/connection.h"
+#include "infiniband/mr_bytes.h"
 
 struct _silly {
   _silly(std::string s): s(s) {
@@ -87,6 +88,20 @@ struct ib_communicator_t {
   bool send_bytes(char* file, size_t file_size);
   bool expect_bytes(size_t num_bytes, std::vector<char> &out);
 
+  // Create a memory region object. If this method is called, then it is assumed
+  // that future calls to
+  //   send_sync,
+  //   send_async and
+  //   recv_sync
+  // will contain a memory segment from the returned memory region.
+  // Otherwise everything will break and tensors won't be sent and recvd
+  // correctly.
+  //
+  // If there is only one node, it just allocates the memory,
+  // not create a memory region
+  std::shared_ptr<ib::memory_region_bytes_t>
+    create_and_use_tensor_memory_region(size_t num_bytes);
+
   // waits for all the nodes to hit this, should only be used for initialization
   void barrier();
 
@@ -95,6 +110,7 @@ struct ib_communicator_t {
 
   // return the number of nodes
   int32_t get_num_nodes() const;
+
 private:
   enum com_tag {
     response_string_tag,
@@ -110,6 +126,7 @@ private:
 
 private:
   ib::connection_t connection;
+  std::shared_ptr<ib::memory_region_bytes_t> tensor_memory;
 };
 
 } // bbts

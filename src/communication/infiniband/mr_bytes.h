@@ -29,6 +29,7 @@ struct memory_region_bytes_t {
   {}
 
   bytes_t get_bytes();
+  ibv_mr* get_memory_region();
 
   own_bytes_t extract_bytes();
 
