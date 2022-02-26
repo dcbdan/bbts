@@ -508,19 +508,6 @@ connection_t::connection_t(
 {
   num_rank = ips.size();
   if(num_rank == 1) {
-    // TODO: How best to handle one rank?
-    //
-    // Do not set up infiniband but have a poll thread busy wait.
-    // This could be made more efficient by not busy waiting--there is no need to,
-    // since infiniband queues aren't going to be getting full.
-    //
-    // Only self_sends, self_recvs, the init queues and the poll thread
-    // should be used.
-    std::cout
-      << "WARNING: using infiniband connection class with only 1 rank"
-      << std::endl;
-
-    poll_thread = std::thread(&connection_t::poll, this);
     return;
   }
 
@@ -556,8 +543,6 @@ connection_t::connection_t(
     throw std::runtime_error("make_connection: couldn't connect context");
   }
 
-  destruct = false;
-
   this->num_rank         = context->num_rank;
   this->num_recv         = context->get_num_recv();
   this->num_send_per_qp  = context->num_send_per_qp;
@@ -576,12 +561,14 @@ connection_t::connection_t(
 
   delete context;
 
-  poll_thread = std::thread(&connection_t::poll, this);
+  destruct_counter = 1;
+  completion_queue_processor =
+    std::thread(&connection_t::process_completion_queue, this);
 }
 
 connection_t::~connection_t() {
-  destruct = true;
-  poll_thread.join();
+  destruct_counter--;
+  completion_queue_processor.join();
 
   for(int i = 0; i != num_rank; ++i) {
     if(i == rank)
@@ -598,136 +585,142 @@ connection_t::~connection_t() {
   ibv_close_device(this->context);
 }
 
-future<bool> connection_t::send(int32_t dest_rank, tag_t tag, bytes_t bytes) {
-  std::lock_guard<std::mutex> lk(send_m);
+void connection_t::_send(
+  int32_t dest_rank, tag_t tag, send_item_ptr_t send_item)
+{
+  std::lock_guard<std::mutex> lk(_m);
 
-  send_init_queue.push_back({
-    tag,
-    dest_rank,
-    send_item_t{memory_region_bytes_t(bytes), std::promise<bool>()}
-  });
-  return std::get<2>(send_init_queue.back()).pr.get_future();
+  if(dest_rank == get_rank()) {
+    send_to_self(tag, send_item);
+  } else {
+    auto& v_send_queue = get_send_queue(tag, dest_rank);
+    v_send_queue.insert_item(send_item);
+  }
+}
+
+void connection_t::_recv(
+  int32_t from_rank, tag_t tag, recv_item_ptr_t recv_item)
+{
+  std::lock_guard<std::mutex> lk(_m);
+
+  if(from_rank == rank) {
+    recv_from_self(tag, recv_item);
+  } else {
+    auto& v_recv_queue = get_recv_queue(tag, from_rank);
+    v_recv_queue.insert_item(recv_item);
+  }
+}
+
+void connection_t::_recv_anywhere(
+  tag_t tag, recv_item_ptr_t recv_item)
+{
+  std::lock_guard<std::mutex> lk(_m);
+
+  for(int from_rank = 0; from_rank != num_rank; ++from_rank) {
+    if(from_rank == rank) {
+      recv_from_self(tag, recv_item);
+    } else {
+      auto& v_recv_queue = get_recv_queue(tag, from_rank);
+      v_recv_queue.insert_item(recv_item);
+    }
+  }
+}
+
+future<bool> connection_t::send(int32_t dest_rank, tag_t tag, bytes_t bytes) {
+  auto send_item = std::shared_ptr<send_item_t>(new send_item_t{
+    memory_region_bytes_t(bytes),
+    std::promise<bool>()});
+  auto fut = send_item->pr.get_future();
+  std::thread t(&connection_t::_send, this, dest_rank, tag, send_item);
+  t.detach();
+  return fut;
 }
 
 future<bool> connection_t::send(
   int32_t dest_rank, tag_t tag, bytes_t bytes, ibv_mr* bytes_mr)
 {
-  std::lock_guard<std::mutex> lk(send_m);
-  send_init_queue.push_back({
-    tag,
-    dest_rank,
-    send_item_t{memory_region_bytes_t(bytes, bytes_mr), promise<bool>()}
-  });
-  return std::get<2>(send_init_queue.back()).pr.get_future();
+  auto send_item = std::shared_ptr<send_item_t>(new send_item_t{
+    memory_region_bytes_t(bytes, bytes_mr),
+    std::promise<bool>()});
+  auto fut = send_item->pr.get_future();
+  std::thread t(&connection_t::_send, this, dest_rank, tag, send_item);
+  t.detach();
+  return fut;
 }
 
 future<tuple<bool, int32_t, own_bytes_t> >
   connection_t::recv(tag_t tag)
 {
-  std::lock_guard<std::mutex> lk(recv_anywhere_m);
-
-  recv_anywhere_init_queue.push_back({
-    tag,
-    std::shared_ptr<recv_item_t>(new recv_item_t(
+  auto recv_item = std::shared_ptr<recv_item_t>(new recv_item_t(
       memory_region_bytes_t(),
-      promise<tuple<bool, int32_t, own_bytes_t> >()
-    ))
-  });
-
-  return std::get<recv_item_t::which_pr::rank_bytes>(
-    std::get<1>(recv_anywhere_init_queue.back())->pr
-  ).get_future();
+      promise<tuple<bool, int32_t, own_bytes_t> >()));
+  auto fut = std::get<recv_item_t::which_pr::rank_bytes>(recv_item->pr).get_future();
+  std::thread t(&connection_t::_recv_anywhere, this, tag, recv_item);
+  t.detach();
+  return fut;
 }
 
 future<tuple<bool, int32_t> >
   connection_t::recv_with_bytes(tag_t tag, bytes_t bytes)
 {
-  std::lock_guard<std::mutex> lk(recv_anywhere_m);
-  recv_anywhere_init_queue.push_back({
-    tag,
-    std::shared_ptr<recv_item_t>(new recv_item_t(
+  auto recv_item = std::shared_ptr<recv_item_t>(new recv_item_t(
       memory_region_bytes_t(bytes),
-      promise<tuple<bool, int32_t> >()
-    ))
-  });
-
-  return std::get<recv_item_t::which_pr::rank_success>(
-    std::get<1>(recv_anywhere_init_queue.back())->pr
-  ).get_future();
+      promise<tuple<bool, int32_t> >()));
+  auto fut = std::get<recv_item_t::which_pr::rank_success>(recv_item->pr).get_future();
+  std::thread t(&connection_t::_recv_anywhere, this, tag, recv_item);
+  t.detach();
+  return fut;
 }
 
 future<tuple<bool, int32_t > >
   connection_t::recv_with_bytes(
   tag_t tag, bytes_t bytes, ibv_mr* bytes_mr)
 {
-  std::lock_guard<std::mutex> lk(recv_anywhere_m);
-  recv_anywhere_init_queue.push_back({
-    tag,
-    std::shared_ptr<recv_item_t>(new recv_item_t(
+  auto recv_item = std::shared_ptr<recv_item_t>(new recv_item_t(
       memory_region_bytes_t(bytes, bytes_mr),
-      promise<tuple<bool, int32_t> >()
-    ))
-  });
-
-  return std::get<recv_item_t::which_pr::rank_success>(
-    std::get<1>(recv_anywhere_init_queue.back())->pr
-  ).get_future();
+      promise<tuple<bool, int32_t> >()));
+  auto fut = std::get<recv_item_t::which_pr::rank_success>(recv_item->pr).get_future();
+  std::thread t(&connection_t::_recv_anywhere, this, tag, recv_item);
+  t.detach();
+  return fut;
 }
 
 future<tuple<bool, own_bytes_t>>
   connection_t::recv_from(int32_t from_rank, tag_t tag)
 {
-  std::lock_guard<std::mutex> lk(recv_m);
-  recv_init_queue.push_back({
-    tag,
-    from_rank,
-    std::shared_ptr<recv_item_t>(new recv_item_t(
+  auto recv_item = std::shared_ptr<recv_item_t>(new recv_item_t(
       memory_region_bytes_t(),
-      promise<tuple<bool, own_bytes_t> >()
-    ))
-  });
-
-  return std::get<recv_item_t::which_pr::just_bytes>(
-    std::get<2>(recv_init_queue.back())->pr
-  ).get_future();
+      promise<tuple<bool, own_bytes_t> >()));
+  auto fut = std::get<recv_item_t::which_pr::just_bytes>(recv_item->pr).get_future();
+  std::thread t(&connection_t::_recv, this, from_rank, tag, recv_item);
+  t.detach();
+  return fut;
 }
 
 future<bool>
   connection_t::recv_from_with_bytes(
     int32_t from_rank, tag_t tag, bytes_t bytes)
 {
-  std::lock_guard<std::mutex> lk(recv_m);
-  recv_init_queue.push_back({
-    tag,
-    from_rank,
-    std::shared_ptr<recv_item_t>(new recv_item_t(
+  auto recv_item = std::shared_ptr<recv_item_t>(new recv_item_t(
       memory_region_bytes_t(bytes),
-      promise<bool>()
-    ))
-  });
-
-  return std::get<recv_item_t::which_pr::just_success>(
-    std::get<2>(recv_init_queue.back())->pr
-  ).get_future();
+      promise<bool>()));
+  auto fut = std::get<recv_item_t::which_pr::just_success>(recv_item->pr).get_future();
+  std::thread t(&connection_t::_recv, this, from_rank, tag, recv_item);
+  t.detach();
+  return fut;
 }
 
 future<bool>
   connection_t::recv_from_with_bytes(
     int32_t from_rank, tag_t tag, bytes_t bytes, ibv_mr* bytes_mr)
 {
-  std::lock_guard<std::mutex> lk(recv_m);
-  recv_init_queue.push_back({
-    tag,
-    from_rank,
-    std::shared_ptr<recv_item_t>(new recv_item_t(
+  auto recv_item = std::shared_ptr<recv_item_t>(new recv_item_t(
       memory_region_bytes_t(bytes, bytes_mr),
-      promise<bool>()
-    ))
-  });
-
-  return std::get<recv_item_t::which_pr::just_success>(
-    std::get<2>(recv_init_queue.back())->pr
-  ).get_future();
+      promise<bool>()));
+  auto fut = std::get<recv_item_t::which_pr::just_success>(recv_item->pr).get_future();
+  std::thread t(&connection_t::_recv, this, from_rank, tag, recv_item);
+  t.detach();
+  return fut;
 }
 
 void connection_t::post_send(int32_t dest_rank, bbts_message_t const& msg) {
@@ -828,33 +821,19 @@ void connection_t::post_fail_recv(int32_t dest_rank, tag_t tag){
   });
 }
 
-void connection_t::poll() {
+void connection_t::process_completion_queue() {
   ibv_wc work_completion;
 
-  if(num_rank == 1) {
-    while(!destruct) {
-      for(int i = 0; i != 1000000; ++i) {
-          empty_send_init_queue();
-          empty_recv_init_queue();
-          empty_recv_anywhere_queue();
-      }
-    }
+  if(get_num_nodes() == 1) {
     return;
   }
 
-  while(!destruct){
+  while(destruct_counter){
     // It's not important that the thread catches the destruct exactly.
     for(int i = 0; i != 1000000; ++i) {
-      // 1. empty send_init_queue
-      empty_send_init_queue();
+      std::lock_guard<std::mutex> lk(_m);
 
-      // 2. empty recv_init_queue
-      empty_recv_init_queue();
-
-      // 3. empty recv_anywhere_init_queue
-      empty_recv_anywhere_queue();
-
-      // 4. process completion item
+      // process completion item
       int ne = ibv_poll_cq(completion_queue, 1, &work_completion);
       while(ne != 0) {
         if(ne < 0) {
@@ -909,54 +888,13 @@ virtual_recv_queue_t& connection_t::get_recv_queue(tag_t tag, int32_t from_rank)
   return v_recv_queue;
 }
 
-void connection_t::empty_send_init_queue() {
-  std::lock_guard<std::mutex> lk(send_m);
-  for(auto && [tag,dest_rank,item]: send_init_queue) {
-    if(dest_rank == get_rank()) {
-      send_to_self(tag, std::move(item));
-    } else {
-      auto& v_send_queue = get_send_queue(tag, dest_rank);
-      v_send_queue.insert_item(std::move(item));
-    }
-  }
-  send_init_queue.resize(0);
-}
-
-void connection_t::empty_recv_init_queue() {
-  std::lock_guard<std::mutex> lk(recv_m);
-  for(auto& [tag, from_rank, recv_ptr]: recv_init_queue) {
-    if(from_rank == get_rank()) {
-      recv_from_self(tag, recv_ptr);
-    } else {
-      auto& v_recv_queue = get_recv_queue(tag, from_rank);
-      v_recv_queue.insert_item(recv_ptr);
-    }
-  }
-  recv_init_queue.resize(0);
-}
-
-void connection_t::empty_recv_anywhere_queue() {
-  std::lock_guard<std::mutex> lk(recv_anywhere_m);
-  for(auto& [tag, recv_ptr]: recv_anywhere_init_queue) {
-    for(int from_rank = 0; from_rank != num_rank; ++from_rank) {
-      if(from_rank == rank) {
-        recv_from_self(tag, recv_ptr);
-      } else {
-        auto& v_recv_queue = get_recv_queue(tag, from_rank);
-        v_recv_queue.insert_item(recv_ptr);
-      }
-    }
-  }
-  recv_anywhere_init_queue.resize(0);
-}
-
 // TODO: send_to_self and recv_from_self could be optimized to
 //       make less queries to self_sends and self_recvs
 //       (but that sounds tedious and prone to error)
 
-void connection_t::send_to_self(tag_t tag, send_item_t&& send_item) {
+void connection_t::send_to_self(tag_t tag, send_item_ptr_t send_item) {
   // This will create the queue at tag if one doesn't exist
-  std::queue<send_item_t>&     sends = self_sends[tag];
+  std::queue<send_item_ptr_t>& sends = self_sends[tag];
   std::queue<recv_item_ptr_t>& recvs = self_recvs[tag];
 
   if(!sends.empty()) {
@@ -997,7 +935,7 @@ void connection_t::send_to_self(tag_t tag, send_item_t&& send_item) {
 
 void connection_t::recv_from_self(tag_t tag, recv_item_ptr_t recv_item) {
   // This will create the queue at tag if one doesn't exist
-  std::queue<send_item_t>&     sends = self_sends[tag];
+  std::queue<send_item_ptr_t>& sends = self_sends[tag];
   std::queue<recv_item_ptr_t>& recvs = self_recvs[tag];
 
   if(!recvs.empty()) {
@@ -1029,12 +967,12 @@ void connection_t::recv_from_self(tag_t tag, recv_item_ptr_t recv_item) {
 }
 
 void connection_t::set_send_recv_self_items(
-  send_item_t& send_item,
+  send_item_ptr_t send_item,
   recv_item_ptr_t recv_item)
 {
   // Invariant: the recv_item has been acquired
 
-  bytes_t send_bs = send_item.bytes.get_bytes();
+  bytes_t send_bs = send_item->bytes.get_bytes();
   bool setup_bytes = recv_item->bytes.setup_bytes(send_bs.size);
   if(!setup_bytes) {
     // couldn't get the memory to copy the data
@@ -1043,7 +981,7 @@ void connection_t::set_send_recv_self_items(
     recv_item->set_fail(get_rank());
 
     // set send to fail
-    send_item.pr.set_value(false);
+    send_item->pr.set_value(false);
   } else {
     // copy the data
     bytes_t recv_bs = recv_item->bytes.get_bytes();
@@ -1055,7 +993,7 @@ void connection_t::set_send_recv_self_items(
     recv_item->set_success(get_rank());
 
     // set send to success
-    send_item.pr.set_value(true);
+    send_item->pr.set_value(true);
   }
 }
 

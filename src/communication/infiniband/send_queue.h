@@ -11,12 +11,14 @@ struct send_item_t {
   std::promise<bool> pr;
 };
 
+using send_item_ptr_t = std::shared_ptr<send_item_t>;
+
 struct virtual_send_queue_t {
   virtual_send_queue_t(connection_t* connection, int32_t rank, tag_t tag):
     which_state(state::wait), connection(connection), rank(rank), tag(tag)
   {}
 
-  void insert_item(send_item_t && item);
+  void insert_item(send_item_ptr_t item);
 
   void recv_open_recv(uint64_t addr, uint64_t size, uint32_t key);
   void recv_fail_recv();
@@ -44,12 +46,12 @@ private:
   } which_state;
 
   void process_next();
-  send_item_t* get_head(state correct_state);
+  send_item_ptr_t get_head(state correct_state);
   void check_state(state correct_state) const;
   void post_open_send();
 
   // Invariant: only the front item is in process at a time
-  std::queue<send_item_t> items;
+  std::queue<send_item_ptr_t> items;
 
   connection_t* connection;
   int32_t rank;

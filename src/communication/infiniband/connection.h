@@ -113,6 +113,7 @@ struct virtual_recv_queue_t;
 struct send_item_t;
 struct recv_item_t;
 
+using send_item_ptr_t = std::shared_ptr<send_item_t>;
 using recv_item_ptr_t = std::shared_ptr<recv_item_t>;
 
 // The connection_t object holds an "infinite" set of queues, each queue
@@ -187,42 +188,39 @@ private:
   friend class virtual_recv_queue_t;
 
 private:
-  void poll();
-
   // these will make a virtual queue if there isn't already one at that tag, rank
   virtual_send_queue_t& get_send_queue(tag_t tag, int32_t dest_rank);
   virtual_recv_queue_t& get_recv_queue(tag_t tag, int32_t from_rank);
 
-  void empty_send_init_queue();
-  void empty_recv_init_queue();
-  void empty_recv_anywhere_queue();
-
-  void send_to_self(tag_t tag, send_item_t&& item);
+  void send_to_self(tag_t tag, send_item_ptr_t item);
   void recv_from_self(tag_t tag, recv_item_ptr_t item);
-  void set_send_recv_self_items(send_item_t& send_item, recv_item_ptr_t recv_item);
+  void set_send_recv_self_items(send_item_ptr_t send_item, recv_item_ptr_t recv_item);
 
   void handle_work_completion(ibv_wc const& work_completion);
+  void process_completion_queue();
 
   // find out what queue pair was responsible for this work request
   int32_t get_recv_rank(ibv_wc const& wc) const;
 
+  void _send(int32_t dest_rank, tag_t tag, send_item_ptr_t send_item);
+  void _recv(int32_t from_rank, tag_t tag, recv_item_ptr_t recv_item);
+  void _recv_anywhere(tag_t tag, recv_item_ptr_t recv_item);
+
 private:
   int32_t rank;
-  std::thread poll_thread;
-  std::atomic<bool> destruct;
-
-  // Things not yet handled.
-  std::vector<tuple<tag_t, int32_t, send_item_t    > > send_init_queue;
-  std::vector<tuple<tag_t, int32_t, recv_item_ptr_t> > recv_init_queue;
-  std::vector<tuple<tag_t,          recv_item_ptr_t> > recv_anywhere_init_queue;
-  // A mutex for each of the init queues
-  std::mutex send_m, recv_m, recv_anywhere_m;
+  std::thread completion_queue_processor;
+  std::atomic<int> destruct_counter;
+    // ^ TODO? keep track of destruct threads here
+    //         Whenever a send or recv happens, it detaches a threads.
+    //         It could happen that in the destructor, there are still floating
+    //         threads waiting to happen
+  std::mutex _m;
 
   // virtual send and recv queues
   std::map<tag_rank_t, virtual_send_queue_t> virtual_send_queues;
   std::map<tag_rank_t, virtual_recv_queue_t> virtual_recv_queues;
   // for sending and recving from self
-  std::map<tag_t, std::queue<send_item_t>     > self_sends;
+  std::map<tag_t, std::queue<send_item_ptr_t> > self_sends;
   std::map<tag_t, std::queue<recv_item_ptr_t> > self_recvs;
 
   std::queue<int> available_send_msgs;

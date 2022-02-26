@@ -3,7 +3,7 @@
 namespace bbts {
 namespace ib {
 
-void virtual_send_queue_t::insert_item(send_item_t && item) {
+void virtual_send_queue_t::insert_item(send_item_ptr_t item) {
   items.push(std::move(item));
   if(items.size() == 1) {
     post_open_send();
@@ -17,7 +17,7 @@ void virtual_send_queue_t::completed_open_send() {
 }
 
 void virtual_send_queue_t::recv_open_recv(uint64_t addr, uint64_t size, uint32_t key) {
-  send_item_t* item = get_head(state::post_send);
+  send_item_ptr_t item = get_head(state::post_send);
 
   // allocate memory region if necessary... if that doesn't work,
   // tell the remote recv that the send isn't gonna happen
@@ -43,7 +43,7 @@ void virtual_send_queue_t::recv_open_recv(uint64_t addr, uint64_t size, uint32_t
 }
 
 void virtual_send_queue_t::recv_fail_recv() {
-  send_item_t* item = get_head(state::post_send);
+  send_item_ptr_t item = get_head(state::post_send);
   item->pr.set_value(false);
   items.pop();
   which_state = state::wait;
@@ -57,7 +57,7 @@ void virtual_send_queue_t::completed_rdma_write() {
 }
 
 void virtual_send_queue_t::completed_close_send() {
-  send_item_t* item = get_head(state::post_close);
+  send_item_ptr_t item = get_head(state::post_close);
   item->pr.set_value(true);
   items.pop();
   which_state = state::wait;
@@ -65,7 +65,7 @@ void virtual_send_queue_t::completed_close_send() {
 }
 
 void virtual_send_queue_t::completed_fail_send() {
-  send_item_t* item = get_head(state::post_fail);
+  send_item_ptr_t item = get_head(state::post_fail);
   item->pr.set_value(false);
   items.pop();
   which_state = state::wait;
@@ -86,14 +86,14 @@ void virtual_send_queue_t::process_next() {
   }
 }
 
-send_item_t* virtual_send_queue_t::get_head(state correct_state) {
+send_item_ptr_t virtual_send_queue_t::get_head(state correct_state) {
   if(items.empty()) {
     throw std::runtime_error("empty virtual send queue");
   }
 
   check_state(correct_state);
 
-  return &items.front();
+  return items.front();
 }
 
 void virtual_send_queue_t::check_state(state correct_state) const {
@@ -104,7 +104,7 @@ void virtual_send_queue_t::check_state(state correct_state) const {
 }
 
 void virtual_send_queue_t::post_open_send() {
-  send_item_t* item = get_head(state::wait);
+  send_item_ptr_t item = get_head(state::wait);
   connection->post_open_send(rank, tag, item->bytes.get_size());
   which_state = state::post_send;
 }
