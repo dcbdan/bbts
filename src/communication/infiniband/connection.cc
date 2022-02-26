@@ -832,11 +832,11 @@ void connection_t::poll() {
   ibv_wc work_completion;
 
   if(num_rank == 1) {
-    for(int i = 0; i != 1000000; ++i) {
-      while(!destruct) {
-        empty_send_init_queue();
-        empty_recv_init_queue();
-        empty_recv_anywhere_queue();
+    while(!destruct) {
+      for(int i = 0; i != 1000000; ++i) {
+          empty_send_init_queue();
+          empty_recv_init_queue();
+          empty_recv_anywhere_queue();
       }
     }
     return;
