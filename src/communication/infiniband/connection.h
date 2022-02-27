@@ -125,19 +125,22 @@ using recv_item_ptr_t = std::shared_ptr<recv_item_t>;
 struct connection_t {
   connection_t(
     std::tuple<std::string, int32_t, std::vector<std::string>> items,
-    uint64_t num_pinned_tags):
+    uint64_t num_pinned_tags,
+    bool poll = false):
       connection_t(
         std::get<0>(items),
         std::get<1>(items),
         std::get<2>(items),
-        num_pinned_tags)
+        num_pinned_tags,
+        poll)
   {}
 
   connection_t(
     std::string dev_name,
     int32_t rank,
     std::vector<std::string> ips,
-    uint64_t num_pinned_tags);
+    uint64_t num_pinned_tags,
+    bool poll = false);
 
   connection_t(connection_t const&) = delete;
   connection_t& operator=(connection_t const&) = delete;
@@ -198,6 +201,7 @@ private:
 
   void handle_work_completion(ibv_wc const& work_completion);
   void process_completion_queue();
+  void _poll();
 
   // find out what queue pair was responsible for this work request
   int32_t get_recv_rank(ibv_wc const& wc) const;
@@ -208,6 +212,7 @@ private:
 
 private:
   int32_t rank;
+  const bool poll;
   std::thread completion_queue_processor;
   std::atomic<int> destruct_counter;
     // ^ TODO? keep track of destruct threads here
@@ -231,6 +236,7 @@ private:
   ibv_mr* recv_msgs_mr;
 
   ibv_context *context;
+  ibv_comp_channel* channel;
   ibv_cq *completion_queue;
   ibv_pd *protection_domain;
   ibv_srq *shared_recv_queue;

@@ -24,6 +24,7 @@ struct bbts_dest_t {
 struct bbts_context_t {
   ibv_context  *context;
   ibv_pd    *pd;
+  ibv_comp_channel *ch;
   ibv_cq    *cq;
   std::vector<ibv_qp_ptr> qps;
   ibv_srq   *srq;
@@ -220,12 +221,23 @@ bbts_context_t* bbts_init_context(
     goto clean_recv_mr;
   }
 
+  ctx->ch = ibv_create_comp_channel(ctx->context);
+  if(!ctx->ch) {
+    goto clean_send_mr;
+  }
+
   ctx->cq = ibv_create_cq(
     ctx->context,
     num_total_write + num_total_send + num_recv,
-    NULL, NULL, 0);
+    NULL,
+    ctx->ch,
+    0);
   if (!ctx->cq) {
-    goto clean_send_mr;
+    goto clean_ch;
+  }
+
+  if(ibv_req_notify_cq(ctx->cq, 0)) {
+    goto clean_cq;
   }
 
   {
@@ -313,6 +325,9 @@ clean_srq:
 
 clean_cq:
   ibv_destroy_cq(ctx->cq);
+
+clean_ch:
+  ibv_destroy_comp_channel(ctx->ch);
 
 clean_send_mr:
   ibv_dereg_mr(ctx->send_msgs_mr);
@@ -497,8 +512,9 @@ connection_t::connection_t(
   std::string dev_name,
   int32_t rank,
   std::vector<std::string> ips,
-  uint64_t num_pinned_tags):
-    rank(rank),
+  uint64_t num_pinned_tags,
+  bool poll):
+    rank(rank), poll(poll),
     current_recv_msg(0),
     num_pinned_tags(num_pinned_tags),
     send_wr_cnts(ips.size()),
@@ -554,6 +570,7 @@ connection_t::connection_t(
   this->send_msgs_mr   = context->send_msgs_mr;
 
   this->context               = context->context;
+  this->channel               = context->ch;
   this->completion_queue      = context->cq;
   this->protection_domain     = context->pd;
   this->shared_recv_queue     = context->srq;
@@ -568,7 +585,12 @@ connection_t::connection_t(
 
 connection_t::~connection_t() {
   destruct_counter--;
-  completion_queue_processor.join();
+  if(poll) {
+    completion_queue_processor.join();
+  } else {
+    std::cout << "WARNING: not joining completion_queue_processor" << std::endl;
+    // TODO
+  }
 
   for(int i = 0; i != num_rank; ++i) {
     if(i == rank)
@@ -576,6 +598,7 @@ connection_t::~connection_t() {
     ibv_destroy_qp(this->queue_pairs[i]);
   }
   ibv_destroy_srq(this->shared_recv_queue);
+  ibv_destroy_comp_channel(this->channel);
   ibv_destroy_cq(this->completion_queue);
   ibv_dereg_mr(this->send_msgs_mr);
   ibv_dereg_mr(this->recv_msgs_mr);
@@ -822,45 +845,73 @@ void connection_t::post_fail_recv(int32_t dest_rank, tag_t tag){
 }
 
 void connection_t::process_completion_queue() {
-  ibv_wc work_completion;
-
   if(get_num_nodes() == 1) {
     return;
   }
 
-  while(destruct_counter){
-    // It's not important that the thread catches the destruct exactly.
-    for(int i = 0; i != 1000000; ++i) {
-      std::lock_guard<std::mutex> lk(_m);
-
-      // process completion item
-      int ne = ibv_poll_cq(completion_queue, 1, &work_completion);
-      while(ne != 0) {
-        if(ne < 0) {
-          throw std::runtime_error("ibv_poll_cq error");
-        }
-        if(int err = work_completion.status) {
-          _DCB_COUT_("work completion status " << err << std::endl);
-
-          // The only valid items in a work completion with a non success
-          // status are:
-          //   status, wr_id, qp_num and vendor_err.
-          // Printing out the first three of those...
-          std::cout
-            << "WR ID of failed work completion: "
-            << work_completion.wr_id << std::endl;
-          std::cout << "ibv wc STATUS " <<
-            ibv_wc_status_str(work_completion.status) << std::endl;
-          std::cout << "wc has RANK of " <<
-            get_recv_rank(work_completion) << std::endl;
-
-          throw std::runtime_error("work completion error");
-        }
-        handle_work_completion(work_completion);
-
-        ne = ibv_poll_cq(completion_queue, 1, &work_completion);
+  if(poll) {
+    while(destruct_counter){
+      // It's not important that the thread catches the destruct exactly.
+      for(int i = 0; i != 1000000; ++i) {
+        _poll();
       }
     }
+  } else {
+    ibv_cq *ev_cq;
+    void *ev_ctx;
+    int ret;
+
+    while(destruct_counter) {
+      // TODO: how does this know if it should destruct?
+      //       can the destructore destory an ibv something?
+
+      ret = ibv_get_cq_event(channel, &ev_cq, &ev_ctx);
+      if(ret) {
+        throw std::runtime_error("ibv_get_cq_event in non-poll connection_t");
+      }
+
+      ibv_ack_cq_events(ev_cq, 1);
+
+      ret = ibv_req_notify_cq(ev_cq, 0);
+      if (ret) {
+        throw std::runtime_error("ibv_req_notify_cq in non-poll connection_t");
+      }
+
+      _poll();
+    }
+  }
+}
+
+void connection_t::_poll() {
+  static ibv_wc work_completion;
+  std::lock_guard<std::mutex> lk(_m);
+
+  // process completion item
+  int ne = ibv_poll_cq(completion_queue, 1, &work_completion);
+  while(ne != 0) {
+    if(ne < 0) {
+      throw std::runtime_error("ibv_poll_cq error");
+    }
+    if(int err = work_completion.status) {
+      _DCB_COUT_("work completion status " << err << std::endl);
+
+      // The only valid items in a work completion with a non success
+      // status are:
+      //   status, wr_id, qp_num and vendor_err.
+      // Printing out the first three of those...
+      std::cout
+        << "WR ID of failed work completion: "
+        << work_completion.wr_id << std::endl;
+      std::cout << "ibv wc STATUS " <<
+        ibv_wc_status_str(work_completion.status) << std::endl;
+      std::cout << "wc has RANK of " <<
+        get_recv_rank(work_completion) << std::endl;
+
+      throw std::runtime_error("work completion error");
+    }
+    handle_work_completion(work_completion);
+
+    ne = ibv_poll_cq(completion_queue, 1, &work_completion);
   }
 }
 
