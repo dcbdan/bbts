@@ -11,7 +11,7 @@ bbts::command_runner_t::command_runner_t(bbts::storage_ptr_t ts,
                                          bbts::udf_manager_ptr udm,
                                          bbts::reservation_station_ptr_t rs,
                                          bbts::communicator_ptr_t comm,
-                                         bbts::logger_ptr_t logger)  
+                                         bbts::logger_ptr_t logger)
     : _ts(std::move(ts)), _tf(std::move(tf)), _udm(std::move(udm)),
       _rs(std::move(rs)), _comm(std::move(comm)), _logger(std::move(logger)) {}
 
@@ -93,7 +93,7 @@ void bbts::command_runner_t::local_apply_command_runner() {
       break;
     }
 
-    // return me that matcher for matrix addition
+    // return me that matcher for the operation
     auto ud = _udm->get_fn_impl(cmd->fun_id);
 
     // setup the inputs
@@ -104,6 +104,12 @@ void bbts::command_runner_t::local_apply_command_runner() {
 
     // reserve the outputs
     std::vector<std::tuple<tid_t, size_t>> outputs; outputs.reserve(cmd->get_num_outputs());
+
+    // There are two transactions happening here. In the first transaction, the reservation
+    // station grabs the input tensors and computes the outputs that will be necessary.
+    // In the second transaction, the reservation station grabs the input tensors again
+    // as well as the output tensors; then it runs the actual computation into the output
+    // tensors.
 
     // calculate the output size
     _ts->local_transaction(inputs, {}, [&](const storage_t::reservation_result_t &res) {
@@ -128,7 +134,6 @@ void bbts::command_runner_t::local_apply_command_runner() {
       // setup the output arguments
       ud_impl_t::tensor_args_t output_args(cmd->get_num_outputs());
       for (size_t idx = 0; idx < cmd->get_num_outputs(); ++idx) {
-
         // get the type of the output
         auto &type = ud->outputTypes[idx];
         output_meta_args.get_by_idx(idx).fmt_id = _tf->get_tensor_ftm(type);
@@ -140,13 +145,12 @@ void bbts::command_runner_t::local_apply_command_runner() {
         // store the outputs
         outputs.push_back({tid, ts_size});
       }
-
     });
 
     // log what is happening
     _logger->message("APPLY " + std::to_string(cmd->id) + " on my_node : " + std::to_string(_comm->get_rank()) + " Executed...\n");
 
-    // create the outputs and run the ud 
+    // create the outputs and run the ud
     _ts->local_transaction(inputs, outputs, [&](const storage_t::reservation_result_t &res) {
 
       // make the input arguments
@@ -162,7 +166,7 @@ void bbts::command_runner_t::local_apply_command_runner() {
       ud_impl_t::tensor_args_t output_args(cmd->get_num_outputs());
       for (size_t idx = 0; idx < cmd->get_num_outputs(); ++idx) {
 
-        auto t = res.create[idx].get().tensor;
+        auto t = res.create_or_get[idx].get().tensor;
 
         // get the type of the output
         auto &type = ud->outputTypes[idx];
@@ -171,9 +175,12 @@ void bbts::command_runner_t::local_apply_command_runner() {
         // set the output arg
         output_args.set(idx, *t);
       }
-      
+
       // apply the ud function
-      ud->call_ud(bbts::ud_impl_t::tensor_params_t{._params = cmd->get_parameters() }, input_args, output_args);
+      ud->call_ud(
+        bbts::ud_impl_t::tensor_params_t{._params = cmd->get_parameters() },
+        input_args,
+        output_args);
     });
 
     // retire the command so it knows that we have processed the tensors
@@ -247,14 +254,14 @@ void bbts::command_runner_t::local_reduce_command_runner() {
       // get all the tensors we need
       for(const auto& in : cmd_inputs) {
 
-        // check if the node
+        // check if the input is here
         if(in.node == _comm->get_rank()) {
 
           // get the source tensor
           inputs.push_back(in.tid);
         }
       }
-      
+
       // make sure this does not happen
       assert(inputs.size() != 0);
 

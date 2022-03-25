@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     storage.local_transaction({}, {{comm->get_rank(), size}}, [&](const storage_t::reservation_result_t &res) {
 
       // get the craeted tensor
-      auto &t = res.create[0].get().tensor;
+      auto &t = res.create_or_get[0].get().tensor;
 
       // init the tensor
       auto &a = factory->init_tensor(t, m).as<bbts::dense_tensor_t>();
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
       // get the dense tensor
       auto t = res.get[0].get().tensor;
       auto &a = t->as<bbts::dense_tensor_t>();
-      
+
       // get a reference to the metadata
       auto &am = a.meta().m();
 

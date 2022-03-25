@@ -9,7 +9,7 @@ namespace bbts {
 
 TEST(TestStorage, TestTwoTransactionSingleThreaded) {
 
-  // 
+  //
   storage_ptr_t storage;
   if constexpr(static_config::enable_storage) {
    storage = std::make_shared<storage_t>(nullptr, 1024 * 1024, "tmp.sto");
@@ -37,7 +37,7 @@ TEST(TestStorage, TestTwoTransactionSingleThreaded) {
   storage->local_transaction({}, {{0, tensor_size}}, [&](const storage_t::reservation_result_t &res) {
 
     // create the tensor
-    auto ts = res.create[0].get().tensor;
+    auto ts = res.create_or_get[0].get().tensor;
 
     // init the tensor
     auto &dt = tf->init_tensor(ts, dm).as<dense_tensor_t>();
@@ -48,9 +48,9 @@ TEST(TestStorage, TestTwoTransactionSingleThreaded) {
     }
   });
 
-  // run the local transaction to 
+  // run the local transaction to
   storage->local_transaction({ (tid_t) 0 }, {}, [&](const storage_t::reservation_result_t &res) {
-    
+
     // get the dense tensor
     auto &dt = res.get[0].get().tensor->as<dense_tensor_t>();;
 
@@ -105,7 +105,7 @@ TEST(TestStorage, TestNoEvictionMultiThreaded) {
     threads.emplace_back([&storage, &tf, &num_matrices, fmt_id, t]() {
 
       for(uint32_t i = 0; i < num_matrices; i++) {
-        
+
         // make the meta
         dense_tensor_meta_t dm{fmt_id, i * 100, i * 200};
 
@@ -115,7 +115,7 @@ TEST(TestStorage, TestNoEvictionMultiThreaded) {
         storage->local_transaction({}, {{i + t * num_matrices, tensor_size}}, [&](const storage_t::reservation_result_t &res) {
 
           // crate the tensor
-          auto ts = res.create[0].get().tensor;
+          auto ts = res.create_or_get[0].get().tensor;
 
           // init the tensor
           auto &dt = tf->init_tensor(ts, dm).as<dense_tensor_t>();
@@ -131,7 +131,7 @@ TEST(TestStorage, TestNoEvictionMultiThreaded) {
       for(size_t i = 0; i < num_matrices; i++) {
 
         storage->local_transaction({ (tid_t) (i + t * num_matrices) }, {}, [&](const storage_t::reservation_result_t &res) {
-          
+
           // get the dense tensor
           auto &dt = res.get[0].get().tensor->as<dense_tensor_t>();;
 
@@ -198,7 +198,7 @@ TEST(TestStorage, TestEvictionMultiThreaded) {
     threads.emplace_back([&storage, &tf, &num_matrices, fmt_id, t]() {
 
       for(uint32_t i = 0; i < num_matrices; i++) {
-        
+
         // make the meta
         dense_tensor_meta_t dm{fmt_id, 100, 100};
 
@@ -208,7 +208,7 @@ TEST(TestStorage, TestEvictionMultiThreaded) {
         storage->local_transaction({}, {{i + t * num_matrices, tensor_size}}, [&](const storage_t::reservation_result_t &res) {
 
           // crate the tensor
-          auto ts = res.create[0].get().tensor;
+          auto ts = res.create_or_get[0].get().tensor;
 
           // init the tensor
           auto &dt = tf->init_tensor(ts, dm).as<dense_tensor_t>();
@@ -224,7 +224,7 @@ TEST(TestStorage, TestEvictionMultiThreaded) {
       for(size_t i = 0; i < num_matrices; i++) {
 
         storage->local_transaction({ (tid_t) (i + t * num_matrices) }, {}, [&](const storage_t::reservation_result_t &res) {
-          
+
           // get the dense tensor
           auto &dt = res.get[0].get().tensor->as<dense_tensor_t>();;
 
@@ -295,7 +295,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRequestThreads1) {
     threads.emplace_back([&storage, &tf, &num_matrices, fmt_id, t]() {
 
       for(uint32_t i = 0; i < num_matrices; i++) {
-        
+
         // make the meta
         dense_tensor_meta_t dm{fmt_id, 100, 100};
 
@@ -305,7 +305,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRequestThreads1) {
         storage->local_transaction({}, {{i + t * num_matrices, tensor_size}}, [&](const storage_t::reservation_result_t &res) {
 
           // crate the tensor
-          auto ts = res.create[0].get().tensor;
+          auto ts = res.create_or_get[0].get().tensor;
 
           // init the tensor
           auto &dt = tf->init_tensor(ts, dm).as<dense_tensor_t>();
@@ -321,7 +321,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRequestThreads1) {
       for(size_t i = 0; i < num_matrices; i++) {
 
         storage->local_transaction({ (tid_t) (i + t * num_matrices) }, {}, [&](const storage_t::reservation_result_t &res) {
-          
+
           // get the dense tensor
           auto &dt = res.get[0].get().tensor->as<dense_tensor_t>();;
 
@@ -394,7 +394,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRequestThreads2) {
     threads.emplace_back([&storage, &tf, &num_matrices, fmt_id, t]() {
 
       for(uint32_t i = 0; i < num_matrices; i += 3) {
-        
+
         // make the meta
         dense_tensor_meta_t dm{fmt_id, 100, 100};
 
@@ -404,14 +404,14 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRequestThreads2) {
         // std::cout << i +       t * num_matrices * 3 << '\n' << std::flush;
         // std::cout << i +  1 +  t * num_matrices * 3 << '\n' << std::flush;
         // std::cout << i +  2 +  t * num_matrices * 3 << '\n' << std::flush;
-        storage->local_transaction({}, { {i +     t * num_matrices * 3, tensor_size}, 
+        storage->local_transaction({}, { {i +     t * num_matrices * 3, tensor_size},
                                          {i + 1 + t * num_matrices * 3, tensor_size},
                                          {i + 2 + t * num_matrices * 3, tensor_size} }, [&](const storage_t::reservation_result_t &res) {
 
           // crate the tensor
-          auto ts0 = res.create[0].get().tensor;
-          auto ts1 = res.create[1].get().tensor;
-          auto ts2 = res.create[2].get().tensor;
+          auto ts0 = res.create_or_get[0].get().tensor;
+          auto ts1 = res.create_or_get[1].get().tensor;
+          auto ts2 = res.create_or_get[2].get().tensor;
 
           // init the tensor
           auto &dt0 = tf->init_tensor(ts0, dm).as<dense_tensor_t>();
@@ -436,7 +436,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRequestThreads2) {
         storage->local_transaction({ (tid_t) (i +     t * num_matrices * 3),
                                      (tid_t) (i + 1 + t * num_matrices * 3),
                                      (tid_t) (i + 2 + t * num_matrices * 3) }, {}, [&](const storage_t::reservation_result_t &res) {
-          
+
           // get the dense tensor
           auto &dt0 = res.get[0].get().tensor->as<dense_tensor_t>();
           auto &dt1 = res.get[1].get().tensor->as<dense_tensor_t>();
@@ -510,7 +510,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRead) {
   auto fmt_id = tf->get_tensor_ftm("dense");
 
   for(uint32_t i = 0; i < num_matrices; i += 3) {
-    
+
     // make the meta
     dense_tensor_meta_t dm{fmt_id, 100, 100};
 
@@ -518,14 +518,14 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRead) {
     auto tensor_size = tf->get_tensor_size(dm);
 
     // create the tensors
-    storage->local_transaction({}, { {i    , tensor_size}, 
+    storage->local_transaction({}, { {i    , tensor_size},
                                      {i + 1, tensor_size},
                                      {i + 2, tensor_size} }, [&](const storage_t::reservation_result_t &res) {
 
       // crate the tensor
-      auto ts0 = res.create[0].get().tensor;
-      auto ts1 = res.create[1].get().tensor;
-      auto ts2 = res.create[2].get().tensor;
+      auto ts0 = res.create_or_get[0].get().tensor;
+      auto ts1 = res.create_or_get[1].get().tensor;
+      auto ts2 = res.create_or_get[2].get().tensor;
 
       // init the tensor
       auto &dt0 = tf->init_tensor(ts0, dm).as<dense_tensor_t>();
@@ -558,7 +558,7 @@ TEST(TestStorage, TestEvictionMultiThreadedMultiRead) {
 
         // check the tensors
         storage->local_transaction({ t0, t1, t2 }, {}, [&](const storage_t::reservation_result_t &res) {
-          
+
           // get the dense tensor
           auto &dt0 = res.get[0].get().tensor->as<dense_tensor_t>();
           auto &dt1 = res.get[1].get().tensor->as<dense_tensor_t>();

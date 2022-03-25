@@ -29,7 +29,7 @@ struct lru_t {
 
   // add a tensor the the lru or updates the current one
   void add(tid_t id) {
-    
+
     // check if we already have it
     auto it = index.find(id);
     if(it != index.end()) {
@@ -83,7 +83,7 @@ struct lru_t {
 
     // remove it from the index
     index.erase(id);
-    
+
     // return it
     return id;
   }
@@ -98,7 +98,7 @@ struct lru_t {
   std::condition_variable cv;
 };
 
-// this class is responsible for memory managment like getting new 
+// this class is responsible for memory managment like getting new
 // memory for tensors, getting already existing tensors and in the future evicting
 // tensors to disk or moving them to GPU
 struct nvme_storage_t {
@@ -108,7 +108,7 @@ struct nvme_storage_t {
     // just empty hooks
     _tensor_create_hook = [](tid_t _) {};
     _tensor_delete_hook = [](tid_t _) {};
-    
+
     // open the file for reading and writing
     _fd = open("./tmp.ts", O_CREAT | O_TRUNC | O_RDWR, 0777);
 
@@ -122,9 +122,9 @@ struct nvme_storage_t {
     }
   }
 
-  nvme_storage_t(communicator_ptr_t com, 
-                 size_t max_allocated, 
-                 const std::string &file) :  _com(std::move(com)), 
+  nvme_storage_t(communicator_ptr_t com,
+                 size_t max_allocated,
+                 const std::string &file) :  _com(std::move(com)),
                                              _max_allocated(max_allocated) {
 
     // just empty hooks
@@ -148,44 +148,44 @@ struct nvme_storage_t {
   ~nvme_storage_t();
 
   // is a reference of the tensor
-  struct tensor_ref_t { 
+  struct tensor_ref_t {
 
     // the identifier of the tensor
     tid_t id;
 
-    // tensor 
+    // tensor
     tensor_t *tensor;
   };
 
   // the result of a reservation
   struct reservation_result_t {
 
-    reservation_result_t(size_t n, size_t m) { get.reserve(n); create.reserve(m); }
+    reservation_result_t(size_t n, size_t m) { get.reserve(n); create_or_get.reserve(m); }
 
     // the existing tensors we want to get
     std::vector<std::shared_future<tensor_ref_t>> get;
 
-    // the tensors we want to create
-    std::vector<std::shared_future<tensor_ref_t>> create;
+    // the tensors we want to create or get
+    std::vector<std::shared_future<tensor_ref_t>> create_or_get;
   };
 
   // make sure that all the tensors created or requested are aquired at the same time
   template<class fn>
-  void local_transaction(const std::vector<tid_t> &get, 
-                         std::vector<std::tuple<tid_t, size_t>> create,
+  void local_transaction(const std::vector<tid_t> &get,
+                         std::vector<std::tuple<tid_t, size_t>> create_or_get,
                          const fn &fun) {
-  
-    for(;;) {
+
+    while(true) {
 
       // lock this thing
       std::unique_lock<std::mutex> lck (_m);
 
       // try to aquire a reservation
-      bool val = _try_reserve(get, create);
+      bool val = _try_reserve(get, create_or_get);
 
       if(!val) {
 
-        // maybe I will need to adjust this if it is firing to much
+        // maybe this will need to be adjusted if it is firing too much
         lck.unlock();
         std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
 
@@ -194,36 +194,36 @@ struct nvme_storage_t {
       }
 
       // craete the reserved
-      auto c = _create_reserved(get, create);
+      auto c = _create_reserved(get, create_or_get);
 
       // run the function
       lck.unlock();
       fun(c.get());
       lck.lock();
-      
+
       // release the reserved
-      _release_reservation(get, create);
+      _release_reservation(get, create_or_get);
 
       // we are done here
       break;
     }
   }
 
-  // if there is a 
+  // if there is a
   template<class fn>
   void remote_transaction(command_id_t cmd,
                           const bbts::command_t::node_list_t &nodes,
-                          const std::vector<tid_t> &get, 
-                          std::vector<std::tuple<tid_t, size_t>> create,
+                          const std::vector<tid_t> &get,
+                          std::vector<std::tuple<tid_t, size_t>> create_or_get,
                           const fn &fun) {
-    
+
     for(;;) {
 
       // lock this thing
       std::unique_lock<std::mutex> lck (_m);
 
       // try to aquire a reservation
-      bool val = _try_reserve(get, create);
+      bool val = _try_reserve(get, create_or_get);
 
       // sync all the nodes so that they know if the reservation was aquired or not
       lck.unlock();
@@ -234,7 +234,7 @@ struct nvme_storage_t {
       if(res) {
 
         // craete the reserved
-        auto c = _create_reserved(get, create);
+        auto c = _create_reserved(get, create_or_get);
 
         // run the function
         lck.unlock();
@@ -242,14 +242,14 @@ struct nvme_storage_t {
         lck.lock();
 
         // release the reserved
-        _release_reservation(get, create);
+        _release_reservation(get, create_or_get);
 
         return;
       }
 
       // release the reserved if necessary
       if(val) {
-        _cancel_reservation(get, create);
+        _cancel_reservation(get, create_or_get);
       }
 
       // maybe I will need to adjust this if it is firing to much
@@ -258,22 +258,22 @@ struct nvme_storage_t {
     }
   }
 
-    // if there is a 
+    // if there is a
   template<class fn>
   void remote_transaction_p2p(command_id_t cmd,
                               node_id_t other,
-                              const std::vector<tid_t> &get, 
-                              std::vector<std::tuple<tid_t, size_t>> create,
+                              const std::vector<tid_t> &get,
+                              std::vector<std::tuple<tid_t, size_t>> create_or_get,
                               const fn &fun) {
-    
+
     for(;;) {
 
       // lock this thing
       std::unique_lock<std::mutex> lck (_m);
 
       // try to aquire a reservation
-      bool val = _try_reserve(get, create);
- 
+      bool val = _try_reserve(get, create_or_get);
+
       // sync all the nodes so that they know if the reservation was aquired or not
       lck.unlock();
       bool res = _com->sync_resource_aquisition_p2p(cmd, other, val);
@@ -283,7 +283,7 @@ struct nvme_storage_t {
       if(res) {
 
         // craete the reserved
-        auto c = _create_reserved(get, create);
+        auto c = _create_reserved(get, create_or_get);
 
         // run the function
         lck.unlock();
@@ -291,14 +291,14 @@ struct nvme_storage_t {
         lck.lock();
 
         // release the reserved
-        _release_reservation(get, create);
+        _release_reservation(get, create_or_get);
 
         return;
       }
 
       // release the reserved if necessary
       if(val) {
-        _cancel_reservation(get, create);
+        _cancel_reservation(get, create_or_get);
       }
 
       // maybe I will need to adjust this if it is firing to much
@@ -313,7 +313,7 @@ struct nvme_storage_t {
   // remove by tid
   bool remove_by_tid(tid_t _id);
 
-  // assign a tid ot the anonymous tensor
+  // assign a tid to the anonymous tensor
   bool assign_tid(tid_t _anon_id, tid_t _id);
 
   // set the maximum storage
@@ -333,7 +333,7 @@ struct nvme_storage_t {
 
   // get the number of tensors in the system
   size_t get_num_tensors();
-  
+
   // returns the size of a tensor
   size_t get_tensor_size(tid_t _id);
 
@@ -369,7 +369,7 @@ private:
 
     // id of the tensor
     tid_t id;
-    
+
     // the size of the tensor in bytes
     size_t num_bytes = 0;
 
@@ -396,7 +396,7 @@ private:
     const std::vector<tid_t> *get;
 
     // the tensors we want to create
-    const std::vector<std::tuple<tid_t, size_t>> *create;
+    const std::vector<std::tuple<tid_t, size_t>> *create_or_get;
   };
 
   // maps to the information
@@ -404,21 +404,21 @@ private:
 
   // this reserves space for the tensors in get to be loaded and tensors in create to created
   bool _try_reserve(const std::vector<tid_t> &get,
-                    std::vector<std::tuple<tid_t, size_t>> &create);
+                    std::vector<std::tuple<tid_t, size_t>> &create_or_get);
 
   // craete all the tensors we just reserved
   std::future<nvme_storage_t::reservation_result_t> _create_reserved(const std::vector<tid_t> &get,
-                                                                     const std::vector<std::tuple<tid_t, size_t>> &create);
+                                                                     const std::vector<std::tuple<tid_t, size_t>> &create_or_get);
 
   // call this to release a already reserved request
   void _release_reservation(const std::vector<tid_t> &get,
-                            const std::vector<std::tuple<tid_t, size_t>> &create);
+                            const std::vector<std::tuple<tid_t, size_t>> &create_or_get);
 
   // call this to cancel a request that was not reserved
   void _cancel_reservation(const std::vector<tid_t> &get,
-                           const std::vector<std::tuple<tid_t, size_t>> &create);
+                           const std::vector<std::tuple<tid_t, size_t>> &create_or_get);
 
-  // evict some tensors until we have the required 
+  // evict some tensors until we have the required
   void _evict_some(std::unique_lock<std::mutex> &lck, size_t required);
 
   // allocate the tensor
@@ -439,7 +439,7 @@ private:
   // currently allocated memory if this goes above the maximum allocated we need to move some tensors to disk
   size_t _cur_allocated = 0;
 
-  // evicts pages 
+  // evicts pages
   lru_t _lru;
 
   // the file we dump stuff into
@@ -454,7 +454,7 @@ private:
   // all the scheduled reservations
   std::queue<std::tuple<std::promise<reservation_result_t>, reservation_nfo_t>> _scheduled_reservations;
 
-  // 
+  //
   std::condition_variable _res_processing_cv;
 
   // init it to the first available negative number

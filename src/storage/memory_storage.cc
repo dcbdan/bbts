@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <cuda_profiler_api.h>  
+#include <cuda_profiler_api.h>
 #endif
 
 #include "../server/static_config.h"
@@ -23,11 +23,11 @@ memory_storage_t::~memory_storage_t() {
   }
 }
 
-memory_storage_t::tensor_ref_t memory_storage_t::_get_by_tid(tid_t _id) { 
+memory_storage_t::tensor_ref_t memory_storage_t::_get_by_tid(tid_t _id) {
 
-  // try to find the tensor if we find it return the address 
+  // try to find the tensor if we find it return the address
   auto it = _tensor_nfo.find(_id);
-  return it != _tensor_nfo.end() ? tensor_ref_t{ .id = _id, .tensor = it->second.address } : 
+  return it != _tensor_nfo.end() ? tensor_ref_t{ .id = _id, .tensor = it->second.address } :
                                    tensor_ref_t{ .id = _id, .tensor = nullptr };
 }
 
@@ -83,7 +83,7 @@ tensor_t *memory_storage_t::_allocate_tensor(size_t num_bytes) {
   else {
 
     // we can not do this
-    ts = (tensor_t*) malloc(num_bytes); 
+    ts = (tensor_t*) malloc(num_bytes);
   }
 
   return ts;
@@ -115,7 +115,7 @@ bool memory_storage_t::has_tensor(tid_t _id) {
 }
 
 bool memory_storage_t::remove_by_tid(tid_t _id) {
-  
+
   // lock this thing
   std::unique_lock<std::mutex> lck (_m);
 
@@ -142,7 +142,7 @@ bool memory_storage_t::remove_by_tid(tid_t _id) {
 }
 
 bool memory_storage_t::assign_tid(tid_t _anon_id, tid_t _id) {
-  
+
   // lock this thing
   std::unique_lock<std::mutex> lck (_m);
 
@@ -155,7 +155,7 @@ bool memory_storage_t::assign_tid(tid_t _anon_id, tid_t _id) {
   // rewire
   _tensor_nfo[_id] = it->second;
   _tensor_nfo.erase(it);
-  
+
   return true;
 }
 
@@ -196,16 +196,18 @@ void memory_storage_t::clear() {
 
   // go through each allocated tensor and free it
   for(auto &it : _tensor_nfo) {
-    
+
     // is it gpu
     free_tensor(it.second.address);
   }
   _tensor_nfo.clear();
 }
 
-memory_storage_t::reservation_result_t memory_storage_t::_create_reserved(const std::vector<tid_t> &get,
-                                                                         const std::vector<std::tuple<tid_t, size_t>> &create) {
-
+memory_storage_t::reservation_result_t
+memory_storage_t::_create_reserved(
+  const std::vector<tid_t> &get,
+  const std::vector<std::tuple<tid_t, size_t>> &create_or_get)
+{
   // get all the tensors
   std::vector<tensor_ref_t> out_get;
   out_get.reserve(get.size());
@@ -215,27 +217,37 @@ memory_storage_t::reservation_result_t memory_storage_t::_create_reserved(const 
 
   // create all the tensors we need
   std::vector<tensor_ref_t> out_create;
-  out_create.reserve(create.size());
-  for (auto ct : create) {
-
-    // create all the necessary tensors
-    auto [id, num_bytes] = ct;
-    if (id != TID_NONE) {
-      out_create.push_back(_create_tensor(id, num_bytes));
-    } else {
+  out_create.reserve(create_or_get.size());
+  for (auto [id, num_bytes] : create_or_get) {
+    // create (or get) the tensor.
+    // The three cases are
+    // 1. the tid is not valid and the tensor has not been created
+    // 2. the tid is     valid and the tensor has     been created
+    // 3. the tid is     valid and the tensor has not been created
+    if (id == TID_NONE) {
       out_create.push_back(_create_tensor(num_bytes));
+    } else {
+      // we have a valid id, but has the tensor been created?
+      auto tensor_ref_maybe = _get_by_tid(id);
+      if(tensor_ref_maybe.tensor) {
+        // the tensor address is valid so it must have been created
+        out_create.push_back(tensor_ref_maybe);
+      } else {
+        // the tensor has not been created, so create it
+        out_create.push_back(_create_tensor(id, num_bytes));
+      }
     }
   }
 
   // return the result
-  return {.get = out_get, .create = out_create};
+  return {.get = out_get, .create_or_get = out_create};
 }
 
 std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> memory_storage_t::extract_meta() {
 
   // lock this thing
   std::unique_lock<std::mutex> lck (_m);
-  
+
   std::size_t idx = 0;
   std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> out(_tensor_nfo.size());
   for(auto nfo : _tensor_nfo) {

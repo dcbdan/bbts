@@ -7,7 +7,7 @@
 #ifdef ENABLE_GPU
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <cuda_profiler_api.h>  
+#include <cuda_profiler_api.h>
 #include <cuda_runtime_api.h>
 #endif
 
@@ -29,11 +29,10 @@ nvme_storage_t::~nvme_storage_t() {
     if(nfo.second.state == tensor_state_t::LOADED) {
       free_tensor(nfo.second.data.get().tensor);
     }
-  } 
+  }
 }
 
 void nvme_storage_t::request_thread() {
-
   while (true) {
 
     // lock this thing
@@ -55,23 +54,23 @@ void nvme_storage_t::request_thread() {
     _scheduled_reservations.pop();
 
     // the result
-    reservation_result_t out(res.get->size(), res.create->size());
+    reservation_result_t out(res.get->size(), res.create_or_get->size());
 
     // we load the tensors here
     std::vector<std::tuple<sto_tensor_nfo_t*, tensor_t*>> to_load;
-    to_load.reserve(res.get->size());
+    to_load.reserve(res.get->size() + res.create_or_get->size());
 
-    // go through all the tensor we need to get
+    std::vector<std::tuple<tid_t, size_t>> create;
+    create.reserve(res.create_or_get->size());
+
     size_t required = 0;
-    for(auto &g : *res.get) {
-      
-      // find the tensor
-      auto it = _tensor_nfo.find(g);
-      
+
+    using iter_t = decltype(_tensor_nfo.find(*(res.get->begin())));
+    auto _get_prep_lambda = [&to_load, &required](iter_t it) {
       // make sure the tensor is not deleted
       assert(it->second.state != tensor_state_t::DELETED);
 
-      // if the tensor is not loaded we need prep, if it is unloading 
+      // if the tensor is not loaded we need prep, if it is unloading
       // we will take care of it later but just not freeing the memory
       if(it->second.state == tensor_state_t::NOT_LOADED) {
 
@@ -80,7 +79,7 @@ void nvme_storage_t::request_thread() {
 
         // turn in into a new shared future
         it->second.data = std::shared_future<tensor_ref_t>(it->second.promise.get_future());
-        
+
         // mark that we are the one loading this tensor
         it->second.state = tensor_state_t::LOADING;
 
@@ -88,21 +87,36 @@ void nvme_storage_t::request_thread() {
         to_load.push_back({&it->second, nullptr});
 
         // increment the number of bytes reqired
-        required += it->second.num_bytes; 
+        required += it->second.num_bytes;
       }
+    };
 
-      // if the tensor is loaded 
+    // go through all the tensor we need to get
+    for(auto &tid : *res.get) {
+      // find the tensor
+      auto it = _tensor_nfo.find(tid);
 
-      // store the future
-      // this is valid for UNLOADING, LOADING, LOADED
+      _get_prep_lambda(it);
+
       out.get.push_back(it->second.data);
     }
-    
+
     // go through all the tensors we need to create
-    for(auto &c : *res.create) {
-      
-      // the the info about the tensor we need to create
-      auto [tid, num_bytes] = c;
+    for(auto &c : *res.create_or_get) {
+      auto& [tid, num_bytes] = c;
+
+      auto it = _tensor_nfo.find(tid);
+      if(it != _tensor_nfo.end()) {
+        // we just need to get it, not create it
+        _get_prep_lambda(it);
+
+        out.create_or_get.push_back(it->second.data);
+
+        continue;
+      }
+
+      // we need to actually create
+      create.push_back(c);
 
       // make an entry
       auto &ts = _tensor_nfo[tid];
@@ -120,7 +134,7 @@ void nvme_storage_t::request_thread() {
       required += num_bytes;
 
       // add the create
-      out.create.push_back(ts.data);
+      out.create_or_get.push_back(ts.data);
     }
 
     // evict some tensors if necessary
@@ -129,9 +143,7 @@ void nvme_storage_t::request_thread() {
     }
 
     // allocate the necessary tensors
-    for(auto &c : *res.create) {
-      
-      auto [tid, num_bytes] = c;
+    for(auto &[tid, num_bytes] : create) {
 
       // get an entry
       auto &ts = _tensor_nfo[tid];
@@ -145,10 +157,10 @@ void nvme_storage_t::request_thread() {
 
     // load all the tensors
     for(auto &l : to_load) {
-      
+
       // get the info and where we want to allocate the tensor
       auto &[nfo, t] = l;
-    
+
       // allocate the tensor
       t = _allocate_tensor(nfo->num_bytes);
 
@@ -177,7 +189,6 @@ void nvme_storage_t::request_thread() {
     // set the value
     val.set_value(out);
   }
-
 }
 
 bool nvme_storage_t::remove_by_tid(tid_t _id) {
@@ -196,13 +207,13 @@ bool nvme_storage_t::remove_by_tid(tid_t _id) {
 
   // check for special cases
   if(it->second.state == tensor_state_t::UNLOADING) {
-    
+
     // if the tensor is unloading now just mark it as deleted and return
     it->second.state = tensor_state_t::DELETED;
     return true;
-  } 
+  }
   else if(it->second.state == tensor_state_t::NOT_LOADED) {
-    
+
     // if it is not laded, simpy removce it
     _tensor_nfo.erase(it);
     return true;
@@ -211,7 +222,7 @@ bool nvme_storage_t::remove_by_tid(tid_t _id) {
   // remove it from the lru
   _lru.remove(_id);
 
-  // it is no longer allocated 
+  // it is no longer allocated
   _cur_allocated -= it->second.num_bytes;
 
   // free the memory allocated
@@ -355,25 +366,34 @@ void nvme_storage_t::shutdown() {
 }
 
 bool nvme_storage_t::_try_reserve(const std::vector<tid_t> &get,
-                                  std::vector<std::tuple<tid_t, size_t>> &create) {
+                                  std::vector<std::tuple<tid_t, size_t>> &create_or_get) {
 
   // go through all the tensor we need to get
   size_t required = 0;
-  for(auto &t : get) {
+  for(auto &id : get) {
 
     // check if anybody has already reserved this tensor
     // if so there is no need to budget memory for it as it was already done
-    auto it = _tensor_nfo.find(t);
+    auto it = _tensor_nfo.find(id);
     if(it->second.num_ref == 0) {
       required += it->second.num_bytes;
-    } 
+    }
   }
 
-  // go through all the tensors we want to create
-  for(auto &c : create) {
+  // go through all the tensors we want to create (or get)
+  for(auto &[id, num_bytes] : create_or_get) {
 
-    // add it to the required
-    required += std::get<1>(c);
+    auto it = _tensor_nfo.find(id);
+    if(it == _tensor_nfo.end()) {
+      required += num_bytes;
+    } else {
+      if(it->second.num_ref == 0) {
+        // num_bytes should be equal to it->second.num_bytes,
+        // TODO : this might be overly constrained
+        assert(num_bytes == it->second.num_bytes);
+        required += it->second.num_bytes;
+      }
+    }
   }
 
   // make sure it is acutally possible to process this
@@ -397,7 +417,7 @@ bool nvme_storage_t::_try_reserve(const std::vector<tid_t> &get,
   }
 
   // assign a tid to the anonymous tensor
-  for(auto &c : create) {
+  for(auto &c : create_or_get) {
     if(std::get<0>(c) == TID_NONE) {
       std::get<0>(c) = _current_anon--;
     }
@@ -422,16 +442,17 @@ bool nvme_storage_t::has_tensor(tid_t _id) {
   return it != _tensor_nfo.end();
 }
 
-std::future<nvme_storage_t::reservation_result_t> nvme_storage_t::_create_reserved(const std::vector<tid_t> &get,
-                                                                                   const std::vector<std::tuple<tid_t, size_t>> &create) {
-  
-
+std::future<nvme_storage_t::reservation_result_t>
+nvme_storage_t::_create_reserved(
+  const std::vector<tid_t> &get,
+  const std::vector<std::tuple<tid_t, size_t>> &create_or_get)
+{
   // get the future that is going to return the reservation result
   std::promise<reservation_result_t> res;
   auto f = res.get_future();
 
   // add the reservation to the queue
-  _scheduled_reservations.push({std::move(res), reservation_nfo_t{.get = &get, .create = &create}});
+  _scheduled_reservations.push({std::move(res), reservation_nfo_t{.get = &get, .create_or_get = &create_or_get}});
 
   // make sure the processing threads know that there is stuff to do
   _res_processing_cv.notify_all();
@@ -440,17 +461,16 @@ std::future<nvme_storage_t::reservation_result_t> nvme_storage_t::_create_reserv
   return std::move(f);
 }
 
-void nvme_storage_t::_release_reservation(const std::vector<tid_t> &get,
-                                          const std::vector<std::tuple<tid_t, size_t>> &create) {
-  
-  // go through all the tensor we wanted to get
-  for(auto &t : get) {
+void nvme_storage_t::_release_reservation(
+  const std::vector<tid_t> &get,
+  const std::vector<std::tuple<tid_t, size_t>> &create_or_get)
+{
+  using iter_t = decltype(_tensor_nfo.find(get[0]));
 
-    // find information about the tensor
-    auto it = _tensor_nfo.find(t);
+  auto _do_it = [this](iter_t it) {
     it->second.num_ref--;
 
-    // if this tensor is no longer reserved mark that we are 
+    // if this tensor is no longer reserved mark that we are
     if(it->second.num_ref == 0) {
 
       // ok this is not reserved anymore
@@ -458,42 +478,47 @@ void nvme_storage_t::_release_reservation(const std::vector<tid_t> &get,
 
       // if we already laoded it add it to eviction
       if(it->second.state == tensor_state_t::LOADED) {
-        
-        // add it to the lru 
-        _lru.add(t);
+
+        // add it to the lru
+        _lru.add(it->second.id);
       }
     }
+  };
+
+  for(auto &t: get) {
+    auto it = _tensor_nfo.find(t);
+
+    // make sure this invariant holds: for get, the tid shouldn't have changed
+    assert(t == it->second.id);
+
+    _do_it(it);
   }
 
-  // go through all the tensors we wanted to create
-  for(auto &c : create) {
+  for(auto& [t,num_bytes]: create_or_get) {
+    auto it = _tensor_nfo.find(t);
 
-    // find the created tensor
-    auto it = _tensor_nfo.find(std::get<0>(c));
-    it->second.num_ref--;
+    // it could be the case that t != it->second.id because TID_NONE might have
+    // been used
 
-    // should be zero as otherwise it is wrong usage
-    assert(it->second.num_ref == 0);
+    // for create_or_get, make sure everything violently falls apart if
+    // num_bytes is not what it really should be (TODO: this might be overly constrictive)
+    assert(num_bytes == it->second.num_bytes);
 
-    // remove the reserved
-    _cur_reserved -= std::get<1>(c);
-
-    // add it to the lru, as it should have zero references
-    _lru.add(it->second.id);
+    _do_it(it);
   }
 }
 
-void nvme_storage_t::_cancel_reservation(const std::vector<tid_t> &get,
-                                         const std::vector<std::tuple<tid_t, size_t>> &create) {
-  
-  // go through all the tensor we wanted to get
-  for(auto &t : get) {
+void nvme_storage_t::_cancel_reservation(
+  const std::vector<tid_t> &get,
+  const std::vector<std::tuple<tid_t, size_t>> &create_or_get)
+{
+  using iter_t = decltype(_tensor_nfo.find(get[0]));
 
+  auto _cancel_got_lambda = [this](iter_t it) {
     // find information about the tensor
-    auto it = _tensor_nfo.find(t);
     it->second.num_ref--;
 
-    // if this tensor is no longer reserved mark that we are 
+    // if this tensor is no longer reserved mark that we are
     if(it->second.num_ref == 0) {
 
       // ok this is not reserved anymore
@@ -501,20 +526,25 @@ void nvme_storage_t::_cancel_reservation(const std::vector<tid_t> &get,
 
       // if we already laoded it add it to eviction
       if(it->second.state == tensor_state_t::LOADED) {
-        
-        // add it to the lru 
-        _lru.add(t);
+
+        // add it to the lru
+        _lru.add(it->second.id);
       }
     }
-  }
+  };
 
-  // go through all the tensors we wanted to create
-  for(auto &c : create) {
-    
-    // remove the reserved
-    _cur_reserved -= std::get<1>(c);
+  for(auto &t: get) {
+    auto it = _tensor_nfo.find(t);
+    _cancel_got_lambda(it);
   }
-
+  for(auto &[t,num_bytes]: create_or_get) {
+    auto it = _tensor_nfo.find(t);
+    if(it != _tensor_nfo.end()) {
+      _cancel_got_lambda(it);
+    } else {
+      _cur_reserved -= num_bytes;
+    }
+  }
 }
 
 tensor_t *nvme_storage_t::_allocate_tensor(size_t num_bytes) {
@@ -528,9 +558,9 @@ tensor_t *nvme_storage_t::_allocate_tensor(size_t num_bytes) {
     #endif
   }
   else {
-    
+
     // this is a CPU
-    ts = (tensor_t*) malloc(num_bytes); 
+    ts = (tensor_t*) malloc(num_bytes);
   }
 
   return ts;
@@ -553,7 +583,7 @@ void nvme_storage_t::free_tensor(tensor_t *tensor) {
 }
 
 void nvme_storage_t::_evict_some(std::unique_lock<std::mutex> &lck, size_t required) {
-  
+
   while (_cur_allocated + required >= _max_allocated) {
 
     // evict a tensor
@@ -574,7 +604,7 @@ void nvme_storage_t::_evict_some(std::unique_lock<std::mutex> &lck, size_t requi
       it->second.file_offset = _file_offset;
       _file_offset += it->second.num_bytes;
     }
-    
+
     // unlock so we can dump the data to the disk
     lck.unlock();
 
@@ -591,11 +621,11 @@ void nvme_storage_t::_evict_some(std::unique_lock<std::mutex> &lck, size_t requi
     // check if somebody has used it in the mean time
     if(it->second.num_ref != 0) {
 
-      // ok we can not release this 
+      // ok we can not release this
       it->second.state = tensor_state_t::LOADED;
     }
     else if(it->second.state == tensor_state_t::DELETED) {
-      
+
       // free the memory
       free_tensor(it->second.data.get().tensor);
       _cur_allocated -= it->second.num_bytes;
@@ -620,7 +650,7 @@ std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> nvme_storage_t::extrac
   std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> out;
   for(auto &t : _tensor_nfo) {
 
-    // if the tensor was deleted or reassined 
+    // if the tensor was deleted or reassigned
     if(t.second.state == tensor_state_t::DELETED || t.second.state == tensor_state_t::REASSIGNED) {
       continue;
     }

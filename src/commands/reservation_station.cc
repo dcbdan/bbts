@@ -3,11 +3,13 @@
 #include "command.h"
 #include <cassert>
 
-bbts::reservation_station_t::reservation_station_t(bbts::node_id_t _node_id, int32_t num_nodes) : _my_rank(_node_id),
-                                                                                                  _num_nodes(num_nodes),
-                                                                                                  _send_status_cv(num_nodes),
-                                                                                                  _commands_waiting_for(num_nodes) {
-
+bbts::reservation_station_t::reservation_station_t(
+  bbts::node_id_t _node_id, int32_t num_nodes) :
+    _my_rank(_node_id),
+    _num_nodes(num_nodes),
+    _send_status_cv(num_nodes),
+    _commands_waiting_for(num_nodes)
+{
   // make one of these for each node
   _remote_tensors.resize(num_nodes);
   _send_status_queue.resize(num_nodes);
@@ -71,8 +73,7 @@ bool bbts::reservation_station_t::retire_command(bbts::command_ptr_t _command) {
   bool success;
   if(_command->get_root_node() == _my_rank) {
     success = _retire_command(std::move(_command));
-  }
-  else {
+  } else {
     success = _retire_remote_command(std::move(_command));
   }
 
@@ -396,7 +397,7 @@ bool bbts::reservation_station_t::_queue_remote(bbts::command_ptr_t _command) {
       // mark that we are reading this tensor
       s.num_to_read++;
 
-      // check if it was not crated we need to mark that
+      // check if it was not created we need to mark that
       // we need to notify the remote node once the tensor is created
       if(!s.is_created) {
 
@@ -505,7 +506,7 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
     }
     else {
 
-      // ok this is a remote tensor, we need to check if is present
+      // ok this is a remote tensor, we need to check if it is present
       auto &_rts = _remote_tensors[_in.node];
       auto _ts = _rts.find(_in.tid);
 
@@ -672,7 +673,7 @@ bool bbts::reservation_station_t::_retire_command(bbts::command_ptr_t _command) 
     s.num_to_read--;
     assert(s.num_to_read >= 0);
 
-    // if there are no command that is writing to this tensor
+    // if there are no command that is writing to this tensor,
     // reading this tensor and the tensor is scheduled for deletion, delete it here
     if (s.num_to_read == 0 && !s.writing_tensor && s.scheduled_for_delition) {
 

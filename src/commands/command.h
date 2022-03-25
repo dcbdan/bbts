@@ -95,7 +95,7 @@ struct command_t {
   // is this an apply
   [[nodiscard]] bool is_apply() const { return type == op_type_t::APPLY; }
 
-    // is this a reuce
+    // is this a reduce
   [[nodiscard]] bool is_reduce() const { return type == op_type_t::REDUCE; }
 
   // get all the nodes included in the reduce
@@ -344,7 +344,7 @@ struct command_t {
     return std::move(tmp);
   }
 
-  static command_ptr_t create_reduce(command_id_t id, ud_impl_id_t fun_id, bool is_gpu, 
+  static command_ptr_t create_reduce(command_id_t id, ud_impl_id_t fun_id, bool is_gpu,
                                      const std::vector<command_param_t> &params,
                                      const std::vector<tid_node_id_t> &in, const tid_node_id_t &out) {
 

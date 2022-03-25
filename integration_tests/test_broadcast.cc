@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
   storage.local_transaction({}, {{12, size}}, [&](const bbts::storage_t::reservation_result_t &res) {
 
     // get the craeted tensor
-    auto &t = res.create[0].get().tensor;
+    auto &t = res.create_or_get[0].get().tensor;
 
     // init the tensor
     auto &a = factory->init_tensor(t, m).as<bbts::dense_tensor_t>();
@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
 
   });
 
-  // pick all the nodes with an even rank, for testing purpouses 
+  // pick all the nodes with an even rank, for testing purpouses
   std::vector<bbts::node_id_t> nodes;
   for (bbts::node_id_t i = 0; i < comm->get_num_nodes(); i += 2) {
     nodes.push_back(i);

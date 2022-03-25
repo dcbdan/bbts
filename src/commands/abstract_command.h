@@ -29,13 +29,13 @@ struct abstract_ud_spec_t {
 
   // the input types of the ud function
   std::vector<std::string> input_types;
- 
+
   // the output types
-  std::vector<std::string> output_types; 
+  std::vector<std::string> output_types;
 
   // write the function to the file
   void write_to_file(std::ofstream &file) {
-    
+
     // write the stuff
     file << id << " " << ud_name << " " << input_types.size() << " ";
     for(auto &s : input_types) {
@@ -93,7 +93,7 @@ struct abstract_command_t {
   // write the command to file
   void write_to_file(std::ofstream &file) {
 
-    // figure out the sting label
+    // figure out the string label
     std::string type_string;
     switch (type) {
     case abstract_command_type_t::APPLY:

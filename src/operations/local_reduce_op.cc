@@ -54,9 +54,9 @@ void bbts::local_reduce_op_t::apply() {
     // perform the actual kernel
     tid_t out_tid;
     _storage.local_transaction({lhs, rhs}, {{TID_NONE, output_size}}, [&](const storage_t::reservation_result_t &res) {
-    
+
       // init the output tensor
-      auto &out = res.create[0].get().tensor;
+      auto &out = res.create_or_get[0].get().tensor;
       _factory.init_tensor(out, _out_meta);
 
       // get the left and right tensor
@@ -74,7 +74,7 @@ void bbts::local_reduce_op_t::apply() {
       _reduce_op.call_ud(_params, _input_tensors, _output_tensor);
 
       // set the output tid
-      out_tid = res.create[0].get().id;
+      out_tid = res.create_or_get[0].get().id;
     });
 
     // remove additionally every allocated tensor

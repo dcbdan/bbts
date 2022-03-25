@@ -16,7 +16,7 @@
 namespace bbts {
 
 
-// this class is responsible for memory managment like getting new 
+// this class is responsible for memory managment like getting new
 // memory for tensors, getting already existing tensors and in the future evicting
 // tensors to disk or moving them to GPU
 struct memory_storage_t {
@@ -42,12 +42,12 @@ struct memory_storage_t {
   ~memory_storage_t();
 
   // is a reference of the tensor
-  struct tensor_ref_t { 
+  struct tensor_ref_t {
 
     // the identifier of the tensor
     tid_t id;
 
-    // tensor 
+    // tensor
     tensor_t *tensor;
 
     // this is added to be complient with the interface of the nvme storage
@@ -62,59 +62,59 @@ struct memory_storage_t {
     std::vector<tensor_ref_t> get;
 
     // the tensors we want to create
-    std::vector<tensor_ref_t> create;
+    std::vector<tensor_ref_t> create_or_get;
   };
-  
+
 
   // make sure that all the tensors created or requested are aquired at the same time
   template<class fn>
-  void local_transaction(const std::vector<tid_t> &get, 
-                         const std::vector<std::tuple<tid_t, size_t>> &create,
+  void local_transaction(const std::vector<tid_t> &get,
+                         const std::vector<std::tuple<tid_t, size_t>> &create_or_get,
                          const fn &fun) {
 
     // lock this thing
     std::unique_lock<std::mutex> lck (_m);
 
     // craete the reserved
-    auto c = _create_reserved(get, create);
+    auto c = _create_reserved(get, create_or_get);
 
     // run the function
     lck.unlock();
     fun(c);
   }
 
-  // if there is a 
+  // if there is a
   template<class fn>
   void remote_transaction(command_id_t cmd,
                           const bbts::command_t::node_list_t &nodes,
-                          const std::vector<tid_t> &get, 
-                          const std::vector<std::tuple<tid_t, size_t>> &create,
+                          const std::vector<tid_t> &get,
+                          const std::vector<std::tuple<tid_t, size_t>> &create_or_get,
                           const fn &fun) {
-    
+
     // lock this thing
     std::unique_lock<std::mutex> lck (_m);
 
     // craete the reserved
-    auto c = _create_reserved(get, create);
+    auto c = _create_reserved(get, create_or_get);
 
     // run the function
     lck.unlock();
     fun(c);
   }
 
-    // if there is a 
+    // if there is a
   template<class fn>
   void remote_transaction_p2p(command_id_t cmd,
                               node_id_t other,
-                              const std::vector<tid_t> &get, 
-                              const std::vector<std::tuple<tid_t, size_t>> &create,
+                              const std::vector<tid_t> &get,
+                              const std::vector<std::tuple<tid_t, size_t>> &create_or_get,
                               const fn &fun) {
-    
+
     // lock this thing
     std::unique_lock<std::mutex> lck (_m);
 
     // craete the reserved
-    auto c = _create_reserved(get, create);
+    auto c = _create_reserved(get, create_or_get);
 
     // run the function
     lck.unlock();
@@ -126,7 +126,7 @@ struct memory_storage_t {
 
   // free the allocated tensor
   void free_tensor(tensor_t *tensor);
-  
+
   // check if there is a tensor in the storage
   bool has_tensor(tid_t _id);
 
@@ -144,7 +144,7 @@ struct memory_storage_t {
 
   // get the number of tensors in the system
   size_t get_num_tensors();
-  
+
   // returns the size of a tensor
   size_t get_tensor_size(tid_t _id);
 
@@ -169,7 +169,7 @@ private:
 
   // information about the stored tensor
   struct sto_tensor_nfo_t {
-    
+
     // if present the address will be not null if evicted
     tensor_t *address;
 
@@ -187,8 +187,8 @@ private:
   tensor_ref_t _get_by_tid(tid_t _id);
 
   // craete all the tensors we just reserved
-  reservation_result_t _create_reserved(const std::vector<tid_t> &get, 
-                                       const std::vector<std::tuple<tid_t, size_t>> &create);
+  reservation_result_t _create_reserved(const std::vector<tid_t> &get,
+                                       const std::vector<std::tuple<tid_t, size_t>> &create_or_get);
 
   // the mutex to lock this thing as it is going to be hammered by threads
   std::mutex _m;

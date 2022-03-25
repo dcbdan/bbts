@@ -50,7 +50,7 @@ index_t create_matrix_tensors(char matrix, bbts::node_t &node, int n, int split,
         node._storage->local_transaction({}, {{cur_tid, tensor_size}}, [&](const storage_t::reservation_result_t &res) {
 
           // get the craeted tensor
-          auto &t = res.create[0].get().tensor;
+          auto &t = res.create_or_get[0].get().tensor;
 
           // init the tensor
           auto &dt = node._factory->init_tensor(t, dm).as<dense_tensor_t>();

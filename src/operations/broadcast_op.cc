@@ -7,7 +7,7 @@ namespace bbts {
 broadcast_op_t::broadcast_op_t(bbts::communicator_t &_comm,
                                bbts::storage_t &_storage,
                                const bbts::command_t::node_list_t &_nodes,
-                               int32_t _tag, 
+                               int32_t _tag,
                                size_t _num_bytes,
                                bbts::tid_t _tid): _comm(_comm),
                                                   _storage(_storage),
@@ -52,10 +52,10 @@ void broadcast_op_t::apply() {
 
   // init a remote transaction on all nodes
   bool success = true;
-  _storage.remote_transaction(_tag, _nodes, get, create, 
+  _storage.remote_transaction(_tag, _nodes, get, create,
   [&](const storage_t::reservation_result_t &res) {
 
-    // the root node has the vrank 0, if this is not the root node 
+    // the root node has the vrank 0, if this is not the root node
     // we need to recieve the broadcasted tensor
     if (vrank > 0) {
 
@@ -64,7 +64,7 @@ void broadcast_op_t::apply() {
       int peer = ((vrank & ~(1 << hibit))) % size;
 
       // allocate a buffer for the tensor
-      _in = res.create[0].get().tensor;
+      _in = res.create_or_get[0].get().tensor;
 
       // recieve the request and check if there is an error
       if (!_comm.receive_request_sync(get_global_rank(peer), _tag, _in, _num_bytes)) {
@@ -104,7 +104,7 @@ void broadcast_op_t::apply() {
     bool success = true;
     if (!requests.empty()) {
       for(auto &r : requests) {
-        
+
         // wait for request to finish
         if(!_comm.wait_async(r)) {
           success = false;
