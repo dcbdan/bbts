@@ -13,8 +13,9 @@
 
 namespace bbts {
 
-// here we queue all the commands this node needs to execute that we need 
-// to execute in conjunction with other nodes, are kept in the external_commands_queue_t
+// here we queue all the commands this node needs to execute
+// and we notify all the reservation stations on the other nodes when tensors
+// are ready
 class reservation_station_t {
  public:
 
@@ -27,8 +28,9 @@ class reservation_station_t {
   // mark that a command is processed
   bool retire_command(command_ptr_t _command);
 
-  // a list of node tensors for a node that needs to be notified that the tensors are available.
-  // We get that information by looking at the input tensors of remote commands scheduled here
+  // Extract a list of tensors to notifiy for node. If is_done is set to true, then the station
+  // has been shutdown and is done. Otherwise the returned tensors need to be notified to
+  // `node`.
   [[nodiscard]] std::vector<tid_t> tensors_to_notify_node(node_id_t node, bool &is_done);
 
   // notify the reservation station that the tensor on an another node became available
@@ -98,18 +100,23 @@ class reservation_station_t {
 
   // the state of the tensor
   struct internal_tensor_state_t {
-
     // the number of commands to read this, includes both the remote and local commands
     int32_t num_to_read = 0;
 
-    // the number of commands to write this
-    int32_t writing_tensor = false;
-
-    // is the tensor created
-    bool is_created = false;
+    // the number of commands to write this; the command is created if
+    // this value equals zero
+    int32_t num_to_write = -1;
 
     // is this tensor scheduled for delition
     bool scheduled_for_delition = false;
+
+    bool is_created() const {
+      return num_to_write == 0;
+    }
+
+    void set_created() {
+      num_to_write = 0;
+    }
   };
 
   // the mutex

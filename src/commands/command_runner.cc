@@ -93,6 +93,11 @@ void bbts::command_runner_t::local_apply_command_runner() {
       break;
     }
 
+    // Note that as far as this method is concerned,
+    // touch cmds are apply cmds
+    assert(cmd->type == command_t::op_type_t::APPLY ||
+           cmd->type == command_t::op_type_t::TOUCH);
+
     // return me that matcher for the operation
     auto ud = _udm->get_fn_impl(cmd->fun_id);
 
@@ -148,7 +153,10 @@ void bbts::command_runner_t::local_apply_command_runner() {
     });
 
     // log what is happening
-    _logger->message("APPLY " + std::to_string(cmd->id) + " on my_node : " + std::to_string(_comm->get_rank()) + " Executed...\n");
+    _logger->message(
+        (cmd->type == command_t::op_type_t::APPLY ? "APPLY " : "TOUCH ") +
+        std::to_string(cmd->id) + " on my_node : " +
+        std::to_string(_comm->get_rank()) + " Executed...\n");
 
     // create the outputs and run the ud
     _ts->local_transaction(inputs, outputs, [&](const storage_t::reservation_result_t &res) {

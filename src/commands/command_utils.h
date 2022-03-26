@@ -4,7 +4,7 @@
 
 namespace bbts {
 
-  // a command parameter used to parametrize the APPLY or REDUCE
+  // a command parameter used to parametrize the kernel calls
   union command_param_t {
     float f;
     int32_t i;

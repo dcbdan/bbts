@@ -24,12 +24,17 @@ using command_ptr_t = std::unique_ptr<bbts::command_t, command_deleter_t>;
 struct command_t {
 
   enum op_type_t : int32_t {
-
     APPLY = 0,
     REDUCE = 1,
     MOVE = 2,
     DELETE = 3,
-    SHUTDOWN = 4 // special command to shutdown the server
+    SHUTDOWN = 4,// special command to shutdown the server
+    TOUCH = 5,
+    // Like shutdown, incoming touch is a special command.
+    // It is guaranteed that before each touch, there is an incoming touch.
+    // It specifies the output to touch and the inputs that must touch
+    // it
+    INCOMING_TOUCH = 6
   };
 
   // specifies exactly what tensor on which node we refer to
@@ -95,8 +100,13 @@ struct command_t {
   // is this an apply
   [[nodiscard]] bool is_apply() const { return type == op_type_t::APPLY; }
 
-    // is this a reduce
+   // is this a reduce
   [[nodiscard]] bool is_reduce() const { return type == op_type_t::REDUCE; }
+
+   // is this a touch
+  [[nodiscard]] bool is_touch() const { return type == op_type_t::TOUCH; }
+
+  [[nodiscard]] bool is_incoming_touch() const { return type == op_type_t::INCOMING_TOUCH; }
 
   // get all the nodes included in the reduce
   [[nodiscard]] node_list_t get_nodes() const {
@@ -107,86 +117,18 @@ struct command_t {
     return { ._data = _parameters(), ._num_elements = _num_parameters };
   }
 
-  [[nodiscard]] tid_node_id_t get_reduce_input(node_id_t _node_id) {
-
-    // try to find an input for this node
-    auto inputs = get_inputs();
-    for(auto in : inputs) {
-      if(in.node == _node_id) {
-        return in;
-      }
-    }
-
-    return {-1, -1};
-  }
+  [[nodiscard]] tid_node_id_t get_reduce_input(node_id_t _node_id) const;
 
   // is this a local reduce operator
-  [[nodiscard]] bool is_local_reduce(node_id_t _node_id) const {
-
-    // make sure it is actually a reduce
-    if(type != op_type_t::REDUCE) {
-      return false;
-    }
-
-    // check if the output and all inputs are on the same node
-    auto nodes = get_nodes();
-    for(int32_t idx = 0; idx < nodes.size(); idx++) {
-      if(nodes[idx] != _node_id) { return false; }
-    }
-    return true;
-  }
+  [[nodiscard]] bool is_local_reduce(node_id_t _node_id) const;
 
   // is remote reduce
-  [[nodiscard]] bool is_remote_reduce(node_id_t _node_id) const {
-
-    // make sure it is actually a reduce
-    if(type != op_type_t::REDUCE) {
-      return false;
-    }
-
-    // if it is not local it is remote
-    return !is_local_reduce(_node_id);
-  }
+  [[nodiscard]] bool is_remote_reduce(node_id_t _node_id) const;
 
   // check if command uses a particular node
-  [[nodiscard]] bool uses_node(node_id_t target_node) const {
+  [[nodiscard]] bool uses_node(node_id_t target_node) const;
 
-    // go and check every tensor if it is located on a node
-    auto nodes = get_nodes();
-    for(auto &node : nodes) {
-      if(node == target_node) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  void print(std::stringstream &ss) {
-
-    ss << "{.id : " << id << " ";
-    ss << ".type : ";
-
-    switch (type) {
-      case MOVE : ss << (_num_outputs == 1 ? "MOVE " : "BROADCAST ") ; break;
-      case APPLY : ss << "APPLY "; break;
-      case DELETE : ss << "DELETE "; break;
-      case REDUCE : ss << "REDUCE "; break;
-      case SHUTDOWN :ss << "SHUTDOWN ";  break;
-    }
-
-    ss << " .inputs : [";
-    for(int32_t idx = 0; idx < _num_inputs; idx++) {
-      ss << "( " << get_input(idx).tid << ", " << get_input(idx).node << "),";
-    }
-    ss << "]";
-
-    ss << " .outputs : [";
-    for(int32_t idx = 0; idx < _num_outputs; idx++) {
-      ss << "( " << get_output(idx).tid << ", " << get_output(idx).node << "),";
-    }
-    ss << "]\n";
-  }
+  void print(std::stringstream &ss);
 
   // the root node is always first
   [[nodiscard]] node_id_t get_root_node() const {
@@ -194,267 +136,64 @@ struct command_t {
   }
 
   // clone the command
-  command_ptr_t clone() {
-
-    // allocate the memory
-    std::unique_ptr<char[]> tmp(new char[num_bytes()]);
-
-    // copy everything
-    memcpy(tmp.get(), this, num_bytes());
-
-    // return the the clone
-    auto pReleased = tmp.release();
-    auto pDerived = (bbts::command_t *)(pReleased);
-    auto d = std::unique_ptr<bbts::command_t, command_deleter_t>(pDerived);
-
-    // move the command
-    return std::move(d);
-  }
+  command_ptr_t clone();
 
   // allocate the command
-  static command_ptr_t allocate_command(size_t num_bytes) {
+  static command_ptr_t allocate_command(size_t num_bytes);
 
-    // allocate the memory
-    std::unique_ptr<char[]> p(new char[num_bytes]);
+  static command_ptr_t create_move(command_id_t id, tid_node_id_t in, tid_node_id_t out);
 
-    auto pReleased = p.release();
-    auto pDerived = (bbts::command_t *)(pReleased);
-    auto d = std::unique_ptr<bbts::command_t, command_deleter_t>(pDerived);
+  static command_ptr_t create_apply(
+    command_id_t id,
+    ud_impl_id_t fun_id,
+    bool is_gpu,
+    const std::vector<command_param_t> &params,
+    const std::vector<tid_node_id_t> &in,
+    const std::vector<tid_node_id_t> &out);
 
-    // move the command
-    return std::move(d);
-  }
+  static command_ptr_t create_broadcast(
+    command_id_t id,
+    tid_node_id_t in,
+    const std::vector<tid_node_id_t> &out);
 
-  static command_ptr_t create_move(command_id_t id, tid_node_id_t in, tid_node_id_t out) {
+  static command_ptr_t create_reduce(
+    command_id_t id,
+    ud_impl_id_t fun_id,
+    bool is_gpu,
+    const std::vector<command_param_t> &params,
+    const std::vector<tid_node_id_t> &in, const tid_node_id_t &out);
 
-    // make sure this matches
-    assert(in.tid == out.tid);
+  static command_ptr_t create_touch(
+    command_id_t id,
+    ud_impl_id_t fun_id,
+    bool is_gpu,
+    int which_input,
+    const std::vector<command_param_t> &params_without_compact_and_which,
+    const std::vector<tid_node_id_t> &in,
+    const std::vector<tid_node_id_t> &out);
 
-    // create the output
-    auto tmp = allocate_command(_num_bytes(0, 2, 1, 1));
+  static command_ptr_t create_compact(
+    command_id_t id,
+    ud_impl_id_t fun_id,
+    bool is_gpu,
+    int which_input,
+    const std::vector<command_param_t> &params_without_compact_and_which,
+    const std::vector<tid_node_id_t> &in,
+    const std::vector<tid_node_id_t> &out);
 
-    // set the id type and function
-    tmp->id = id;
-    tmp->type = MOVE;
-    tmp->fun_id = {-1, -1};
-    tmp->_num_parameters = 0;
-    tmp->_num_nodes = 2;
-    tmp->_num_inputs = 1;
-    tmp->_num_outputs = 1;
-
-    // setup the offsets
-    tmp->_setup_offsets();
-
-    // fill-up the nodes
-    tmp->_nodes()[0] = in.node;
-    tmp->_nodes()[1] = out.node;
-
-    // fill-up the inputs and outputs
-    tmp->_input_tensors()[0] = in;
-    tmp->_output_tensors()[0] = out;
-
-    // return the created pointer
-    return std::move(tmp);
-  }
-
-  static command_ptr_t create_apply(command_id_t id, ud_impl_id_t fun_id, bool is_gpu, const std::vector<command_param_t> &params,
-                                    const std::vector<tid_node_id_t> &in, const std::vector<tid_node_id_t> &out) {
-
-    // make sure all of them are at the same node
-    assert(std::all_of(out.begin(), out.end(), [&](const tid_node_id_t &o) { return o.node == out[0].node; }));
-    assert(std::all_of(in.begin(),  in.end(),  [&](const tid_node_id_t &i) { return i.node == out[0].node; }));
-
-    // create the output
-    auto tmp = allocate_command(_num_bytes(params.size(), 1, in.size(), out.size()));
-
-    // set the id type and function
-    tmp->id = id;
-    tmp->type = APPLY;
-    tmp->fun_id = fun_id;
-    tmp->nfo.is_gpu = is_gpu;
-    tmp->_num_parameters = params.size();
-    tmp->_num_nodes = 1;
-    tmp->_num_inputs = in.size();
-    tmp->_num_outputs = out.size();
-
-    // setup the offsets
-    tmp->_setup_offsets();
-
-    // fill-up the nodes - APPLY is local to a node and has to have at least one output tensor
-    tmp->_nodes()[0] = out[0].node;
-
-    // fill-up the parameters
-    for(size_t idx = 0; idx < params.size(); ++idx) {
-      tmp->_parameters()[idx] = params[idx];
-    }
-
-    // fill-up the inputs
-    for(size_t idx = 0; idx < in.size(); ++idx) {
-      tmp->_input_tensors()[idx] = in[idx];
-    }
-
-    // fill-up the outputs
-    for(size_t idx = 0; idx < out.size(); ++idx) {
-      tmp->_output_tensors()[idx] = out[idx];
-    }
-
-    // return the created pointer
-    return std::move(tmp);
-  }
-
-  static command_ptr_t create_broadcast(command_id_t id, tid_node_id_t in, const std::vector<tid_node_id_t> &out) {
-
-    // make sure we are talking about the same tensor and all the them are not the input node
-    assert(std::all_of(out.begin(), out.end(), [&](const tid_node_id_t &o) { return o.tid == in.tid && o.node != in.node; }));
-
-    // make sure all of the outputs are unique
-    ////auto it = std::unique(out.begin(), out.end());
-    ////assert((it == out.end()));
-
-    // create  the output
-    auto tmp = allocate_command(_num_bytes(0, 1u + out.size(), 1, out.size()));
-
-    // set the id type and function
-    tmp->id = id;
-    tmp->type = MOVE;
-    tmp->fun_id = {-1, -1};
-    tmp->_num_parameters = 0;
-    tmp->_num_nodes = 1u + out.size();
-    tmp->_num_inputs = 1;
-    tmp->_num_outputs = out.size();
-
-    // setup the offsets
-    tmp->_setup_offsets();
-
-    // fill-up the nodes, broadcast goes from the input node to all the other nodes, not duplicates are allowed
-    tmp->_nodes()[0] = in.node;
-    for(size_t idx = 0; idx < out.size(); ++idx) {
-      tmp->_nodes()[1 + idx] = out[idx].node;
-    }
-
-    // fill-up the inputs
-    tmp->_input_tensors()[0] = in;
-
-    // fill-up the outputs
-    for(size_t idx = 0; idx < out.size(); ++idx) {
-      tmp->_output_tensors()[idx] = out[idx];
-    }
-
-    // return the created pointer
-    return std::move(tmp);
-  }
-
-  static command_ptr_t create_reduce(command_id_t id, ud_impl_id_t fun_id, bool is_gpu,
-                                     const std::vector<command_param_t> &params,
-                                     const std::vector<tid_node_id_t> &in, const tid_node_id_t &out) {
-
-    // the nodes
-    std::vector<node_id_t> nodes;
-    nodes.reserve(1u + in.size());
-
-    // the root is at the out node
-    nodes.push_back(out.node);
-    for(const auto &i : in) {
-      // check if we already have this node
-      if(std::find(nodes.begin(), nodes.end(), i.node) == nodes.end()) {
-        nodes.push_back(i.node);
-      }
-    }
-
-    // create the output
-    auto tmp = allocate_command(_num_bytes(params.size(), nodes.size(), in.size(), 1));
-
-    // set the id type and function
-    tmp->id = id;
-    tmp->type = REDUCE;
-    tmp->fun_id = fun_id;
-    tmp->nfo.is_gpu = is_gpu;
-    tmp->_num_parameters = params.size();
-    tmp->_num_inputs = in.size();
-    tmp->_num_outputs = 1;
-    tmp->_num_nodes = nodes.size();
-
-    // setup the offsets
-    tmp->_setup_offsets();
-
-    // fill-up the parameters
-    for(size_t idx = 0; idx < params.size(); ++idx) {
-      tmp->_parameters()[idx] = params[idx];
-    }
-
-    // fill-up the nodes
-    for(size_t idx = 0; idx < nodes.size(); ++idx) {
-      tmp->_nodes()[idx] = nodes[idx];
-    }
-
-    // fill-up the inputs
-    for(size_t idx = 0; idx < in.size(); ++idx) {
-      tmp->_input_tensors()[idx] = in[idx];
-    }
-
-    // fill-up the outputs
-    tmp->_output_tensors()[0] = out;
-
-    // return the created pointer
-    return std::move(tmp);
-  }
-
-  static command_ptr_t create_delete(command_id_t id, const std::vector<tid_node_id_t> &in) {
-
-    // make sure all of the inputs are on the same node
-    assert(std::all_of(in.begin(), in.end(), [&](const tid_node_id_t &i) { return i.node == in[0].node; }));
-
-    // create the output
-    auto tmp = allocate_command(_num_bytes(0, 1, in.size(), 0));
-
-    // set the id type and function
-    tmp->id = id;
-    tmp->type = DELETE;
-    tmp->fun_id = {-1, -1};
-    tmp->_num_parameters = 0;
-    tmp->_num_inputs = in.size();
-    tmp->_num_outputs = 0;
-    tmp->_num_nodes = 1;
-
-    // setup the offsets
-    tmp->_setup_offsets();
-
-    // set the node
-    tmp->_nodes()[0] = in[0].node;
-
-    // fill-up the inputs
-    for(size_t idx = 0; idx < in.size(); ++idx) {
-      tmp->_input_tensors()[idx] = in[idx];
-    }
-
-    // return the created pointer
-    return std::move(tmp);
-  }
+  static command_ptr_t create_delete(
+    command_id_t id,
+    const std::vector<tid_node_id_t> &in);
 
   // crates a shutdown command
-  static command_ptr_t create_shutdown(node_id_t node) {
+  static command_ptr_t create_shutdown(node_id_t node);
 
-    // allocate the memory
-    auto tmp = allocate_command(_num_bytes(0, 1, 0, 0));
-
-    // set the id type and function
-    tmp->id = -1;
-    tmp->type = SHUTDOWN;
-    tmp->fun_id = {-1, -1};
-    tmp->_num_parameters = 0;
-    tmp->_num_inputs = 0;
-    tmp->_num_outputs = 0;
-    tmp->_num_nodes = 1;
-
-    // setup the offsets
-    tmp->_setup_offsets();
-
-    // set the node
-    tmp->_nodes()[0] = node;
-
-    // return the created pointer
-    return std::move(tmp);
-  }
+  // cretes an incoming touch command
+  static command_ptr_t create_incoming_touch(
+    command_id_t id,
+    node_id_t node,
+    const std::vector<tid_t> &in,
+    tid_t out);
 
   // the impl_id of the operation
   command_id_t id;
@@ -526,17 +265,28 @@ private:
   }
 
   // these return the offsets to parameters
-  inline command_param_t* _parameters() const { return ((command_param_t *) (((int8_t *) this) + _params_offset)); }
-  inline node_id_t* _nodes() const { return ((node_id_t *) (((int8_t *) this) + _node_offset)); }
-  inline tid_node_id_t* _input_tensors() const { return ((tid_node_id_t *) (((int8_t *) this) + _input_tensor_offset)); }
-  inline tid_node_id_t* _output_tensors() const { return ((tid_node_id_t *) (((int8_t *) this) + _output_tensor_offset)); }
+  inline command_param_t* _parameters() const {
+    return ((command_param_t *) (((int8_t *) this) + _params_offset));
+  }
+
+  inline node_id_t* _nodes() const {
+    return ((node_id_t *) (((int8_t *) this) + _node_offset));
+  }
+
+  inline tid_node_id_t* _input_tensors() const {
+    return ((tid_node_id_t *) (((int8_t *) this) + _input_tensor_offset));
+  }
+
+  inline tid_node_id_t* _output_tensors() const {
+    return ((tid_node_id_t *) (((int8_t *) this) + _output_tensor_offset));
+  }
 
   // the number of bytes
   static size_t _num_bytes(size_t num_parameters,
                            size_t num_nodes,
                            size_t num_inputs,
-                           size_t num_outputs) {
-
+                           size_t num_outputs)
+  {
     return sizeof(bbts::command_t) + num_parameters * sizeof (command_param_t) +
            num_nodes * sizeof(node_id_t) + (num_inputs + num_outputs) * sizeof(tid_node_id_t);
   }

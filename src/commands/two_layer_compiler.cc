@@ -1,13 +1,13 @@
 #include "two_layer_compiler.h"
 
-using namespace bbts;
+namespace bbts {
 
-std::vector<bbts::command_ptr_t>
-bbts::two_layer_compiler::compile(
+std::vector<command_ptr_t>
+two_layer_compiler::compile(
   const std::vector<abstract_command_t> &commands,
   std::vector<std::unordered_set<tid_t>> &tensor_locations)
 {
-  std::vector<bbts::command_ptr_t> generated_cmds;
+  std::vector<command_ptr_t> generated_cmds;
 
   // precompute the costs
   cost_model->precompute_costs(commands);
@@ -96,10 +96,10 @@ bbts::two_layer_compiler::compile(
 }
 
 std::unordered_set<tid_t>
-bbts::two_layer_compiler::_create_delete_commands(
+two_layer_compiler::_create_delete_commands(
     const std::vector<abstract_command_t> &commands,
     std::vector<std::unordered_set<tid_t>> &tensor_locations,
-    std::vector<bbts::command_ptr_t> &generated_cmds)
+    std::vector<command_ptr_t> &generated_cmds)
 {
   std::unordered_set<tid_t> ret;
   for (auto &c : commands) {
@@ -144,8 +144,8 @@ bbts::two_layer_compiler::_create_delete_commands(
   return std::move(ret);
 }
 
-void bbts::two_layer_compiler::_create_moved_commands(
-  std::vector<bbts::command_ptr_t> &generated_cmds,
+void two_layer_compiler::_create_moved_commands(
+  std::vector<command_ptr_t> &generated_cmds,
   const std::unordered_set<tid_t> &delted)
 {
   for (node_id_t node = 0; node < num_nodes; ++node) {
@@ -171,9 +171,9 @@ void bbts::two_layer_compiler::_create_moved_commands(
   }
 }
 
-void bbts::two_layer_compiler::optimize(
+void two_layer_compiler::optimize(
   const std::vector<abstract_command_t> &commands,
-  std::vector<bbts::command_ptr_t> &generated_cmds,
+  std::vector<command_ptr_t> &generated_cmds,
   const std::vector<std::list<uint32_t>> &first_layer,
   const std::vector<std::list<uint32_t>> &second_layer,
   std::vector<std::unordered_set<tid_t>> &tensor_locations)
@@ -245,11 +245,11 @@ void bbts::two_layer_compiler::optimize(
   }
 }
 
-void bbts::two_layer_compiler::apply_rule_0(
+void two_layer_compiler::apply_rule_0(
   const std::vector<abstract_command_t> &commands,
   const std::vector<std::list<uint32_t>> &producers,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
-  std::vector<bbts::command_ptr_t> &generated_cmds)
+  std::vector<command_ptr_t> &generated_cmds)
 {
   // go through all the commands
   node_cost_t added_cost;
@@ -308,13 +308,13 @@ void bbts::two_layer_compiler::apply_rule_0(
   }
 }
 
-void bbts::two_layer_compiler::apply_rule_1(
+void two_layer_compiler::apply_rule_1(
   node_id_t node,
   const std::vector<abstract_command_t> &commands,
   const std::list<uint32_t> &consumer,
   const std::vector<std::list<uint32_t>> &producers,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
-  std::vector<bbts::command_ptr_t> &generated_cmds)
+  std::vector<command_ptr_t> &generated_cmds)
 {
   std::vector<bool> gpu_assigment;
   for (auto &p : producers) {
@@ -349,14 +349,14 @@ void bbts::two_layer_compiler::apply_rule_1(
   _node_costs[node].gpu_transfer_cost += gpu_transfer;
 }
 
-void bbts::two_layer_compiler::apply_rule_2(
+void two_layer_compiler::apply_rule_2(
   node_id_t consumer_node,
   const std::vector<node_id_t> producer_nodes,
   const std::vector<abstract_command_t> &commands,
   const std::list<uint32_t> &consumer,
   const std::vector<std::list<uint32_t>> &producers,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
-  std::vector<bbts::command_ptr_t> &generated_cmds)
+  std::vector<command_ptr_t> &generated_cmds)
 {
   std::vector<bool> gpu_assigment;
   for (auto idx = 0; idx < producers.size(); ++idx) {
@@ -394,7 +394,7 @@ void bbts::two_layer_compiler::apply_rule_2(
 
 // put everything at one node
 std::tuple<node_id_t, float>
-bbts::two_layer_compiler::rule_1(
+two_layer_compiler::rule_1(
   const std::vector<abstract_command_t> &commands,
   const std::list<uint32_t> &consumer,
   const std::vector<std::list<uint32_t>> &producers,
@@ -482,7 +482,7 @@ bbts::two_layer_compiler::rule_1(
 // put the producers where they have the smallest
 // execution overhead then place the consumer
 std::tuple<float, node_id_t, std::vector<node_id_t>>
-bbts::two_layer_compiler::rule_2(
+two_layer_compiler::rule_2(
   const std::vector<abstract_command_t> &commands,
   const std::list<uint32_t> &consumer,
   const std::vector<std::list<uint32_t>> &producers,
@@ -592,7 +592,7 @@ bbts::two_layer_compiler::rule_2(
 }
 
 // revert the changes to tensor locations
-void bbts::two_layer_compiler::revert(
+void two_layer_compiler::revert(
   const std::vector<std::tuple<tid_t, node_id_t>> &rule_history,
   std::vector<std::unordered_set<tid_t>> &tensor_locations)
 {
@@ -604,7 +604,7 @@ void bbts::two_layer_compiler::revert(
 }
 
 // add the previously undone
-void bbts::two_layer_compiler::apply(
+void two_layer_compiler::apply(
   const std::vector<std::tuple<tid_t, node_id_t>> &rule_history,
   std::vector<std::unordered_set<tid_t>> &tensor_locations)
 {
@@ -615,7 +615,7 @@ void bbts::two_layer_compiler::apply(
   }
 }
 
-node_id_t bbts::two_layer_compiler::_find_node_to_fetch(
+node_id_t two_layer_compiler::_find_node_to_fetch(
   tid_t id,
   const std::vector<std::unordered_set<tid_t>> &tensor_locations)
 {
@@ -643,8 +643,8 @@ node_id_t bbts::two_layer_compiler::_find_node_to_fetch(
 }
 
 // update the move op
-void bbts::two_layer_compiler::_update_move(
-  std::vector<bbts::command_ptr_t> &out_commands,
+void two_layer_compiler::_update_move(
+  std::vector<command_ptr_t> &out_commands,
   command_id_t cmd_id,
   node_id_t best_node)
 {
@@ -666,13 +666,13 @@ void bbts::two_layer_compiler::_update_move(
 }
 
 void
-bbts::two_layer_compiler::generate_for_node(
+two_layer_compiler::generate_for_node(
   const std::list<uint32_t> &cmd,
   const std::vector<abstract_command_t> &commands,
   node_id_t node,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
   std::vector<bool> &gpu_assigment_best,
-  std::vector<bbts::command_ptr_t> &generated_cmds)
+  std::vector<command_ptr_t> &generated_cmds)
 {
   // if the first command is an apply we need to create a bunch of move
   // commands for the tensor that are not present otherwise the reduce takes
@@ -782,10 +782,10 @@ bbts::two_layer_compiler::generate_for_node(
   }
 }
 
-void bbts::two_layer_compiler::generate_or_update_move(
+void two_layer_compiler::generate_or_update_move(
   tid_t tid, node_id_t node,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
-  std::vector<bbts::command_ptr_t> &generated_cmds)
+  std::vector<command_ptr_t> &generated_cmds)
 {
   // Either create a new move command or piggyback a previous move
   // with a broadcast
@@ -822,7 +822,7 @@ void bbts::two_layer_compiler::generate_or_update_move(
   }
 }
 
-void bbts::two_layer_compiler::backtrace(
+void two_layer_compiler::backtrace(
   std::vector<std::tuple<char, char>> trace, char best,
   std::vector<bool> &gpu_assigment)
 {
@@ -854,7 +854,7 @@ void bbts::two_layer_compiler::backtrace(
 
 // returns the {transfer_cost, cpu_cost, gpu_cost}
 std::tuple<float, float, float, float>
-bbts::two_layer_compiler::calculate_cost(
+two_layer_compiler::calculate_cost(
   node_id_t node, const std::list<uint32_t> &cmd,
   const std::vector<abstract_command_t> &commands,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
@@ -953,7 +953,7 @@ bbts::two_layer_compiler::calculate_cost(
 }
 
 std::tuple<float, float, float, float>
-bbts::two_layer_compiler::try_assign(
+two_layer_compiler::try_assign(
   node_id_t node, const std::list<uint32_t> &cmd,
   const std::vector<abstract_command_t> &commands,
   std::vector<std::unordered_set<tid_t>> &tensor_locations,
@@ -1045,7 +1045,7 @@ bbts::two_layer_compiler::try_assign(
   }
 }
 
-void bbts::two_layer_compiler::_update_present_tids(
+void two_layer_compiler::_update_present_tids(
   std::unordered_set<tid_t> &present_tids,
   const std::vector<std::list<uint32_t>> &first_layer,
   const std::vector<abstract_command_t> &commands)
@@ -1060,7 +1060,7 @@ void bbts::two_layer_compiler::_update_present_tids(
 }
 
 std::vector<std::list<uint32_t>>
-bbts::two_layer_compiler::_get_layer(
+two_layer_compiler::_get_layer(
   const std::vector<abstract_command_t> &commands,
   const std::unordered_set<tid_t> present_tids)
 {
@@ -1104,7 +1104,7 @@ bbts::two_layer_compiler::_get_layer(
   return std::move(first_layer);
 }
 
-void bbts::two_layer_compiler::add_all_appendable(
+void two_layer_compiler::add_all_appendable(
   std::list<uint32_t> &op_list,
   const std::vector<abstract_command_t> &commands)
 {
@@ -1135,7 +1135,7 @@ void bbts::two_layer_compiler::add_all_appendable(
   }
 }
 
-bool bbts::two_layer_compiler::is_apendable(
+bool two_layer_compiler::is_apendable(
   uint32_t &producer, uint32_t &consumer,
   const std::vector<abstract_command_t> &commands)
 {
@@ -1155,4 +1155,4 @@ bool bbts::two_layer_compiler::is_apendable(
   return true;
 }
 
-
+} // bbts

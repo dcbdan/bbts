@@ -31,7 +31,9 @@ bool bbts::reservation_station_t::queue_command(bbts::command_ptr_t _command) {
     return false;
   }
 
-  // figure out whether this is a local command or a remote command (started by this machine or a remote machine)
+  // figure out whether this is a local command or a remote command
+  // (a local command is initiated at this node,
+  //  a remote command is initiated on another node)
   bool success;
   if(_command->get_root_node() == _my_rank) {
 
@@ -91,13 +93,16 @@ bool bbts::reservation_station_t::retire_command(bbts::command_ptr_t _command) {
   return success;
 }
 
-std::vector<bbts::tid_t> bbts::reservation_station_t::tensors_to_notify_node(bbts::node_id_t node, bool &is_done) {
-
-  // lock the tensor
+std::vector<bbts::tid_t> bbts::reservation_station_t::tensors_to_notify_node(
+  bbts::node_id_t node,
+  bool &is_done)
+{
   std::unique_lock<std::mutex> lk(_m);
 
   // wait until we are shutdown or we have something to notify for this node
-  _send_status_cv[node].wait(lk, [&]{ return !_send_status_queue[node].empty() || _shutdown; });
+  _send_status_cv[node].wait(lk, [&]{
+    return !_send_status_queue[node].empty() || _shutdown;
+  });
 
   // if we have shutdown return
   if(_shutdown && _send_status_queue[node].empty()) {
@@ -114,8 +119,10 @@ std::vector<bbts::tid_t> bbts::reservation_station_t::tensors_to_notify_node(bbt
   return std::move(out);
 }
 
-void bbts::reservation_station_t::notify_available_tensors(bbts::node_id_t node, const std::vector<tid_t> &tensors) {
-
+void bbts::reservation_station_t::notify_available_tensors(
+  bbts::node_id_t node,
+  const std::vector<tid_t> &tensors)
+{
   // lock the tensor
   std::unique_lock<std::mutex> lk(_m);
 
@@ -158,11 +165,10 @@ void bbts::reservation_station_t::register_tensor(bbts::tid_t _tid) {
   auto &s = _tensors[_tid];
 
   // make sure that it was not created before
-  assert(!s.is_created);
+  assert(!s.is_created());
 
   // we are done writing to the tensor and
-  s.is_created = true;
-  s.writing_tensor = false;
+  s.set_created();
 
   // go through the commands that are waiting
   auto cw = _commands_waiting_for[_my_rank].equal_range(_tid);
@@ -374,8 +380,12 @@ bool bbts::reservation_station_t::_queue_remote(bbts::command_ptr_t _command) {
 
   // handle delete
   if(_command->is_delete()) {
-
     // this is bad a remote delete should never exist... // TODO handle this gracefully
+    return false;
+  }
+
+  // this is happening somewhere else so ignore
+  if(_command->is_incoming_touch()) {
     return false;
   }
 
@@ -399,7 +409,7 @@ bool bbts::reservation_station_t::_queue_remote(bbts::command_ptr_t _command) {
 
       // check if it was not created we need to mark that
       // we need to notify the remote node once the tensor is created
-      if(!s.is_created) {
+      if(!s.is_created()) {
 
         // mark that we need to notify once this tid is created _in.node
         _notify_on_creation.insert({_in.tid, rootNode});
@@ -426,10 +436,13 @@ bool bbts::reservation_station_t::_queue_remote(bbts::command_ptr_t _command) {
       auto &s = _tensors[_out.tid];
 
       // make sure everything is fine TODO I need to recover from this somehow...
-      if(s.scheduled_for_delition && s.is_created) { return false; }
+      if(s.scheduled_for_delition && s.is_created()) { return false; }
 
-      // we are writing to this tensor
-      s.writing_tensor = true;
+      // we are the only writer to this tensor
+      // (the assumption is that (1) this can't be a touch command and
+      //  (2) all commands that are not touch need to be written to once)
+      assert(!_command->is_touch());
+      s.num_to_write = 1;
     }
   }
 
@@ -455,7 +468,7 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
       auto &s = _tensors[in.tid];
 
       // if we created the tensor, if not just delete it!
-      if(s.is_created && s.num_to_read == 0 && !s.writing_tensor) {
+      if(s.num_to_read == 0 && s.num_to_write == 0) {
 
         // remove the tensor immediately
         _remove_tensor(in.tid);
@@ -472,6 +485,25 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
     }
 
     // finish delete processed
+    return true;
+  }
+
+  // handle touch declarations
+  if(_command->is_incoming_touch()) {
+    assert(_command->get_outputs().size() == 1);
+    tid_t out = _command->get_output(0).tid;
+
+    int32_t num_inputs = static_cast<int32_t>(_command->get_inputs().size());
+    assert(num_inputs >= 1);
+
+    auto [_, did_insert] = _tensors.insert({
+        out,
+        internal_tensor_state_t {
+          .num_to_write = num_inputs
+        }
+      });
+    assert(did_insert);
+
     return true;
   }
 
@@ -495,7 +527,7 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
       s.num_to_read++;
 
       // if it was not created we need to keep track of that
-      if(!s.is_created) {
+      if(!s.is_created()) {
 
         // tensor is not present
         num_not_present++;
@@ -536,10 +568,16 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
       auto &s = _tensors[_out.tid];
 
       // make sure everything is fine TODO I need to recover from this somehow...
-      if(s.scheduled_for_delition && s.is_created) { return false; }
+      if(s.scheduled_for_delition && s.is_created()) { return false; }
 
       // we are writing to this tensor
-      s.writing_tensor = true;
+      if(_command->is_touch()) {
+        // if it is a touch command, the output number to write has already been set
+        // because (assumption) there was a previou incoming touch
+      } else {
+        assert(s.num_to_write == -1);
+        s.num_to_write = 1;
+      }
     }
   }
 
@@ -547,8 +585,9 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
   if(num_not_present == 0) {
 
     switch (_command->type) {
-      case command_t::op_type_t::APPLY: _execute_ud.emplace_back(std::move(_command)); break;
-      case command_t::op_type_t::MOVE: _execute_move.emplace_back(std::move(_command)); break;
+      case command_t::op_type_t::APPLY:  _execute_ud.emplace_back(    std::move(_command)); break;
+      case command_t::op_type_t::TOUCH:  _execute_ud.emplace_back(    std::move(_command)); break;
+      case command_t::op_type_t::MOVE:   _execute_move.emplace_back(  std::move(_command)); break;
       case command_t::op_type_t::REDUCE: _execute_reduce.emplace_back(std::move(_command)); break;
       default: assert(false); // this is not supposed to happen
     }
@@ -590,7 +629,7 @@ bool bbts::reservation_station_t::_retire_command(bbts::command_ptr_t _command) 
     return true;
   }
 
-  // make sure to go through the created tensors
+  // make sure to go through the written to tensors
   for(int32_t i = 0; i < _command->get_num_outputs(); i++) {
 
     // get the tensor required in the output
@@ -605,14 +644,20 @@ bool bbts::reservation_station_t::_retire_command(bbts::command_ptr_t _command) 
     auto tid = out.tid;
     auto &s = _tensors[tid];
 
-    // make sure that it was not created before
-    assert(!s.is_created);
+    // make sure that it was not created before and that it is expecting writes
+    assert(s.num_to_write > 0);
 
-    // we are done writing to the tensor and
-    s.is_created = true;
-    s.writing_tensor = false;
+    // we have written to the tensor once
+    s.num_to_write--;
 
-    // remove the tensor if it is not needed
+    // if the tensor is waiting for more writes, there is nothing else to do
+    if(s.num_to_write != 0) {
+      continue;
+    }
+    // At this point, the tensor has been completely written to and is fully
+    // created.
+
+    // remove the tensor if has been written to completely and is not needed
     if (s.num_to_read == 0 && s.scheduled_for_delition) {
 
       // remove the tensor immediately
@@ -675,7 +720,7 @@ bool bbts::reservation_station_t::_retire_command(bbts::command_ptr_t _command) 
 
     // if there are no command that is writing to this tensor,
     // reading this tensor and the tensor is scheduled for deletion, delete it here
-    if (s.num_to_read == 0 && !s.writing_tensor && s.scheduled_for_delition) {
+    if (s.num_to_read == 0 && s.num_to_write == 0 && s.scheduled_for_delition) {
 
       // remove the tensor immediately
       _remove_tensor(in.tid);
@@ -716,14 +761,18 @@ bool bbts::reservation_station_t::_retire_remote_command(bbts::command_ptr_t _co
     auto &s = _tensors[tid];
 
     // make sure that it was not created before
-    assert(!s.is_created);
+    assert(s.num_to_write > 0);
 
-    // we are done writing to the tensor and
-    s.is_created = true;
-    s.writing_tensor = false;
+    // we have written to the tensor once
+    s.num_to_write--;
+
+    // if the tensor is waiting for more writes, there is nothing else to do
+    if(s.num_to_write != 0) {
+      continue;
+    }
 
     // remove the tensor if it is not needed
-    if (s.num_to_read == 0 && s.scheduled_for_delition) {
+    if (s.num_to_write == 0 && s.num_to_read == 0 && s.scheduled_for_delition) {
 
       // remove the tensor immediately
       _remove_tensor(out.tid);
@@ -785,7 +834,7 @@ bool bbts::reservation_station_t::_retire_remote_command(bbts::command_ptr_t _co
 
     // if there are no command that is writing to this tensor
     // reading this tensor and the tensor is scheduled for deletion, delete it here
-    if (s.num_to_read == 0 && !s.writing_tensor && s.scheduled_for_delition) {
+    if (s.num_to_read == 0 && s.num_to_write == 0 && s.scheduled_for_delition) {
 
       // remove the tensor immediately
       _remove_tensor(in.tid);
@@ -805,8 +854,9 @@ void bbts::reservation_station_t::_schedule_for_execution(bbts::command_ptr_t _c
 
   // schedule the command for execution
   switch (_cmd->type) {
-    case command_t::op_type_t::APPLY: _execute_ud.emplace_back(std::move(_cmd)); break;
-    case command_t::op_type_t::MOVE: _execute_move.emplace_back(std::move(_cmd)); break;
+    case command_t::op_type_t::APPLY:  _execute_ud.emplace_back(    std::move(_cmd)); break;
+    case command_t::op_type_t::TOUCH:  _execute_ud.emplace_back(    std::move(_cmd)); break;
+    case command_t::op_type_t::MOVE:   _execute_move.emplace_back(  std::move(_cmd)); break;
     case command_t::op_type_t::REDUCE: _execute_reduce.emplace_back(std::move(_cmd)); break;
     default: assert(false); // this is not supposed to happen
   }
