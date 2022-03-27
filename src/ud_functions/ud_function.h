@@ -123,7 +123,7 @@ struct ud_impl_t {
     }
 
     template <size_t n>
-    uint32_t get_bool() const {
+    bool get_bool() const {
       return _params[n].b;
     }
 

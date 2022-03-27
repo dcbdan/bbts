@@ -210,6 +210,10 @@ struct command_t {
     // this is used by the MOVE and broadcast command to send over the number of bytes
     size_t num_bytes;
 
+    // this is used by TOUCH commands to determine the total number of writes that will
+    // have to happen to finish the tensor
+    size_t num_writes;
+
     // is this command using the gpu
     bool is_gpu = false;
 
