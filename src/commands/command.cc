@@ -214,6 +214,7 @@ command_ptr_t command_t::create_touch(
   ud_impl_id_t fun_id,
   bool is_gpu,
   int which_input,
+  int num_touches,
   const std::vector<command_param_t> &params_without_compact_and_which,
   const std::vector<tid_node_id_t> &in,
   const std::vector<tid_node_id_t> &out)

@@ -57,14 +57,14 @@ row_major_expand_t get_expander(
 {
   return get_expander(
     params.get_uint<1>(),
-    params.get_int<2>(),
-    params.get_int<3>(),
-    params.get_int<4>(),
-    params.get_int<5>(),
-    params.get_int<5>(),
-    params.get_int<6>(),
-    params.get_int<7>(),
-    params.get_int<8>());
+    params.get_uint<2>(),
+    params.get_uint<3>(),
+    params.get_uint<4>(),
+    params.get_uint<5>(),
+    params.get_uint<5>(),
+    params.get_uint<6>(),
+    params.get_uint<7>(),
+    params.get_uint<8>());
 }
 
 row_major_expand_t get_expander(
@@ -73,14 +73,14 @@ row_major_expand_t get_expander(
 {
   return get_expander(
     which_input,
-    params.get_int<0>(),
-    params.get_int<1>(),
-    params.get_int<2>(),
-    params.get_int<3>(),
-    params.get_int<4>(),
-    params.get_int<5>(),
-    params.get_int<6>(),
-    params.get_int<7>());
+    params.get_uint<0>(),
+    params.get_uint<1>(),
+    params.get_uint<2>(),
+    params.get_uint<3>(),
+    params.get_uint<4>(),
+    params.get_uint<5>(),
+    params.get_uint<6>(),
+    params.get_uint<7>());
 }
 
 void dense_expand_t::get_out_meta(
@@ -127,9 +127,9 @@ void dense_expand_t::get_out_meta(
   vector<int> final_out_shape = expander.expand_out_shape();
 
   if(compact) {
-    m_out = { compact_shape[0], compact_shape[1] };
+    m_out = { (uint32_t)compact_shape[0], (uint32_t)compact_shape[1] };
   } else {
-    m_out = { final_out_shape[0], final_out_shape[1] };
+    m_out = { (uint32_t)final_out_shape[0], (uint32_t)final_out_shape[1] };
   }
 }
 
@@ -151,10 +151,10 @@ void dense_expand_t::f(
 
   bool compact = params.get_bool<0>();
   if(compact) {
-    m_out = { compact_shape[0], compact_shape[1] };
+    m_out = { (uint32_t)compact_shape[0], (uint32_t)compact_shape[1] };
     expander.compact(inn.data(), out.data());
   } else {
-    m_out = { final_out_shape[0], final_out_shape[1] };
+    m_out = { (uint32_t)final_out_shape[0], (uint32_t)final_out_shape[1] };
     if(compact_shape[0] == m_inn.num_rows && compact_shape[1] == m_inn.num_cols) {
       expander.uncompact(inn.data(), out.data());
     } else {

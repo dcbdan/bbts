@@ -55,7 +55,7 @@ if(${ENABLE_GPU})
 
     # set the cuda flags
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --default-stream per-thread -Xcompiler -fPIC")
-    
+
     # try to find cuda
     find_package(CUDA REQUIRED)
 
@@ -64,7 +64,7 @@ if(${ENABLE_GPU})
 
     # add the definition
     add_compile_definitions(ENABLE_GPU)
-    
+
     # auto cuda paths
     file(GLOB UD_SOURCE_CUDA "src/ud_functions/impls/*.cu")
     set (UD_SOURCE_CUDA ${UD_SOURCE_CUDA} "src/ud_functions/gpu_scheduler_impl.cc")
@@ -113,6 +113,10 @@ add_library(storage OBJECT ${STORAGE_SOURCE})
 file(GLOB SERVER_SOURCE "src/server/*.cc")
 add_library(server OBJECT ${SERVER_SOURCE})
 
+# the utils
+file(GLOB SERVER_SOURCE "src/utils/*.cc")
+add_library(utils OBJECT ${SERVER_SOURCE})
+
 # the communication
 file(GLOB COMMUNICATION_SOURCE "src/communication/*.cc")
 add_library(communication OBJECT ${COMMUNICATION_SOURCE})
@@ -129,6 +133,7 @@ add_library(bbts-common $<TARGET_OBJECTS:tensor>
                         $<TARGET_OBJECTS:storage>
                         $<TARGET_OBJECTS:communication>
                         $<TARGET_OBJECTS:server>
+                        $<TARGET_OBJECTS:utils>
                         $<TARGET_OBJECTS:ud_functions>)
 
 # to open .so files and stuff
@@ -153,11 +158,11 @@ include(libraries/Libraries.cmake)
 if(${ENABLE_EINKORN})
 
 # build einkorn
-add_custom_target(build_einkorn 
+add_custom_target(build_einkorn
                   COMMAND cabal build VERBATIM
                   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/third_party/einkorn/)
-                  
-add_custom_target(copy_einkorn 
+
+add_custom_target(copy_einkorn
                   COMMAND cp ${PROJECT_SOURCE_DIR}/third_party/einkorn/dist/build/toBarbaTos/toBarbaTos ${PROJECT_SOURCE_DIR}/bin VERBATIM)
 
 # add dependencies
