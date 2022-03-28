@@ -24,6 +24,17 @@ struct dense_iota_t : public ud_impl_t {
                 const tensor_args_t &_in,
                 tensor_args_t &_out);
 
+  static ud_func_ptr_t get_ud_func() {
+    return std::make_unique<ud_func_t>(
+      ud_func_t {
+          .ud_name = "iota",
+          .is_ass =false,
+          .is_com = false,
+          .num_in = 0,
+          .num_out = 1,
+          .impls = {}
+      });
+  }
 };
 
 }

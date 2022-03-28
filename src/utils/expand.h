@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <functional>
+#include <iostream>
 
 namespace utils { namespace expand {
 
@@ -32,6 +33,13 @@ struct part_dim_t {
     return start != 0 || interval != full;
   }
 };
+
+}}
+
+std::ostream& operator<<(std::ostream& out, utils::expand::part_dim_t const& p);
+std::ostream& operator<<(std::ostream& out, utils::expand::expand_dim_t const& e);
+
+namespace utils { namespace expand {
 
 template <typename Indexer>
 struct expand_t {
@@ -179,7 +187,7 @@ struct expand_t {
   }
 
 private:
-  vector<expand_dim_t> const& expand_dims;
+  vector<expand_dim_t> const expand_dims;
 };
 
 struct column_major_indexer_t {

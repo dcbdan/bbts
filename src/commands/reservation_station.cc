@@ -384,11 +384,6 @@ bool bbts::reservation_station_t::_queue_remote(bbts::command_ptr_t _command) {
     return false;
   }
 
-  // this is happening somewhere else so ignore
-  if(_command->is_incoming_touch()) {
-    return false;
-  }
-
   // get the node that is going to initiate the execution of this command
   auto rootNode = _command->get_root_node();
 
@@ -488,25 +483,6 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
     return true;
   }
 
-  // handle touch declarations
-  if(_command->is_incoming_touch()) {
-    assert(_command->get_outputs().size() == 1);
-    tid_t out = _command->get_output(0).tid;
-
-    int32_t num_inputs = static_cast<int32_t>(_command->get_inputs().size());
-    assert(num_inputs >= 1);
-
-    auto [_, did_insert] = _tensors.insert({
-        out,
-        internal_tensor_state_t {
-          .num_to_write = num_inputs
-        }
-      });
-    assert(did_insert);
-
-    return true;
-  }
-
   // count the number of inputs that are not present
   int32_t num_not_present = 0;
   for(int32_t i = 0; i < _command->get_num_inputs(); i++) {
@@ -572,8 +548,11 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
 
       // we are writing to this tensor
       if(_command->is_touch()) {
-        // if it is a touch command, the output number to write has already been set
-        // because (assumption) there was a previou incoming touch
+        // if this is the first touch being queued,
+        // set the num_to_write value for the tensor
+        if(s.num_to_write == -1) {
+          s.num_to_write = _command->nfo.num_writes;
+        }
       } else {
         assert(s.num_to_write == -1);
         s.num_to_write = 1;

@@ -30,11 +30,6 @@ struct command_t {
     DELETE = 3,
     SHUTDOWN = 4,// special command to shutdown the server
     TOUCH = 5,
-    // Like shutdown, incoming touch is a special command.
-    // It is guaranteed that before each touch, there is an incoming touch.
-    // It specifies the output to touch and the inputs that must touch
-    // it
-    INCOMING_TOUCH = 6
   };
 
   // specifies exactly what tensor on which node we refer to
@@ -105,8 +100,6 @@ struct command_t {
 
    // is this a touch
   [[nodiscard]] bool is_touch() const { return type == op_type_t::TOUCH; }
-
-  [[nodiscard]] bool is_incoming_touch() const { return type == op_type_t::INCOMING_TOUCH; }
 
   // get all the nodes included in the reduce
   [[nodiscard]] node_list_t get_nodes() const {
@@ -188,13 +181,6 @@ struct command_t {
 
   // crates a shutdown command
   static command_ptr_t create_shutdown(node_id_t node);
-
-  // cretes an incoming touch command
-  static command_ptr_t create_incoming_touch(
-    command_id_t id,
-    node_id_t node,
-    const std::vector<tid_t> &in,
-    tid_t out);
 
   // the impl_id of the operation
   command_id_t id;

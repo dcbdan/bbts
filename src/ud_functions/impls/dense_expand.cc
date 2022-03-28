@@ -43,7 +43,9 @@ row_major_expand_t get_expander(
   int const& blk_out_j      ,
   int const& which_blk_out_j)
 {
-  expand_indexer_t indexer({blk_inn_i, blk_inn_j}, {blk_inn_i, blk_inn_j});
+  expand_indexer_t indexer(
+    {blk_inn_i, blk_inn_j},
+    {blk_out_i, blk_out_j});
 
   return row_major_expand_t(
     indexer.get_expand_dim(
@@ -61,16 +63,17 @@ row_major_expand_t get_expander(
     params.get_uint<3>(),
     params.get_uint<4>(),
     params.get_uint<5>(),
-    params.get_uint<5>(),
     params.get_uint<6>(),
     params.get_uint<7>(),
-    params.get_uint<8>());
+    params.get_uint<8>(),
+    params.get_uint<9>());
 }
 
 row_major_expand_t get_expander(
   int which_input,
-  const ud_impl_t::tensor_params_t &params)
+  const ud_impl_t::tensor_params_t &params_without_extra_info)
 {
+  ud_impl_t::tensor_params_t const& params = params_without_extra_info;
   return get_expander(
     which_input,
     params.get_uint<0>(),
@@ -133,6 +136,47 @@ void dense_expand_t::get_out_meta(
   }
 }
 
+//#include <chrono>
+//#include <ostream>
+//#include <mutex>
+//#include <thread>
+//using time_measurement_t = decltype(std::chrono::high_resolution_clock::now());
+//void cu_debug_write(
+//  time_measurement_t start_,
+//  time_measurement_t end_,
+//  std::string name)
+//{
+//  static std::mutex m;
+//  static std::ofstream file("dense_expand_debug.out");
+//
+//  // one line is (start, end, thread, name)
+//  std::thread::id id = std::this_thread::get_id();
+//  auto start =
+//    std::chrono::duration_cast<std::chrono::nanoseconds>(
+//      start_.time_since_epoch()).count();
+//  auto end =
+//    std::chrono::duration_cast<std::chrono::nanoseconds>(
+//      end_.time_since_epoch()).count();
+//
+//  std::lock_guard<std::mutex> lock(m);
+//  file << start << "," << end << "," << id << "," << name << std::endl;
+//  file.flush();
+//}
+//struct cu_debug_write_t_ {
+//  cu_debug_write_t_(std::string name):
+//    name(name), start(std::chrono::high_resolution_clock::now())
+//  {}
+//
+//  ~cu_debug_write_t_() {
+//    auto end = std::chrono::high_resolution_clock::now();
+//    cu_debug_write(start, end, name);
+//  }
+//
+//  std::string name;
+//  time_measurement_t start;
+//};
+//  cu_debug_write_t_ asd(std::to_string((uint64_t)out.data()));
+
 void dense_expand_t::f(
   ud_impl_t::tensor_params_t const& params,
   ud_impl_t::tensor_args_t   const& _inn,
@@ -143,6 +187,7 @@ void dense_expand_t::f(
 
   auto &m_inn = inn.meta().m();
   auto &m_out = out.meta().m();
+
 
   row_major_expand_t expander = get_expander(params);
 

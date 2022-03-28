@@ -28,6 +28,18 @@ struct dense_expand_t : public ud_impl_t {
     uint32_t which_input,
     const bbts::ud_impl_t::tensor_params_t &params_without_extra_info,
     const meta_args_t &_inn) const;
+
+  static ud_func_ptr_t get_ud_func() {
+    return std::make_unique<ud_func_t>(
+      ud_func_t {
+          .ud_name = "expand",
+          .is_ass =false,
+          .is_com = false,
+          .num_in = 1,
+          .num_out = 1,
+          .impls = {}
+      });
+  }
 };
 
 }

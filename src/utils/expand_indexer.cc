@@ -138,7 +138,7 @@ expand_indexer_t::get_expand_dim(
       .interval  = e - s,
       .start_inn = s - (w_inn*kd_inn),
       .full_inn  = kd_inn,
-      .start_out = s - (w_out*kd_inn),
+      .start_out = s - (w_out*kd_out),
       .full_out  = kd_out
     });
   }

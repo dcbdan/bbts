@@ -65,7 +65,6 @@ void command_t::print(std::stringstream &ss) {
     case DELETE         : ss << "DELETE ";         break;
     case REDUCE         : ss << "REDUCE ";         break;
     case TOUCH          : ss << "TOUCH ";          break;
-    case INCOMING_TOUCH : ss << "INCOMING_TOUCH "; break;
     case SHUTDOWN       : ss << "SHUTDOWN ";       break;
   }
 
@@ -221,18 +220,20 @@ command_ptr_t command_t::create_touch(
 {
   std::vector <command_param_t> params(2 + params_without_compact_and_which.size());
   params[0].b = false;       // touches are not commpacts
-  params[1].i = which_input; // the `which_input` of the corresponding INCOMING_TOUCH
-                             // is the input tensor
+  params[1].u = which_input; // the `which_input` serves as an identifier for the
+                             // is the input tensor, most likely
   std::copy(
     params_without_compact_and_which.begin(),
     params_without_compact_and_which.end(),
     params.begin() + 2);
 
   // now that we have fixed the parameters, this is just an apply with a type of
-  // TOUCH
+  // TOUCH and nfo num_writes set
   command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, in, out);
 
   tmp->type = TOUCH;
+  tmp->nfo.num_writes = num_touches;
+
   return std::move(tmp);
 }
 
@@ -429,36 +430,6 @@ command_ptr_t command_t::create_shutdown(node_id_t node)
   tmp->_nodes()[0] = node;
 
   // return the created pointer
-  return std::move(tmp);
-}
-
-// static
-command_ptr_t command_t::create_incoming_touch(
-  command_id_t id,
-  node_id_t node,
-  const std::vector<tid_t> &in,
-  tid_t out)
-{
-  // ^ all tids with respect to a incoming touch are on the same node
-
-  auto tmp = allocate_command(_num_bytes(0, 1, in.size(), 1));
-
-  tmp->id = id;
-  tmp->type = INCOMING_TOUCH;
-  tmp->fun_id = {-1,-1};
-  tmp->_num_parameters = 0;
-  tmp->_num_inputs = in.size();
-  tmp->_num_outputs = 1;
-  tmp->_num_nodes = 1;
-
-  tmp->_setup_offsets();
-
-  tmp->_nodes()[0] = node;
-
-  for(int i = 0; i != in.size(); ++i) {
-    tmp->get_input(i) = { .tid = in[i], .node = node };
-  }
-
   return std::move(tmp);
 }
 

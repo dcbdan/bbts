@@ -12,6 +12,8 @@
 #include "../src/server/static_config.h"
 #include "../src/utils/expand_indexer.h"
 #include "../src/tensor/builtin_formats.h"
+#include "../src/ud_functions/impls/dense_iota.h"
+#include "../src/ud_functions/impls/dense_expand.h"
 
 using namespace bbts;
 
@@ -26,6 +28,7 @@ using namespace utils::expand;
 // num_blocks_nin*num_blocks_out*num_small.
 tuple<
   vector<command_ptr_t>,
+  vector<tid_t>,
   vector<tid_t>>
     generate_commands(
       node_t& node,
@@ -42,6 +45,17 @@ void with_vector(
   std::function<void(float*, uint32_t)> f);
 
 int main(int argc, char **argv) {
+  int num_blocks_inn = 4;
+  int num_blocks_out = 3;
+  int num_small = 100;
+  if(argc == 4) {
+    num_blocks_inn = stoi(std::string(argv[1]));
+    num_blocks_out = stoi(std::string(argv[2]));
+    num_small      = stoi(std::string(argv[3]));
+  }
+  std::cout << "num input blocks  " << num_blocks_inn << std::endl;
+  std::cout << "num output blocks " << num_blocks_out << std::endl;
+  std::cout << "dimension         " << (num_blocks_inn*num_blocks_out*num_small) << std::endl;
 
   // make the configuration
   auto config = std::make_shared<bbts::node_config_t>(
@@ -53,6 +67,13 @@ int main(int argc, char **argv) {
   // init the node
   node.init();
 
+  // register the kernels we'll need
+  node._udf_manager->register_udf(dense_iota_t::get_ud_func());
+  node._udf_manager->register_udf_impl(std::make_unique<dense_iota_t>());
+
+  node._udf_manager->register_udf(dense_expand_t::get_ud_func());
+  node._udf_manager->register_udf_impl(std::make_unique<dense_expand_t>());
+
   // kick of all the stuff
   std::thread t = std::thread([&]() {
     node.run();
@@ -62,10 +83,11 @@ int main(int argc, char **argv) {
   if(node.get_rank() == 0) {
 
     // generate all the commands
-    auto [cmds, output_tids] = generate_commands(node, 4, 3, 10);
+    auto [cmds, input_tids, output_tids] = generate_commands(
+      node, num_blocks_inn, num_blocks_out, num_small);
 
     // print out all the debug info
-    node.set_verbose(true);
+    //node.set_verbose(true);
 
     // load the commands
     auto [success_load, msg_load] = node.load_commands(cmds);
@@ -85,18 +107,46 @@ int main(int argc, char **argv) {
     std::cout << "Ran commands" << std::endl;
     std::cout << msg_run << std::endl;
 
-    std::cout << "Verifying correctness" << std::endl;
+    auto check_correctness = [&](vector<int> const& tids, int expected_num_per_block)
+    {
+      bool correct = true;
+      float val = 0.0;
 
-    bool correct = true;
-    float val = 0.0;
+      for(tid_t tid: tids) {
+        //std::cout << "TID: " << tid << std::endl;
+        with_vector(node, tid, [&](float* data, uint32_t num_elem) {
+          if(num_elem != expected_num_per_block) {
+            correct = false;
+          }
+          for(int idx = 0; idx != num_elem; ++idx) {
+            //if(val != data[idx] && idx % 1003 == 0) {
+            //  std::cout << "tid " << tid << ", idx " << idx
+            //    << ": val " << data[idx] << "(val expected " << val << ")" << std::endl;
+            //}
+            correct = correct && (val == data[idx]);
+            val++;
+          }
+        });
+      }
+      return correct;
+    };
 
-    for(tid_t out: output_tids) {
-      with_vector(node, out, [&](float* data, uint32_t num_elem) {
-        for(int idx = 0; idx != num_elem; ++idx) {
-          correct = correct && (val == data[idx]);
-          val++;
-        }
-      });
+    std::cout << "Verifying input correctness" << std::endl;
+    assert(input_tids.size() == num_blocks_inn);
+    bool input_correct = check_correctness(input_tids, num_blocks_out*num_small);
+    if(!input_correct) {
+      std::cout << "INPUT WAS NOT CORRECT!" << std::endl;
+    } else {
+      std::cout << "Correct." << std::endl;
+    }
+
+    std::cout << "Verifying output correctness" << std::endl;
+    assert(output_tids.size() == num_blocks_out);
+    bool output_correct = check_correctness(output_tids, num_blocks_inn*num_small);
+    if(!output_correct) {
+      std::cout << "OUTPUT WAS NOT CORRECT!" << std::endl;
+    } else {
+      std::cout << "Correct." << std::endl;
     }
 
     // shutdown the cluster
@@ -146,7 +196,7 @@ struct impl_t {
 
     for(int which_block = 0; which_block != num_blocks; ++which_block)
     {
-      float val = (which_block - 1) * num_per_block;
+      float val = which_block * num_per_block;
 
       cmds.emplace_back(command_t::create_apply(
           cmds.size(),
@@ -156,7 +206,7 @@ struct impl_t {
             command_param_t{ .u = 1u },
             command_param_t{ .f = val } },
           {},
-          {command_t::tid_node_id_t{ .tid = cur_tid, .node = 0 }}));
+          {command_t::tid_node_id_t{ .tid = cur_tid, .node = (int)node.get_rank() }}));
 
       out.push_back(cur_tid);
       cur_tid++;
@@ -168,6 +218,9 @@ struct impl_t {
   vector<tid_t> reblock(vector<tid_t> const& ins, int num_per_block_inn, int num_blocks_out)
   {
     vector<tid_t> out;
+
+    assert(ins.size() != 0);
+    assert(num_blocks_out > 0);
 
     int num_blocks_inn = ins.size();
     int dim = num_per_block_inn * num_blocks_inn;
@@ -191,10 +244,10 @@ struct impl_t {
 
     for(int which_block = 0; which_block != num_blocks_out; ++which_block)
     {
-
       // this block depends on inputs s,...,e
       auto [s,e] = indexer.get_inputs({which_block})[0];
       int num_touches = e - s + 1;
+      assert(num_touches > 0);
 
       // then issue each of the required touches
       for(int i = s; i <= e; ++i) {
@@ -208,8 +261,8 @@ struct impl_t {
           num_touches,
           // the params without compact and which
           make_expand_params(which_block),
-          {command_t::tid_node_id_t{ .tid = inn_tid, .node = 0 }},
-          {command_t::tid_node_id_t{ .tid = cur_tid, .node = 0 }}
+          {command_t::tid_node_id_t{ .tid = inn_tid, .node = (int)node.get_rank() }},
+          {command_t::tid_node_id_t{ .tid = cur_tid, .node = (int)node.get_rank() }}
         ));
       }
 
@@ -227,6 +280,7 @@ private:
 
 tuple<
   vector<command_ptr_t>,
+  vector<tid_t>,
   vector<tid_t>>
     generate_commands(
       bbts::node_t& node,
@@ -242,9 +296,11 @@ tuple<
   vector<tid_t> inputs = impl.init(
     num_blocks_inn,
     num_per_block_inn);
+  assert(inputs.size() == num_blocks_inn);
 
   vector<tid_t> out = impl.reblock(inputs, num_per_block_inn, num_blocks_out);
+  assert(out.size() == num_blocks_out);
 
-  return {impl.extract_commands(), out};
+  return {impl.extract_commands(), inputs, out};
 }
 

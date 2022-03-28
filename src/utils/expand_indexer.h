@@ -54,15 +54,17 @@ struct expand_indexer_t {
 
   int get_num_dims() const { return num_block_inn.size(); }
 
-  vector<int> const& num_block_inn;
-  vector<int> const& num_block_out;
+  vector<int> const num_block_inn;
+  vector<int> const num_block_out;
 };
 
 ///////////////////
 //#include <iostream>
 //#include <string>
+//#include "expand_indexer.h"
 //
 //using std::string;
+//using namespace utils::expand;
 //
 //void print_interval(string s, int u, int v, string t) {
 //  std::cout << s << "[" << u << ", " << v << ")" << t;
@@ -76,50 +78,62 @@ struct expand_indexer_t {
 //  }
 //}
 //
+//void test_vec(int inn, int out) {
+//  vector<int> num_inn = {inn};
+//  vector<int> num_out = {out};
+//  expand_indexer_t s(num_inn, num_out);
+//
+//  for(int i = 0; i != out; ++i) {
+//    auto [x,y] = s.dim_which(0, i);
+//    print_interval("out: ", i*inn, (i+1)*inn, "\n");
+//
+//    std::cout << "ins: ";
+//    for(int j = x; j <= y; ++j) {
+//      print_interval(j*out, (j+1)*out);
+//    }
+//    std::cout << std::endl;
+//
+//    std::cout << "which: ";
+//    auto [u,v] = s.get_inputs({i})[0];
+//    print_interval("which: ", u, v+1, "\n");
+//  }
+//}
+//
 //int main()
 //{
+//  test_vec(3,4);
+//  std::cout << "-------------------------------------------------\n";
+//  test_vec(4,3);
+//  std::cout << "-------------------------------------------------\n";
 //  {
-//    int inn = 3;
-//    int out = 4;
-//    vector<int> num_inn = {inn};
-//    vector<int> num_out = {out};
-//    expand_indexer_t s(num_inn, num_out);
-//
-//    for(int i = 0; i != out; ++i) {
-//      auto [x,y] = s.dim_which(0, i);
-//      print_interval("out: ", i*inn, (i+1)*inn, "\n");
-//
-//      std::cout << "ins: ";
-//      for(int j = x; j <= y; ++j) {
-//        print_interval(j*out, (j+1)*out);
-//      }
-//      std::cout << std::endl;
-//    }
+//    expand_indexer_t indexer({4}, {3});
+//    auto [x,y] = indexer.get_inputs({0})[0];
+//    std::cout << x << ", " << y << std::endl;
 //  }
 //
-//  {
-//    int ix = 10;
-//    int iy = 11;
-//    int iz = 12;
+//  //{
+//  //  int ix = 10;
+//  //  int iy = 11;
+//  //  int iz = 12;
 //
-//    int nx = 2;
-//    int ny = 3;
-//    int nz = 4;
+//  //  int nx = 2;
+//  //  int ny = 3;
+//  //  int nz = 4;
 //
-//    int nn = nx*ny*nz;
+//  //  int nn = nx*ny*nz;
 //
-//    vector<tuple<int,int>> rs{{ix, ix + nx - 1}, {iy, iy + ny - 1}, {iz, iz + nz - 1}};
+//  //  vector<tuple<int,int>> rs{{ix, ix + nx - 1}, {iy, iy + ny - 1}, {iz, iz + nz - 1}};
 //
-//    for(int i = 0; i != nn; ++i) {
-//      std::cout << i << ": ";
-//      print_vec(expand_indexer_t::cartesian(rs)[i]); std::cout << std::endl;
-//    }
-//    for(int i = 0; i != nn; ++i) {
-//      std::cout << std::boolalpha <<
-//        (expand_indexer_t::cartesian(rs)[i] == expand_indexer_t::uncartesian(rs, i)) <<
-//        std::endl;
-//    }
-//  }
+//  //  for(int i = 0; i != nn; ++i) {
+//  //    std::cout << i << ": ";
+//  //    print_vec(expand_indexer_t::cartesian(rs)[i]); std::cout << std::endl;
+//  //  }
+//  //  for(int i = 0; i != nn; ++i) {
+//  //    std::cout << std::boolalpha <<
+//  //      (expand_indexer_t::cartesian(rs)[i] == expand_indexer_t::uncartesian(rs, i)) <<
+//  //      std::endl;
+//  //  }
+//  //}
 //}
 
 } // expand
