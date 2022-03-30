@@ -543,4 +543,30 @@ void Partition::write_usage(std::ostream& out) const {
   }
 }
 
+// get the output partition, only valid if the corresponding
+// partitions variable has a domain of 1, that is if a solution
+// has been found
+vector<int> Partition::get_set_partition(nid_t nid) const {
+  nid_t compute_nid = opt.get_compute_nid(nid);
+  vector<int> compute_partition = opt.get_which_partition(
+    compute_nid,
+    // this is only valid if the domain of partitions[nid] is size 1
+    partitions[compute_nid].val());
+
+  node_t const& node = opt.get_dag()[nid];
+  if(node.type == node_t::node_type::reblock) {
+    return opt.get_reblock_out(compute_partition, nid);
+  }
+  if(node.type == node_t::node_type::agg) {
+    return opt.get_out(compute_partition, compute_nid);
+  }
+  if(node.type == node_t::node_type::join ||
+     node.type == node_t::node_type::input)
+  {
+    return compute_partition;
+  }
+  throw std::runtime_error("should not reach");
+  return {};
+}
+
 }}

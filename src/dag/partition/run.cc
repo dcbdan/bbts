@@ -27,9 +27,9 @@ Search::Options build_search_options(partition_options_t const& opt) {
 
   // stop on only interrupt or after the time limit
   //so.stop = Driver::CombinedStop::create(
-  //            0u , 0u, opt.search_time_per_cover(), 0u, true);
+  //            0u , 0u, opt.search_time_per_cover(), true);
   so.stop = Driver::CombinedStop::create(
-                0u , 0u, opt.search_time_per_cover(), 0u, false);
+                0u , 0u, opt.search_time_per_cover(), false);
 
   so.cutoff  = Search::Cutoff::luby(opt.search_restart_scale());
 
@@ -62,7 +62,7 @@ Partition* _run(Partition* init, partition_options_t const& opt) {
   return ret;
 }
 
-vector<info_t> run(partition_options_t const& opt)
+vector<run_info_t> run(partition_options_t const& opt)
 {
   auto init_info = Partition::build_init(opt);
 
@@ -84,7 +84,19 @@ vector<info_t> run(partition_options_t const& opt)
     throw std::runtime_error("Could not find a solution!");
   }
 
-  // TODO: extract the info for each node!
+  // For each node, get the start time and the partitioning
+  vector<run_info_t> ret;
+  ret.reserve(opt.get_dag().size());
+  for(nid_t nid = 0; nid != opt.get_dag().size(); ++nid) {
+    ret.push_back(run_info_t{
+      .priority = partition->get_set_start_time(nid),
+      .blocking = partition->get_set_partition(nid)
+    });
+  }
+
+  delete partition;
+
+  return ret;
 }
 
 }}

@@ -290,8 +290,13 @@ public:
     return _get_nids(cover_to).size() >= opt.get_dag().size();
   }
 
-  Gecode::IntVar const& get_partition(nid_t nid) const {
-    return partitions[nid];
+  // get the output partition, only valid if the corresponding
+  // partitions variable has a domain of 1, that is if a solution
+  // has been found
+  vector<int> get_set_partition(nid_t nid) const;
+
+  int get_set_start_time(nid_t nid) const {
+    return start[nid].val();
   }
 
   // print a file where each line contains
