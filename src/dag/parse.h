@@ -1,6 +1,6 @@
 #pragma once
 
-#include "node.h"
+#include "dag.h"
 
 namespace bbts { namespace dag {
 

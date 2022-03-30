@@ -94,10 +94,6 @@ IntPropLevel partition_options_t::ipl() const {
   return _ipl;
 }
 
-vector<node_t> const& partition_options_t::get_dag() const {
-  return dag;
-}
-
 int partition_options_t::get_num_workers() const {
   return _num_workers;
 }
@@ -160,198 +156,6 @@ int partition_options_t::get_compute_cost(vector<int> const& dims) const {
   return get_min_cost() + raw_flops(dims);
 }
 
-void partition_options_t::_set_dag_orders() {
-  {
-    _inputs = vector<nid_t>();
-    for(node_t const& node: dag) {
-      if(node.type == node_t::node_type::input) {
-        _inputs.push_back(node.id);
-      }
-    }
-  }
-
-  {
-    vector<nid_t> counts(dag.size());
-    vector<nid_t> inputs;
-    for(nid_t id = 0; id != dag.size(); ++id) {
-      counts[id] = dag[id].downs.size();
-      if(counts[id] == 0) {
-        inputs.push_back(id);
-      }
-    }
-
-    _depth_dag_order = vector<nid_t>();
-
-    for(nid_t const& input: inputs) {
-      // recursively add everything
-      _depth_dag_order_add_to_ret(counts, _depth_dag_order, input);
-    }
-  }
-
-  {
-    vector<nid_t> counts(dag.size());
-    vector<nid_t> pending;
-
-    for(nid_t id = 0; id != dag.size(); ++id) {
-      counts[id] = dag[id].downs.size();
-      if(counts[id] == 0) {
-        pending.push_back(id);
-      }
-    }
-
-    _breadth_dag_order = vector<nid_t>();
-    auto add_to_ret = [&](nid_t id) {
-      _breadth_dag_order.push_back(id);
-      for(nid_t const& up: dag[id].ups) {
-        counts[up]--;
-        if(counts[up] == 0) {
-          pending.push_back(up);
-        }
-      }
-    };
-
-    for(int idx = 0; idx != pending.size(); ++idx) {
-      add_to_ret(pending[idx]);
-    }
-  }
-
-  {
-    std::map<nid_t, int> counts;
-    vector<nid_t> inputs;
-    for(nid_t nid: get_compute_nids()) {
-      // the number of compute/super children equals the number of children for compute
-      // nodes.
-      int num_down = dag[nid].downs.size();
-      if(num_down > 0) {
-        counts[nid] = num_down;
-      }
-      if(num_down == 0) {
-        inputs.push_back(nid);
-      }
-    }
-    _super_depth_dag_order = vector<nid_t>();
-    for(nid_t const& input: inputs) {
-      _super_depth_dag_order_add_to_ret(counts, _super_depth_dag_order, input);
-    }
-  }
-
-  {
-    std::map<nid_t, int> counts;
-    vector<nid_t> pending;
-    for(nid_t nid: get_compute_nids()) {
-      // the number of compute/super children equals the number of children for compute
-      // nodes.
-      int num_down = dag[nid].downs.size();
-      if(num_down > 0) {
-        counts[nid] = num_down;
-      }
-      if(num_down == 0) {
-        pending.push_back(nid);
-      }
-    }
-
-    _super_breadth_dag_order = vector<nid_t>();
-    auto add_to_ret = [&](nid_t nid) {
-      _super_breadth_dag_order.push_back(nid);
-      for(nid_t const& up: get_compute_ups(nid)) {
-        counts.at(up)--; // do bounds checking just in case
-        if(counts[up] == 0) {
-          pending.push_back(up);
-        }
-      }
-    };
-
-    for(int idx = 0; idx != pending.size(); ++idx) {
-      add_to_ret(pending[idx]);
-    }
-  }
-}
-
-vector<nid_t> partition_options_t::get_compute_ups(nid_t nid) const {
-  // make sure we have a compute nid
-  nid = get_compute_nid(nid);
-  node_t const& node = dag[nid];
-
-  // get the compute ups
-  vector<nid_t> ups;
-  if(node.type == node_t::node_type::input) {
-    for(nid_t direct_up: node.ups) {
-      ups.push_back(get_compute_nid(direct_up));
-    }
-  } else {
-    // we have a join, so reach past the agg
-    for(nid_t direct_up: dag[node.ups[0]].ups) {
-      ups.push_back(get_compute_nid(direct_up));
-    }
-  }
-
-  return ups;
-}
-
-vector<nid_t> const& partition_options_t::inputs() const {
-  return _inputs;
-}
-
-vector<nid_t> const& partition_options_t::depth_dag_order() const {
-  return _depth_dag_order;
-}
-
-vector<nid_t> const& partition_options_t::breadth_dag_order() const {
-  return _breadth_dag_order;
-}
-
-vector<nid_t> const& partition_options_t::super_depth_dag_order() const {
-  return _super_depth_dag_order;
-}
-
-vector<nid_t> const& partition_options_t::super_breadth_dag_order() const {
-  return _super_breadth_dag_order;
-}
-
-vector<nid_t> partition_options_t::super(nid_t nid) const {
-  if(dag[nid].type == node_t::node_type::input) {
-    return {nid};
-  }
-
-  nid_t join_nid = get_compute_nid(nid);
-  node_t const& join_node = dag[join_nid];
-
-  vector<nid_t> ret = join_node.downs;    // the reblocks
-  ret.push_back(join_nid);                // the join
-  ret.push_back(join_node.ups[0]);        // the agg
-
-  return ret;
-}
-
-vector<nid_t> partition_options_t::get_compute_nids() const {
-  vector<nid_t> ret;
-  for(node_t const& node: dag) {
-    if(node.type == node_t::node_type::join ||
-       node.type == node_t::node_type::input)
-    {
-      ret.push_back(node.id);
-    }
-  }
-  return ret;
-}
-
-nid_t partition_options_t::get_compute_nid(nid_t nid) const {
-  node_t const& node = dag[nid];
-  if(node.type == node_t::node_type::join ||
-     node.type == node_t::node_type::input)
-  {
-    return nid;
-  }
-  if(node.type == node_t::node_type::reblock) {
-    return node.ups[0];
-  }
-  if(node.type == node_t::node_type::agg) {
-    return node.downs[0];
-  }
-  throw std::runtime_error("get_compute_nid: invalid node type");
-  return -1;
-}
-
 vector<dim_t> partition_options_t::single_partition(nid_t nid) const {
   return vector<dim_t>(dag[nid].dims.size(), 1);
 }
@@ -370,19 +174,22 @@ vector<dim_t> partition_options_t::max_partition(nid_t nid) const {
 }
 
 vector<vector<dim_t>> const& partition_options_t::all_partitions(nid_t nid) const {
-  return _all_partitions_per_node[nid];
+  return _all_partitions_per_node()[nid];
 }
 
-void partition_options_t::_set_all_partitions_per_node() {
+
+vector<vector<vector<dim_t>>>
+partition_options_t::_set_all_partitions_per_node()
+{
   using  _all_partitions = vector<vector<dim_t>>;
-  _all_partitions_per_node = vector<_all_partitions>(dag.size());
+  vector<_all_partitions> ret(dag.size());
 
   for(nid_t id = 0; id != dag.size(); ++id) {
     vector<vector<dim_t>> choices;
     for(auto const& dim: dag[id].dims) {
       choices.push_back(all_blocks(dim));
     }
-    _all_partitions_per_node[id] = cartesian(
+    ret[id] = cartesian(
       choices,
       [this](vector<int> const& v)
       {
@@ -390,12 +197,14 @@ void partition_options_t::_set_all_partitions_per_node() {
       });
     // sort it so that more workers come first
     std::sort(
-      _all_partitions_per_node[id].begin(),
-      _all_partitions_per_node[id].end(),
+      ret[id].begin(),
+      ret[id].end(),
       [](vector<dim_t> const& lhs, vector<dim_t> const& rhs) {
         return product(lhs) > product(rhs);
       });
   }
+
+  return ret;
 }
 
 vector<dim_t> const& partition_options_t::get_which_partition(nid_t nid, int which) const {
@@ -451,88 +260,6 @@ partition_options_t::get_kernel_inc_dims(
     ret.push_back(dims[i] / parts[i]);
   }
   return ret;
-}
-
-vector<int> partition_options_t::get_out(vector<int> const& xs, nid_t nid) const {
-  node_t const& node = dag[nid];
-
-  if(node.type == node_t::node_type::join) {
-    vector<int> ret;
-    for(int which_inc = 0; which_inc != xs.size(); ++which_inc) {
-      auto iter = std::find(node.aggs.begin(), node.aggs.end(), which_inc);
-      bool is_agg_dim = iter != node.aggs.end();
-      if(!is_agg_dim) {
-        ret.push_back(xs[which_inc]);
-      }
-    }
-    return ret;
-  } else {
-    return xs;
-  }
-}
-
-vector<int> partition_options_t::get_agg(vector<int> const& xs, nid_t nid) const {
-  node_t const& node = dag[nid];
-
-  if(node.type == node_t::node_type::join) {
-    vector<int> ret;
-    for(int which_inc = 0; which_inc != xs.size(); ++which_inc) {
-      auto iter = std::find(node.aggs.begin(), node.aggs.end(), which_inc);
-      bool is_agg_dim = iter != node.aggs.end();
-      if(is_agg_dim) {
-        ret.push_back(xs[which_inc]);
-      }
-    }
-    return ret;
-  } else {
-    return xs;
-  }
-}
-
-vector<int> partition_options_t::get_reblock_out(
-  vector<int> const& join_inc,
-  nid_t reblock_id) const
-{
-  node_t const& reblock_node = dag[reblock_id];
-  node_t const& join_node = dag[reblock_node.ups[0]];
-
-  int which_input = 0;
-  for(; which_input != join_node.downs.size(); ++which_input) {
-    if(join_node.downs[which_input] == reblock_id) {
-      break;
-    }
-  }
-  if(which_input == join_node.downs.size()) {
-    throw std::runtime_error("up join node doesn't have down reblock");
-  }
-
-  auto const& ordering = join_node.ordering[which_input];
-  vector<dim_t> ret;
-  for(auto which_inc: ordering) {
-    ret.push_back(join_inc[which_inc]);
-  }
-  return ret;
-}
-
-vector<int> partition_options_t::get_out_from_compute(
-  vector<int> const& inc,
-  nid_t nid) const
-{
-  node_t const& node = dag[nid];
-  if(node.type == node_t::node_type::reblock) {
-    return get_reblock_out(inc, nid);
-  }
-  if(node.type == node_t::node_type::agg) {
-    return get_out(inc, node.downs[0]);
-  }
-  if(node.type == node_t::node_type::join) {
-    return get_out(inc, nid);
-  }
-  if(node.type == node_t::node_type::input) {
-    return inc;
-  }
-  throw std::runtime_error("get_out_from_compute: invalid node type");
-  return {};
 }
 
 tuple<int, int>
@@ -626,40 +353,6 @@ tuple<int, int> partition_options_t::get_duration_worker_pair(
   }
   throw std::runtime_error("get_duration_worker_part: invalid value for node type");
   return {0,0};
-}
-
-void partition_options_t::_super_depth_dag_order_add_to_ret(
-  std::map<nid_t, int>& counts,
-  vector<nid_t>& ret,
-  nid_t id) const
-{
-  node_t const& node = dag[id];
-
-  ret.push_back(id);
-
-  // get the compute ups
-  vector<nid_t> ups = get_compute_ups(id);
-
-  for(nid_t const& up: ups) {
-    counts.at(up)--; // do bounds checking, just in case.
-    if(counts[up] == 0) {
-      _super_depth_dag_order_add_to_ret(counts, ret, up);
-    }
-  }
-}
-
-void partition_options_t::_depth_dag_order_add_to_ret(
-  vector<nid_t>& counts,
-  vector<nid_t>& ret,
-  nid_t id) const
-{
-  ret.push_back(id);
-  for(nid_t const& up: dag[id].ups) {
-    counts[up]--;
-    if(counts[up] == 0) {
-      _depth_dag_order_add_to_ret(counts, ret, up);
-    }
-  }
 }
 
 vector<vector<dim_t>> partition_options_t::_get_partitioning(

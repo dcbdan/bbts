@@ -1,6 +1,7 @@
 #pragma once
 
-#include "../node.h"
+#include "../dag.h"
+#include "../../utils/cache_holder.h"
 
 #include <gecode/driver.hh>
 #include <gecode/int.hh>
@@ -20,9 +21,7 @@ using nid_t  = int; // an id of a node
 using dim_t  = int; // a dimension size
 using rank_t = int; // a rank (a dimension label)
 
-class partition_options_t {
-  vector<node_t> dag;
-
+class partition_options_t : public dag_t {
   //  _restart_scale("restart-scale","scale factor for restart sequence",150),
   //  _seed("seed","random number generator seed",1U),
   //  _dag_file("dag-file", "File containing the dag to partition", "dag/matmul.dag"),
@@ -53,7 +52,7 @@ class partition_options_t {
 
 public:
   partition_options_t(vector<node_t> const& dag):
-    dag(dag),
+    dag_t(dag),
     _ipl(Gecode::IPL_DEF),
     _restart_scale(150),
     _seed(1),
@@ -65,17 +64,14 @@ public:
     _cover_size(20),
     _search_compute_threads(24),
     _search_restart_scale(Gecode::Search::Config::slice),
-    _search_time_per_cover(400)
-  {
-    // cache these things
-    _set_all_partitions_per_node();
-    _set_dag_orders();
-  }
+    _search_time_per_cover(400),
+    _all_partitions_per_node(std::bind(
+      &partition_options_t::_set_all_partitions_per_node, this))
+  {}
 
   int                      get_restart_scale()      const;
   int                      seed()                   const;
   Gecode::IntPropLevel     ipl()                    const;
-  vector<node_t> const&    get_dag()                const;
   int                      get_num_workers()        const;
   double                   get_flops_per_time()     const;
   vector<int>              get_all_blocks()         const;
@@ -95,25 +91,6 @@ public:
   // compute cost = min_cost + raw_flops
   int get_compute_cost(int raw_flops_cost) const;
   int get_compute_cost(vector<int> const& dims) const;
-
-  // get dag orders
-  vector<nid_t> const& inputs() const;
-  vector<nid_t> const& depth_dag_order() const;
-  vector<nid_t> const& breadth_dag_order() const;
-  vector<nid_t> const& super_depth_dag_order() const;
-  vector<nid_t> const& super_breadth_dag_order() const;
-
-  // return {input} or {[reblocks], join, agg}.
-  vector<nid_t> super(nid_t nid) const;
-
-  // get just joins and inputs
-  vector<nid_t> get_compute_nids() const;
-  vector<nid_t> get_compute_ups(nid_t) const;
-
-  // each node has an associated compute node.
-  // reblocks and aggs are attached to a join,
-  // inputs are inputs.
-  nid_t get_compute_nid(nid_t nid) const;
 
   // a partition of all 1s
   vector<dim_t> single_partition(nid_t nid) const;
@@ -142,17 +119,6 @@ public:
   // for each partition of nid, get the kernel size
   vector<dim_t> get_kernel_inc_dims(vector<dim_t> const& parts, nid_t nid) const;
 
-  // filter out aggs from xs (if there are even any aggs)
-  vector<int> get_out(vector<int> const& xs, nid_t nid) const;
-
-  // filter out the non aggs (keeps) from xs
-  vector<int> get_agg(vector<int> const& xs, nid_t nid) const;
-
-  // given the join-incident dims, get the output of the reblock
-  vector<int> get_reblock_out(vector<int> const& join_inc, nid_t reblock_id) const;
-
-  vector<int> get_out_from_compute(vector<int> const& inc, nid_t nid) const;
-
   // given the join-incident partition, get the (computation time, num workers) pairs
   // (assuming a computation will happen!)
   // This function should work for any node type
@@ -166,29 +132,11 @@ public:
     nid_t nid) const;
 
 private:
-  // some helper functions
-  void _depth_dag_order_add_to_ret(
-    vector<nid_t>& counts,
-    vector<nid_t>& ret,
-    nid_t id) const;
-  void _super_depth_dag_order_add_to_ret(
-    std::map<nid_t, int>& counts,
-    vector<nid_t>& ret,
-    nid_t id) const;
   vector<vector<dim_t>> _get_partitioning(
     std::function<vector<dim_t>(nid_t)> f) const;
 
-  // a cache of all possible partitions of each node,
-  // sorted from most number of workers to least
-  vector<vector<vector<dim_t>>> _all_partitions_per_node;
-  void _set_all_partitions_per_node();
-
-  vector<nid_t> _breadth_dag_order;
-  vector<nid_t> _depth_dag_order;
-  vector<nid_t> _super_breadth_dag_order;
-  vector<nid_t> _super_depth_dag_order;
-  void _set_dag_orders();
-  vector<nid_t> _inputs;
+  cache_holder_t<vector<vector<vector<dim_t>>>> _all_partitions_per_node;
+  vector<vector<vector<dim_t>>> _set_all_partitions_per_node();
 };
 
 ///////////////////////////////////////////////////////////////////////////////

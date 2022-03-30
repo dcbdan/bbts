@@ -553,20 +553,7 @@ vector<int> Partition::get_set_partition(nid_t nid) const {
     // this is only valid if the domain of partitions[nid] is size 1
     partitions[compute_nid].val());
 
-  node_t const& node = opt.get_dag()[nid];
-  if(node.type == node_t::node_type::reblock) {
-    return opt.get_reblock_out(compute_partition, nid);
-  }
-  if(node.type == node_t::node_type::agg) {
-    return opt.get_out(compute_partition, compute_nid);
-  }
-  if(node.type == node_t::node_type::join ||
-     node.type == node_t::node_type::input)
-  {
-    return compute_partition;
-  }
-  throw std::runtime_error("should not reach");
-  return {};
+  return opt.get_node_incident(compute_partition, nid);
 }
 
 }}

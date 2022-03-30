@@ -62,7 +62,7 @@ Partition* _run(Partition* init, partition_options_t const& opt) {
   return ret;
 }
 
-vector<run_info_t> run(partition_options_t const& opt)
+vector<partition_info_t> run(partition_options_t const& opt)
 {
   auto init_info = Partition::build_init(opt);
 
@@ -85,10 +85,10 @@ vector<run_info_t> run(partition_options_t const& opt)
   }
 
   // For each node, get the start time and the partitioning
-  vector<run_info_t> ret;
+  vector<partition_info_t> ret;
   ret.reserve(opt.get_dag().size());
   for(nid_t nid = 0; nid != opt.get_dag().size(); ++nid) {
-    ret.push_back(run_info_t{
+    ret.push_back(partition_info_t{
       .priority = partition->get_set_start_time(nid),
       .blocking = partition->get_set_partition(nid)
     });
