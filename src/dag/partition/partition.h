@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../node.h"
-#include "../parse.h"
 
 #include <gecode/driver.hh>
 #include <gecode/int.hh>
@@ -11,7 +10,6 @@
 
 namespace bbts { namespace dag {
 
-using namespace Gecode;
 using std::vector;
 using std::tuple;
 
@@ -22,79 +20,61 @@ using nid_t  = int; // an id of a node
 using dim_t  = int; // a dimension size
 using rank_t = int; // a rank (a dimension label)
 
-class PartitionOptions : public BaseOptions {
-  Driver::IplOption         _ipl;
-  Driver::UnsignedIntOption _restart_scale;
-  Driver::UnsignedIntOption _seed;
-  Driver::StringValueOption _dag_file;
-  Driver::UnsignedIntOption _num_workers;
-  Driver::DoubleOption _flops_per_time;
-  Driver::IntOption _min_cost;
-  Driver::BoolOption _breadth_order;
-  Driver::BoolOption _cover;
-  Driver::UnsignedIntOption _cover_size;
-  Driver::UnsignedIntOption _search_compute_threads;
-  Driver::UnsignedIntOption _search_restart_scale;
-  Driver::UnsignedIntOption _search_time_per_cover;
-  Driver::StringValueOption _output_file;
-  Driver::StringValueOption _usage_file;
-
+class partition_options_t {
   vector<node_t> dag;
+
+  //  _restart_scale("restart-scale","scale factor for restart sequence",150),
+  //  _seed("seed","random number generator seed",1U),
+  //  _dag_file("dag-file", "File containing the dag to partition", "dag/matmul.dag"),
+  //  _num_workers("num-workers", "Number of workers", 24),
+  //  _flops_per_time("flops-per-time", "Number of flops per unit of time", 1e8),
+  //  _min_cost("min-cost", "defaults to number of workers", -1),
+  //  _breadth_order("breadth-order", "Additional constraint on order of nodes", false),
+  //  _cover("cover", "Whether or not to use the cover algorithm", false),
+  //  _cover_size("cover-size", "Number of nodes to consider at a time in iterative solve", 20),
+  //  _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
+  //  _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
+  //  _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
+  //  _output_file("output-file", "write the blockings here", ""),
+  //  _usage_file("usage-file", "write out [(start,end,thread,label)] to this file", "")
+
+  Gecode::IntPropLevel _ipl;
+  int _restart_scale;
+  int _seed;
+  int _num_workers;
+  double _flops_per_time;
+  int _min_cost;
+  int _breadth_order;
+  bool _cover;
+  int _cover_size;
+  int _search_compute_threads;
+  int _search_restart_scale;
+  int _search_time_per_cover;
+
 public:
-
-  // Initialize options
-  PartitionOptions(const char* n):
-    BaseOptions(n),
-    _restart_scale("restart-scale","scale factor for restart sequence",150),
-    _seed("seed","random number generator seed",1U),
-    _dag_file("dag-file", "File containing the dag to partition", "dag/matmul.dag"),
-    _num_workers("num-workers", "Number of workers", 24),
-    _flops_per_time("flops-per-time", "Number of flops per unit of time", 1e8),
-    _min_cost("min-cost", "defaults to number of workers", -1),
-    _breadth_order("breadth-order", "Additional constraint on order of nodes", false),
-    _cover("cover", "Whether or not to use the cover algorithm", false),
-    _cover_size("cover-size", "Number of nodes to consider at a time in iterative solve", 20),
-    _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
-    _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
-    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
-    _output_file("output-file", "write the blockings here", ""),
-    _usage_file("usage-file", "write out [(start,end,thread,label)] to this file", "")
-    // ^ Here, a 10k matrix multiply (with 1e4^3=1e12 flops) will take
-    //   get_min_cost() + 10,000 units of time
+  partition_options_t(vector<node_t> const& dag):
+    dag(dag),
+    _ipl(Gecode::IPL_DEF),
+    _restart_scale(150),
+    _seed(1),
+    _num_workers(24),
+    _flops_per_time(1e8),
+    _min_cost(-1),
+    _breadth_order(false),
+    _cover(false),
+    _cover_size(20),
+    _search_compute_threads(24),
+    _search_restart_scale(Gecode::Search::Config::slice),
+    _search_time_per_cover(400)
   {
-    add(_ipl);
-    add(_seed);
-    add(_restart_scale);
-    add(_dag_file);
-    add(_num_workers);
-    add(_min_cost);
-    add(_flops_per_time);
-    add(_breadth_order);
-    add(_cover);
-    add(_cover_size);
-    add(_search_compute_threads);
-    add(_search_restart_scale);
-    add(_search_time_per_cover);
-    add(_output_file);
-    add(_usage_file);
-  }
-
-  // Parse options from arguments
-  void parse(int& argc, char* argv[]) {
-    BaseOptions::parse(argc,argv);
-    dag = parse_dag(get_dag_file());
-
     // cache these things
     _set_all_partitions_per_node();
     _set_dag_orders();
   }
 
-  // Things driectly related to options
-
   int                      get_restart_scale()      const;
   int                      seed()                   const;
-  IntPropLevel             ipl()                    const;
-  const char*              get_dag_file()           const;
+  Gecode::IntPropLevel     ipl()                    const;
   vector<node_t> const&    get_dag()                const;
   int                      get_num_workers()        const;
   double                   get_flops_per_time()     const;
@@ -106,8 +86,6 @@ public:
   int                      search_compute_threads() const;
   int                      search_restart_scale()   const;
   double                   search_time_per_cover()  const;
-  const char*              get_out_file()           const;
-  const char*              get_usage_file()         const;
 
   // Computing things over the dag
 
@@ -231,53 +209,53 @@ struct partition_init_t {
 
   int min_possible_time, max_possible_time;
 
-  IntVar start(Space& home, nid_t nid) const {
-    return IntVar(home, start_min[nid], start_max[nid]);
+  Gecode::IntVar start(Gecode::Space& home, nid_t nid) const {
+    return Gecode::IntVar(home, start_min[nid], start_max[nid]);
   }
-  IntVar duration(Space& home, nid_t nid) const {
-    return IntVar(home, duration_min[nid], duration_max[nid]);
+  Gecode::IntVar duration(Gecode::Space& home, nid_t nid) const {
+    return Gecode::IntVar(home, duration_min[nid], duration_max[nid]);
   }
-  IntVar end(Space& home, nid_t nid) const {
-    return IntVar(home, 0, max_possible_time);
+  Gecode::IntVar end(Gecode::Space& home, nid_t nid) const {
+    return Gecode::IntVar(home, 0, max_possible_time);
   }
-  IntVar worker(Space& home, nid_t nid) const {
-    return IntVar(home, worker_min[nid], worker_max[nid]);
+  Gecode::IntVar worker(Gecode::Space& home, nid_t nid) const {
+    return Gecode::IntVar(home, worker_min[nid], worker_max[nid]);
   }
-  IntVar partitions(Space& home, nid_t nid) const {
-    return IntVar(home, partitions_min[nid], partitions_max[nid]);
+  Gecode::IntVar partitions(Gecode::Space& home, nid_t nid) const {
+    return Gecode::IntVar(home, partitions_min[nid], partitions_max[nid]);
   }
 };
 
-struct Partition : public IntMinimizeSpace {
+struct Partition : public Gecode::IntMinimizeSpace {
   // Set up the space for use with optimization. The cover is set to the
   // initial covering
-  Partition(PartitionOptions const& opt0, partition_init_t const& init);
+  Partition(partition_options_t const& opt0, partition_init_t const& init);
 
   // Take the pervious space fix previously computed values and increment
   // the cover
   Partition(Partition const& other, partition_init_t const& init);
 
-  static partition_init_t build_init(PartitionOptions const& opt);
+  static partition_init_t build_init(partition_options_t const& opt);
 
   virtual void print(std::ostream& os) const;
 
 protected:
-  PartitionOptions const& opt;
+  partition_options_t const& opt;
 
-  Rnd rnd;
+  Gecode::Rnd rnd;
 
   // We're trying to minimize this guy
-  IntVar makespan;
+  Gecode::IntVar makespan;
 
-  IntVarArray start;
-  IntVarArray duration;
-  IntVarArray end;
-  IntVarArray worker;
+  Gecode::IntVarArray start;
+  Gecode::IntVarArray duration;
+  Gecode::IntVarArray end;
+  Gecode::IntVarArray worker;
 
   // For each input and join node we have a partition
   // For all slots that aren't inputs or joins, just set the domain equal to {0} as it
   // won't be used.
-  IntVarArray partitions;
+  Gecode::IntVarArray partitions;
   // ^ given a compute identifier nid, partitions[nid] specifies
   //   which partition in opt.all_partitions(nid) the current partition has.
 
@@ -285,7 +263,7 @@ protected:
 
 public:
   Partition(Partition& other):
-    IntMinimizeSpace(other),
+    Gecode::IntMinimizeSpace(other),
     opt(other.opt),
     rnd(other.rnd),
     cover_to(other.cover_to)
@@ -300,11 +278,11 @@ public:
     partitions.update(  *this, other.partitions  );
   }
 
-  virtual Space* copy(void) {
+  virtual Gecode::Space* copy(void) {
     return new Partition(*this);
   }
 
-  virtual IntVar cost() const {
+  virtual Gecode::IntVar cost() const {
     return makespan;
   }
 
@@ -312,7 +290,7 @@ public:
     return _get_nids(cover_to).size() >= opt.get_dag().size();
   }
 
-  IntVar const& get_partition(nid_t nid) const {
+  Gecode::IntVar const& get_partition(nid_t nid) const {
     return partitions[nid];
   }
 
@@ -328,11 +306,11 @@ private:
 
   void _cumulative(
     int                capacity,
-    IntVarArgs  const& start,
-    IntVarArgs  const& duration,
-    IntVarArgs  const& end,
-    IntVarArgs  const& resource_usage,
-    IntPropLevel       ipl = IPL_DEF);
+    Gecode::IntVarArgs  const& start,
+    Gecode::IntVarArgs  const& duration,
+    Gecode::IntVarArgs  const& end,
+    Gecode::IntVarArgs  const& resource_usage,
+    Gecode::IntPropLevel       ipl = Gecode::IPL_DEF);
 
   vector<nid_t> _get_nids(int n) const;
 

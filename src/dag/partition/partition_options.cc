@@ -5,6 +5,8 @@
 
 namespace bbts { namespace dag {
 
+using namespace Gecode;
+
 template <typename T>
 T product(vector<T> const& xs) {
   T ret = 1;
@@ -80,81 +82,69 @@ struct random_select_t {
   std::mt19937 gen;
 };
 
-int PartitionOptions::get_restart_scale() const {
-  return static_cast<int>(_restart_scale.value());
+int partition_options_t::get_restart_scale() const {
+  return _restart_scale;
 }
 
-int PartitionOptions::seed() const {
-  return static_cast<int>(_seed.value());
+int partition_options_t::seed() const {
+  return _seed;
 }
 
-IntPropLevel PartitionOptions::ipl() const {
-  return _ipl.value();
+IntPropLevel partition_options_t::ipl() const {
+  return _ipl;
 }
 
-const char* PartitionOptions::get_dag_file() const {
-  return _dag_file.value();
-}
-
-const char* PartitionOptions::get_out_file() const {
-  return _output_file.value();
-}
-
-const char* PartitionOptions::get_usage_file() const {
-  return _usage_file.value();
-}
-
-vector<node_t> const& PartitionOptions::get_dag() const {
+vector<node_t> const& partition_options_t::get_dag() const {
   return dag;
 }
 
-int PartitionOptions::get_num_workers() const {
-  return static_cast<int>(_num_workers.value());
+int partition_options_t::get_num_workers() const {
+  return _num_workers;
 }
 
-double PartitionOptions::get_flops_per_time() const {
-  return _flops_per_time.value();
+double partition_options_t::get_flops_per_time() const {
+  return _flops_per_time;
 }
 
-vector<int> PartitionOptions::get_all_blocks() const {
+vector<int> partition_options_t::get_all_blocks() const {
   // TODO: make this an option
   return {1,2,4,8,16,24,32,48,64,72,96,120,128,144,168,192};
 }
 
-int PartitionOptions::get_min_cost() const {
+int partition_options_t::get_min_cost() const {
   // This amount of work means that each worker can have something to do
-  if(_min_cost.value() < 0) {
+  if(_min_cost < 0) {
     return get_num_workers();
   } else {
-    return _min_cost.value();
+    return _min_cost;
   }
 }
 
-bool PartitionOptions::breadth_order() const {
-  return _breadth_order.value();
+bool partition_options_t::breadth_order() const {
+  return _breadth_order;
 }
 
-bool PartitionOptions::cover() const {
-  return _cover.value();
+bool partition_options_t::cover() const {
+  return _cover;
 }
 
-int PartitionOptions::cover_size() const {
-  return static_cast<int>(_cover_size.value());
+int partition_options_t::cover_size() const {
+  return static_cast<int>(_cover_size);
 }
 
-int PartitionOptions::search_compute_threads() const {
-  return static_cast<int>(_search_compute_threads.value());
+int partition_options_t::search_compute_threads() const {
+  return static_cast<int>(_search_compute_threads);
 }
 
-int PartitionOptions::search_restart_scale() const {
-  return static_cast<int>(_search_restart_scale.value());
+int partition_options_t::search_restart_scale() const {
+  return static_cast<int>(_search_restart_scale);
 }
 
-double PartitionOptions::search_time_per_cover() const {
-  return static_cast<double>(_search_time_per_cover.value());
+double partition_options_t::search_time_per_cover() const {
+  return static_cast<double>(_search_time_per_cover);
 }
 
-int PartitionOptions::raw_flops(vector<int> const& dims) const {
+int partition_options_t::raw_flops(vector<int> const& dims) const {
   float flops = 1.0;
   for(auto d: dims) {
     flops *= (d*1.0);
@@ -162,15 +152,15 @@ int PartitionOptions::raw_flops(vector<int> const& dims) const {
   return lround(flops / get_flops_per_time());
 }
 
-int PartitionOptions::get_compute_cost(int raw_flops_cost) const {
+int partition_options_t::get_compute_cost(int raw_flops_cost) const {
   return get_min_cost() + raw_flops_cost;
 }
 
-int PartitionOptions::get_compute_cost(vector<int> const& dims) const {
+int partition_options_t::get_compute_cost(vector<int> const& dims) const {
   return get_min_cost() + raw_flops(dims);
 }
 
-void PartitionOptions::_set_dag_orders() {
+void partition_options_t::_set_dag_orders() {
   {
     _inputs = vector<nid_t>();
     for(node_t const& node: dag) {
@@ -277,7 +267,7 @@ void PartitionOptions::_set_dag_orders() {
   }
 }
 
-vector<nid_t> PartitionOptions::get_compute_ups(nid_t nid) const {
+vector<nid_t> partition_options_t::get_compute_ups(nid_t nid) const {
   // make sure we have a compute nid
   nid = get_compute_nid(nid);
   node_t const& node = dag[nid];
@@ -298,27 +288,27 @@ vector<nid_t> PartitionOptions::get_compute_ups(nid_t nid) const {
   return ups;
 }
 
-vector<nid_t> const& PartitionOptions::inputs() const {
+vector<nid_t> const& partition_options_t::inputs() const {
   return _inputs;
 }
 
-vector<nid_t> const& PartitionOptions::depth_dag_order() const {
+vector<nid_t> const& partition_options_t::depth_dag_order() const {
   return _depth_dag_order;
 }
 
-vector<nid_t> const& PartitionOptions::breadth_dag_order() const {
+vector<nid_t> const& partition_options_t::breadth_dag_order() const {
   return _breadth_dag_order;
 }
 
-vector<nid_t> const& PartitionOptions::super_depth_dag_order() const {
+vector<nid_t> const& partition_options_t::super_depth_dag_order() const {
   return _super_depth_dag_order;
 }
 
-vector<nid_t> const& PartitionOptions::super_breadth_dag_order() const {
+vector<nid_t> const& partition_options_t::super_breadth_dag_order() const {
   return _super_breadth_dag_order;
 }
 
-vector<nid_t> PartitionOptions::super(nid_t nid) const {
+vector<nid_t> partition_options_t::super(nid_t nid) const {
   if(dag[nid].type == node_t::node_type::input) {
     return {nid};
   }
@@ -333,7 +323,7 @@ vector<nid_t> PartitionOptions::super(nid_t nid) const {
   return ret;
 }
 
-vector<nid_t> PartitionOptions::get_compute_nids() const {
+vector<nid_t> partition_options_t::get_compute_nids() const {
   vector<nid_t> ret;
   for(node_t const& node: dag) {
     if(node.type == node_t::node_type::join ||
@@ -345,7 +335,7 @@ vector<nid_t> PartitionOptions::get_compute_nids() const {
   return ret;
 }
 
-nid_t PartitionOptions::get_compute_nid(nid_t nid) const {
+nid_t partition_options_t::get_compute_nid(nid_t nid) const {
   node_t const& node = dag[nid];
   if(node.type == node_t::node_type::join ||
      node.type == node_t::node_type::input)
@@ -362,11 +352,11 @@ nid_t PartitionOptions::get_compute_nid(nid_t nid) const {
   return -1;
 }
 
-vector<dim_t> PartitionOptions::single_partition(nid_t nid) const {
+vector<dim_t> partition_options_t::single_partition(nid_t nid) const {
   return vector<dim_t>(dag[nid].dims.size(), 1);
 }
 
-vector<dim_t> PartitionOptions::max_partition(nid_t nid) const {
+vector<dim_t> partition_options_t::max_partition(nid_t nid) const {
   vector<dim_t> ret;
   int val = -1;
   for(auto p: all_partitions(nid)) {
@@ -379,11 +369,11 @@ vector<dim_t> PartitionOptions::max_partition(nid_t nid) const {
   return ret;
 }
 
-vector<vector<dim_t>> const& PartitionOptions::all_partitions(nid_t nid) const {
+vector<vector<dim_t>> const& partition_options_t::all_partitions(nid_t nid) const {
   return _all_partitions_per_node[nid];
 }
 
-void PartitionOptions::_set_all_partitions_per_node() {
+void partition_options_t::_set_all_partitions_per_node() {
   using  _all_partitions = vector<vector<dim_t>>;
   _all_partitions_per_node = vector<_all_partitions>(dag.size());
 
@@ -408,11 +398,11 @@ void PartitionOptions::_set_all_partitions_per_node() {
   }
 }
 
-vector<dim_t> const& PartitionOptions::get_which_partition(nid_t nid, int which) const {
+vector<dim_t> const& partition_options_t::get_which_partition(nid_t nid, int which) const {
   return all_partitions(nid)[which];
 }
 
-vector<dim_t> PartitionOptions::all_blocks(dim_t dim) const {
+vector<dim_t> partition_options_t::all_blocks(dim_t dim) const {
   vector<dim_t> ret;
   for(auto b: get_all_blocks()) {
     if(dim >= b && dim % b == 0 && b <= get_num_workers()) {
@@ -422,7 +412,7 @@ vector<dim_t> PartitionOptions::all_blocks(dim_t dim) const {
   return ret;
 }
 
-vector<int> PartitionOptions::time_to_completion(vector<int> const& times) const {
+vector<int> partition_options_t::time_to_completion(vector<int> const& times) const {
   vector<int> ret(dag.size());
   for(nid_t const& nid: breadth_dag_order()) {
     node_t const& node = dag[nid];
@@ -439,19 +429,19 @@ vector<int> PartitionOptions::time_to_completion(vector<int> const& times) const
   return ret;
 }
 
-vector<vector<dim_t>> PartitionOptions::get_random_full_dag_partitioning() const {
+vector<vector<dim_t>> partition_options_t::get_random_full_dag_partitioning() const {
   random_select_t random_select(seed());
   auto f = [&](nid_t nid){ return random_select(this->all_partitions(nid)); };
   return _get_partitioning(f);
 }
 
-vector<vector<dim_t>> PartitionOptions::get_max_full_dag_partitioning() const {
+vector<vector<dim_t>> partition_options_t::get_max_full_dag_partitioning() const {
   auto f = [&](nid_t nid){ return this->max_partition(nid); };
   return _get_partitioning(f);
 }
 
 vector<dim_t>
-PartitionOptions::get_kernel_inc_dims(
+partition_options_t::get_kernel_inc_dims(
   vector<dim_t> const& parts,
   nid_t nid) const
 {
@@ -463,7 +453,7 @@ PartitionOptions::get_kernel_inc_dims(
   return ret;
 }
 
-vector<int> PartitionOptions::get_out(vector<int> const& xs, nid_t nid) const {
+vector<int> partition_options_t::get_out(vector<int> const& xs, nid_t nid) const {
   node_t const& node = dag[nid];
 
   if(node.type == node_t::node_type::join) {
@@ -481,7 +471,7 @@ vector<int> PartitionOptions::get_out(vector<int> const& xs, nid_t nid) const {
   }
 }
 
-vector<int> PartitionOptions::get_agg(vector<int> const& xs, nid_t nid) const {
+vector<int> partition_options_t::get_agg(vector<int> const& xs, nid_t nid) const {
   node_t const& node = dag[nid];
 
   if(node.type == node_t::node_type::join) {
@@ -499,7 +489,7 @@ vector<int> PartitionOptions::get_agg(vector<int> const& xs, nid_t nid) const {
   }
 }
 
-vector<int> PartitionOptions::get_reblock_out(
+vector<int> partition_options_t::get_reblock_out(
   vector<int> const& join_inc,
   nid_t reblock_id) const
 {
@@ -524,7 +514,7 @@ vector<int> PartitionOptions::get_reblock_out(
   return ret;
 }
 
-vector<int> PartitionOptions::get_out_from_compute(
+vector<int> partition_options_t::get_out_from_compute(
   vector<int> const& inc,
   nid_t nid) const
 {
@@ -546,7 +536,7 @@ vector<int> PartitionOptions::get_out_from_compute(
 }
 
 tuple<int, int>
-PartitionOptions::get_est_duration_worker_pair(
+partition_options_t::get_est_duration_worker_pair(
   vector<int> const& inc_part,
   nid_t nid) const
 {
@@ -599,7 +589,7 @@ PartitionOptions::get_est_duration_worker_pair(
   return {0,0};
 }
 
-tuple<int, int> PartitionOptions::get_duration_worker_pair(
+tuple<int, int> partition_options_t::get_duration_worker_pair(
   vector<vector<int>> const& all_parts,
   nid_t nid) const
 {
@@ -608,7 +598,7 @@ tuple<int, int> PartitionOptions::get_duration_worker_pair(
            nid);
 }
 
-tuple<int, int> PartitionOptions::get_duration_worker_pair(
+tuple<int, int> partition_options_t::get_duration_worker_pair(
   std::function<vector<int>(nid_t)> f,
   nid_t nid) const
 {
@@ -638,7 +628,7 @@ tuple<int, int> PartitionOptions::get_duration_worker_pair(
   return {0,0};
 }
 
-void PartitionOptions::_super_depth_dag_order_add_to_ret(
+void partition_options_t::_super_depth_dag_order_add_to_ret(
   std::map<nid_t, int>& counts,
   vector<nid_t>& ret,
   nid_t id) const
@@ -658,7 +648,7 @@ void PartitionOptions::_super_depth_dag_order_add_to_ret(
   }
 }
 
-void PartitionOptions::_depth_dag_order_add_to_ret(
+void partition_options_t::_depth_dag_order_add_to_ret(
   vector<nid_t>& counts,
   vector<nid_t>& ret,
   nid_t id) const
@@ -672,7 +662,7 @@ void PartitionOptions::_depth_dag_order_add_to_ret(
   }
 }
 
-vector<vector<dim_t>> PartitionOptions::_get_partitioning(
+vector<vector<dim_t>> partition_options_t::_get_partitioning(
   std::function<vector<dim_t>(nid_t)> f) const
 {
   vector<vector<dim_t>> ret(dag.size());

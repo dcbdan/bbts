@@ -3,6 +3,8 @@
 
 namespace bbts { namespace dag {
 
+using namespace Gecode;
+
 //#define DCB1(x) std::cout << x << std::endl
 #define DCB1(x)
 //#define DCB2(x) std::cout << x << std::endl;
@@ -10,7 +12,7 @@ namespace bbts { namespace dag {
 
 using Gecode::Int::IntView;
 
-partition_init_t Partition::build_init(PartitionOptions const& opt) {
+partition_init_t Partition::build_init(partition_options_t const& opt) {
   vector<node_t> const& dag = opt.get_dag();
 
   partition_init_t ret(dag.size());
@@ -147,7 +149,7 @@ Partition::Partition(Partition const& other, partition_init_t const& info):
   std::cout << "COVER TO: " << n << std::endl;
 }
 
-Partition::Partition(PartitionOptions const& opt0, partition_init_t const& info):
+Partition::Partition(partition_options_t const& opt0, partition_init_t const& info):
   IntMinimizeSpace(),
   opt(opt0),
   rnd(opt0.seed()),
