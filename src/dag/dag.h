@@ -7,9 +7,11 @@
 #include <string>
 #include <cctype>
 #include <iostream>
+#include <cassert>
 #include <map>
 
 #include "../utils/cache_holder.h"
+#include "../commands/command_utils.h"
 
 namespace bbts { namespace dag {
 
@@ -27,7 +29,22 @@ struct param_t {
     bool b;
   };
   val_t val;
+
+  int get_int() const {
+    assert(which == which_t::I);
+    return val.i;
+  }
+  float get_float() const {
+    assert(which == which_t::F);
+    return val.f;
+  }
+  bool get_bool() const {
+    assert(which == which_t::B);
+    return val.b;
+  }
 };
+
+bbts::command_param_t to_bbts_param(param_t p);
 
 }}
 
@@ -59,6 +76,8 @@ struct node_t {
   vector<nid_t> downs;
   vector<nid_t> ups;
 
+  int kernel;
+  vector<bbts::command_param_t> get_bbts_params() const;
   vector<param_t> params;
 
   // only valid if type == join
@@ -87,6 +106,10 @@ struct dag_t {
   vector<node_t> const dag;
 
   vector<node_t> const& get_dag() const { return dag; }
+
+  std::size_t size() const { return dag.size(); }
+
+  node_t const& operator[](nid_t nid) const { return dag[nid]; }
 
   vector<nid_t> const& inputs() const {
     return _inputs();
@@ -131,6 +154,11 @@ struct dag_t {
   // given the incdident dims for the comptue node of nid, get the corresponding
   // incident dims of the give nid
   vector<int> get_node_incident(vector<int> const& inc, nid_t nid) const;
+
+  static vector<int> combine_out_agg(
+    vector<int> const& which_aggs,
+    vector<int> const& out,
+    vector<int> const& agg);
 
 private:
   // The first time these variables are called, the

@@ -1,6 +1,35 @@
 #include "dag.h"
+#include <cassert>
 
 namespace bbts { namespace dag {
+
+bbts::command_param_t to_bbts_param(param_t p) {
+  if(p.which == param_t::which_t::F) {
+    return { .f = p.val.f };
+  }
+
+  if(p.which == param_t::which_t::B) {
+    return { .b = p.val.b };
+  }
+
+  if(p.which == param_t::which_t::I) {
+    // TODO: die violently if the integer isn't in the correct range
+    using integer_type = decltype(bbts::command_param_t().i);
+    return { .i = static_cast<integer_type>(p.val.i) };
+  }
+
+  throw std::runtime_error("should not reach: to_bbts_param");
+  return bbts::command_param_t();
+}
+
+vector<bbts::command_param_t> node_t::get_bbts_params() const {
+  vector<bbts::command_param_t> ret;
+  ret.reserve(params.size());
+  for(auto const& p: params) {
+    ret.push_back(to_bbts_param(p));
+  }
+  return ret;
+}
 
 std::ostream& node_t::print(std::ostream& os) const
 {
@@ -422,6 +451,32 @@ vector<int> dag_t::get_node_incident(vector<int> const& inc, nid_t nid) const {
 
   throw std::runtime_error("should not reach");
   return {};
+}
+
+vector<int> dag_t::combine_out_agg(
+  vector<int> const& which_aggs,
+  vector<int> const& out,
+  vector<int> const& agg)
+{
+  assert(agg.size() == which_aggs.size());
+
+  auto is_agg = [&which_aggs](int const& i) {
+    return std::find(which_aggs.begin(), which_aggs.end(), i) != which_aggs.end();
+  };
+
+  vector<int> ret(out.size() + agg.size());
+
+  auto out_iter = out.begin();
+  auto agg_iter = agg.begin();
+  for(int i = 0; i != ret.size(); ++i) {
+    if(is_agg(i)) {
+      ret[i] = *agg_iter++;
+    } else {
+      ret[i] = *out_iter++;
+    }
+  }
+
+  return ret;
 }
 
 }}

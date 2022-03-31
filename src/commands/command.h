@@ -164,7 +164,7 @@ struct command_t {
     int num_touches,
     const std::vector<command_param_t> &params_without_compact_and_which,
     const std::vector<tid_node_id_t> &in,
-    const std::vector<tid_node_id_t> &out);
+    const tid_node_id_t &out);
 
   static command_ptr_t create_compact(
     command_id_t id,
@@ -172,8 +172,8 @@ struct command_t {
     bool is_gpu,
     int which_input,
     const std::vector<command_param_t> &params_without_compact_and_which,
-    const std::vector<tid_node_id_t> &in,
-    const std::vector<tid_node_id_t> &out);
+    const tid_node_id_t &in,
+    const tid_node_id_t &out);
 
   static command_ptr_t create_delete(
     command_id_t id,

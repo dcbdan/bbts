@@ -175,12 +175,12 @@ std::vector<int> read_list(tokenizer_t& tk, token_t stop)
 
 // Matrix multiply example:
 //   <first line is discarded>
-//   I[...]|40,50
-//   I[...]|50,60
-//   R0[...]|40,50
-//   R1[...]|50,60
-//   J2[...],0,1$3,1,2:1|40,50,60
-//   A4[...]|40,60
+//   I[i<ud>...ud params...]|40,50
+//   I[i<ud>...ud params...]|50,60
+//   R0[i<ud>...ud params...]|40,50
+//   R1[i<ud>...ud params...]|50,60
+//   J2[i<ud>...ud params...],0,1$3,1,2:1|40,50,60
+//   A4[i<ud>...ud params...]|40,60
 void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
   tokenizer_t tk(filename);
 
@@ -201,19 +201,28 @@ void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
     node_t n;
     n.type = tk.n;
 
+    // copy the kernel id and the params over
+    tk.expect(t_params);
+
+    // The first item of the ps better be an int!
+    n.kernel = tk.ps[0].get_int();
+
+    // the rest will be params to the kernel
+    n.params.reserve(tk.ps.size()-1);
+    for(int i = 1; i < tk.ps.size(); ++i) {
+      n.params.push_back(tk.ps[i]);
+    }
+
     switch(n.type) {
       case node_t::node_type::input:
-        tk.expect(t_params);
         tk.expect(t_bar);
         break;
       case node_t::node_type::reblock:
-        tk.expect(t_params);
         tk.expect(t_uint);
         n.downs.push_back(tk.i);
         tk.expect(t_bar);
         break;
       case node_t::node_type::join:
-        tk.expect(t_params);
         {
           auto child_orderings = read_list_of_nonempty_list(
                                     tk, t_dollar, t_colon);
@@ -225,7 +234,6 @@ void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
         n.aggs = read_list(tk, t_bar);
         break;
       case node_t::node_type::agg:
-        tk.expect(t_params);
         tk.expect(t_uint);
         n.downs.push_back(tk.i);
         tk.expect(t_bar);

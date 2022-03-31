@@ -318,7 +318,7 @@ struct impl_t {
           num_touches,
           params,
           {command_t::tid_node_id_t{ .tid = inn_tid, .node = (int)node.get_rank() }},
-          {command_t::tid_node_id_t{ .tid = cur_tid, .node = (int)node.get_rank() }}
+           command_t::tid_node_id_t{ .tid = cur_tid, .node = (int)node.get_rank() }
         ));
       }
       out(bi,bj) = cur_tid;

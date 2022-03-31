@@ -17,7 +17,9 @@ struct expand_indexer_t {
     vector<int> const& num_block_out):
       num_block_inn(num_block_inn),
       num_block_out(num_block_out)
-  {}
+  {
+    assert(num_block_inn.size() == num_block_out.size());
+  }
 
   // get the cartesian product of all closed ranges
   static vector<vector<int>> cartesian(vector<tuple<int,int>> const& rs);

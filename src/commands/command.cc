@@ -216,7 +216,7 @@ command_ptr_t command_t::create_touch(
   int num_touches,
   const std::vector<command_param_t> &params_without_compact_and_which,
   const std::vector<tid_node_id_t> &in,
-  const std::vector<tid_node_id_t> &out)
+  const tid_node_id_t &out)
 {
   std::vector <command_param_t> params(2 + params_without_compact_and_which.size());
   params[0].b = false;       // touches are not commpacts
@@ -229,7 +229,7 @@ command_ptr_t command_t::create_touch(
 
   // now that we have fixed the parameters, this is just an apply with a type of
   // TOUCH and nfo num_writes set
-  command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, in, out);
+  command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, in, {out});
 
   tmp->type = TOUCH;
   tmp->nfo.num_writes = num_touches;
@@ -244,8 +244,8 @@ command_ptr_t command_t::create_compact(
   bool is_gpu,
   int which_input,
   const std::vector<command_param_t> &params_without_compact_and_which,
-  const std::vector<tid_node_id_t> &in,
-  const std::vector<tid_node_id_t> &out)
+  const tid_node_id_t &in,
+  const tid_node_id_t &out)
 {
   std::vector <command_param_t> params(2 + params_without_compact_and_which.size());
   params[0].b = true;        // yes, this is a compact
@@ -258,7 +258,7 @@ command_ptr_t command_t::create_compact(
     params.begin() + 2);
 
   // Now there is no compact type, this is really just an apply.
-  command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, in, out);
+  command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, {in}, {out});
 
   return std::move(tmp);
 }

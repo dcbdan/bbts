@@ -2,42 +2,11 @@
 
 #include <random>
 #include <functional>
+#include "../misc.h"
 
 namespace bbts { namespace dag {
 
 using namespace Gecode;
-
-template <typename T>
-T product(vector<T> const& xs) {
-  T ret = 1;
-  for(auto x: xs) {
-    ret *= x;
-  }
-  return ret;
-}
-
-struct indexer_t {
-  indexer_t(vector<int> max):
-    max(max), idx(max.size())
-  {}
-
-  bool increment(){
-    bool could_increment = false;
-    for(int i = 0; i != max.size(); ++i) {
-      if(idx[i] + 1 == max[i]) {
-        idx[i] = 0;
-      } else {
-        idx[i] += 1;
-        could_increment = true;
-        break;
-      }
-    }
-    return could_increment;
-  }
-
-  vector<int> max;
-  vector<int> idx;
-};
 
 vector<vector<int>> cartesian(
   vector<vector<int> > const& vs,
