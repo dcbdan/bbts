@@ -6,7 +6,7 @@
 
 #include "dag.h"
 #include "partition_info.h"
-#include "../commands/command.h"
+#include "../../src/commands/command.h"
 
 namespace bbts { namespace dag {
 
@@ -15,7 +15,7 @@ namespace bbts { namespace dag {
 std::tuple<
   std::vector<bbts::command_ptr_t>,
   std::vector<bbts::command_ptr_t>>
-    generate(
+    generate_commands(
       dag_t const& dag,
       std::vector<partition_info_t> const& info,
       std::function<bbts::ud_impl_id_t(int)> get_ud,

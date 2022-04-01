@@ -1,6 +1,6 @@
 #include "generate.h"
 #include "misc.h"
-#include "../utils/expand_indexer.h"
+#include "../../src/utils/expand_indexer.h"
 
 #include <algorithm>
 #include <numeric>
@@ -464,7 +464,7 @@ private:
 tuple<
   vector<command_ptr_t>,
   vector<command_ptr_t>>
-    generate(
+    generate_commands(
       dag_t const& dag,
       vector<partition_info_t> const& info,
       function<ud_impl_id_t(int)> get_ud,

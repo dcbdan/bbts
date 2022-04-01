@@ -70,11 +70,6 @@ if(${ENABLE_GPU})
     set (UD_SOURCE_CUDA ${UD_SOURCE_CUDA} "src/ud_functions/gpu_scheduler_impl.cc")
 endif()
 
-if(${ENABLE_PARTITION})
-    # make sure gecode is available TODO
-    file(GLOB PARTITION_SOURCE "src/dag/partition/*.cc")
-endif()
-
 # forward the definitions ENABLE_HOOKS=ON/OFF
 if(${ENABLE_HOOKS})
     add_compile_definitions(ENABLE_HOOKS)
@@ -122,10 +117,6 @@ add_library(server OBJECT ${SERVER_SOURCE})
 file(GLOB SERVER_SOURCE "src/utils/*.cc")
 add_library(utils OBJECT ${SERVER_SOURCE})
 
-# the dag module
-file(GLOB DAG_SOURCE "src/dag/*.cc")
-add_library(dag OBJECT ${DAG_SOURCE} ${PARTITION_SOURCE})
-
 # the communication
 file(GLOB COMMUNICATION_SOURCE "src/communication/*.cc")
 add_library(communication OBJECT ${COMMUNICATION_SOURCE})
@@ -143,7 +134,6 @@ add_library(bbts-common $<TARGET_OBJECTS:tensor>
                         $<TARGET_OBJECTS:communication>
                         $<TARGET_OBJECTS:server>
                         $<TARGET_OBJECTS:utils>
-                        $<TARGET_OBJECTS:dag>
                         $<TARGET_OBJECTS:ud_functions>)
 
 # to open .so files and stuff

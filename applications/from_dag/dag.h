@@ -10,8 +10,8 @@
 #include <cassert>
 #include <map>
 
-#include "../utils/cache_holder.h"
-#include "../commands/command_utils.h"
+#include "../../src/utils/cache_holder.h"
+#include "../../src/commands/command_utils.h"
 
 namespace bbts { namespace dag {
 

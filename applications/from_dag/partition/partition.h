@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../dag.h"
-#include "../../utils/cache_holder.h"
+#include "../partition_info.h"
+
+#include "../../../src/utils/cache_holder.h"
 
 #include <gecode/driver.hh>
 #include <gecode/int.hh>
@@ -21,29 +23,14 @@ using nid_t  = int; // an id of a node
 using dim_t  = int; // a dimension size
 using rank_t = int; // a rank (a dimension label)
 
-class partition_options_t : public dag_t {
-  //  _restart_scale("restart-scale","scale factor for restart sequence",150),
-  //  _seed("seed","random number generator seed",1U),
-  //  _dag_file("dag-file", "File containing the dag to partition", "dag/matmul.dag"),
-  //  _num_workers("num-workers", "Number of workers", 24),
-  //  _flops_per_time("flops-per-time", "Number of flops per unit of time", 1e8),
-  //  _min_cost("min-cost", "defaults to number of workers", -1),
-  //  _breadth_order("breadth-order", "Additional constraint on order of nodes", false),
-  //  _cover("cover", "Whether or not to use the cover algorithm", false),
-  //  _cover_size("cover-size", "Number of nodes to consider at a time in iterative solve", 20),
-  //  _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
-  //  _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
-  //  _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
-  //  _output_file("output-file", "write the blockings here", ""),
-  //  _usage_file("usage-file", "write out [(start,end,thread,label)] to this file", "")
-
+struct partition_options_t : public dag_t {
   Gecode::IntPropLevel _ipl;
   int _restart_scale;
   int _seed;
   int _num_workers;
   double _flops_per_time;
   int _min_cost;
-  int _breadth_order;
+  bool _breadth_order;
   bool _cover;
   int _cover_size;
   int _search_compute_threads;
@@ -51,6 +38,38 @@ class partition_options_t : public dag_t {
   int _search_time_per_cover;
 
 public:
+  partition_options_t(
+    vector<node_t> const& dag,
+    Gecode::IntPropLevel ipl,
+    int restart_scale,
+    int seed,
+    int num_workers,
+    double flops_per_time,
+    int min_cost,
+    int breadth_order,
+    bool cover,
+    int cover_size,
+    int search_compute_threads,
+    int search_restart_scale,
+    int search_time_per_cover):
+      dag_t(dag),
+      _ipl(ipl),
+      _restart_scale(restart_scale),
+      _seed(seed),
+      _num_workers(num_workers),
+      _flops_per_time(flops_per_time),
+      _min_cost(min_cost),
+      _breadth_order(breadth_order),
+      _cover(cover),
+      _cover_size(cover_size),
+      _search_compute_threads(search_compute_threads),
+      _search_restart_scale(search_restart_scale),
+      _search_time_per_cover(search_time_per_cover),
+      _all_partitions_per_node(std::bind(
+        &partition_options_t::_set_all_partitions_per_node, this))
+  {}
+
+
   partition_options_t(vector<node_t> const& dag):
     dag_t(dag),
     _ipl(Gecode::IPL_DEF),
@@ -273,6 +292,10 @@ private:
   // use cover_to to specify the problem and the branches
   int _cover_propagations_and_branches(int n);
 };
+
+// For each node, get the run info by
+// unleasing Gecode with Partition
+vector<partition_info_t> run_partition(partition_options_t const& opt);
 
 }}
 

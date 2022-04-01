@@ -1,5 +1,6 @@
 #include "dag.h"
 #include <cassert>
+#include <algorithm>
 
 namespace bbts { namespace dag {
 

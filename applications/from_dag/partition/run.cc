@@ -2,7 +2,7 @@
 #include <gecode/int.hh>
 #include <gecode/minimodel.hh>
 
-#include "run.h"
+#include "partition.h"
 
 namespace bbts { namespace dag {
 
@@ -62,7 +62,7 @@ Partition* _run(Partition* init, partition_options_t const& opt) {
   return ret;
 }
 
-vector<partition_info_t> run(partition_options_t const& opt)
+vector<partition_info_t> run_partition(partition_options_t const& opt)
 {
   auto init_info = Partition::build_init(opt);
 
