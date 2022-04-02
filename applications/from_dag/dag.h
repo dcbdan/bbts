@@ -80,7 +80,6 @@ struct node_t {
   vector<std::vector<rank_t>> ordering;
   vector<rank_t> aggs;
 
-
 private:
   friend std::ostream& operator<<(std::ostream& os, node_t const& self) {
     return self.print(os);

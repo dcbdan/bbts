@@ -99,7 +99,7 @@ std::ostream& operator<<(std::ostream& os, param_t p)
     }
     return os;
   }
-  throw std::runtime_error("should not reach here");
+  throw std::runtime_error("should not reach here: operator << for param_t");
   return os;
 }
 
@@ -125,11 +125,11 @@ std::istream& operator>>(std::istream& is, param_t& p) {
     } else if(b == '1') {
       p.val.b = true;
     } else {
-      throw std::runtime_error("should not reach here");
+      throw std::runtime_error("should not reach here: operator >> for param_t, b val");
     }
     return is;
   }
-  throw std::runtime_error("should not reach here");
+  throw std::runtime_error("should not reach here: operator >> for param_t");
   return is;
 }
 

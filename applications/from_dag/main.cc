@@ -34,8 +34,6 @@ class PartitionOptions : public Gecode::BaseOptions {
   Driver::UnsignedIntOption _search_time_per_cover;
   Driver::StringValueOption _output_file;
   Driver::StringValueOption _usage_file;
-
-  vector<node_t> dag;
 public:
 
   // Initialize options
@@ -184,10 +182,96 @@ void run_commands(
   std::cout << msg_run << std::endl;
 };
 
+tuple<bool, vector<int>> parse_repl_line(std::string const& str)
+{
+  std::stringstream s(str);
+  int i;
+  vector<int> ret;
+
+  while(!s.eof()) {
+    char c = s.peek();
+    if(std::isspace(c)) {
+      s.get();
+      continue;
+    }
+
+    if(std::isdigit(static_cast<unsigned char>(c))) {
+      s >> i;
+      ret.push_back(i);
+    } else {
+      return {false, {}};
+    }
+  }
+  return {true, ret};
+}
+
+// A very bad finicky repl..... There are two things it does:
+// - given an (nid, bid) pair, print out the corresponding tensor.
+// - or given an empty line, print out the dag + partitioning.
+void repl(bbts::node_t& node, generate_commands_t& g) {
+  auto print_dag = [&]() {
+    for(nid_t nid = 0; nid != g.size(); ++nid) {
+      std::cout << nid << ": ";
+      g[nid].print(std::cout);
+    }
+  };
+
+  print_dag();
+
+  std::string s;
+  while(true) {
+    std::cout << "##>> ";
+    std::getline(std::cin, s);
+
+    if(s == "") {
+      print_dag();
+      continue;
+    }
+
+    auto [success, ints] = parse_repl_line(s);
+    if(success) {
+      nid_t nid = ints[0];
+      if(nid < 0 || nid >= g.size()) {
+        std::cout << "invalid node id" << std::endl;
+        continue;
+      }
+
+      vector<int> bid(ints.begin() + 1, ints.end());
+      auto& relation = g[nid];
+      if(bid.size() != relation.partition.size()) {
+        std::cout << "invalid block id" << std::endl;
+        continue;
+      }
+
+      int which_bad = -1;
+      for(int r = 0; r != relation.partition.size(); ++r) {
+        if(bid[r] < 0 || bid[r] >= relation.partition[r]) {
+          which_bad = r;
+          break;
+        }
+      }
+      if(which_bad >= 0) {
+        std::cout << "invalid block id, index " << which_bad << std::endl;
+        continue;
+      }
+
+      auto [tid, _0] = g[nid][bid];
+      auto [got_it, msg] = node.print_tensor_info(tid);
+      if(!got_it) {
+        std::cout << "Could not get tensor id " << tid << ". " << msg << std::endl;
+        continue;
+      }
+      std::cout << msg << std::endl;
+    } else {
+      std::cout << "exiting..." << std::endl;
+      return;
+    }
+  }
+}
+
 int main(int argc, char **argv)
 {
-  auto options = get_options(argc, argv);
-
+  partition_options_t options = get_options(argc, argv);
 
   // make the configuration
   auto config = std::make_shared<bbts::node_config_t>(
@@ -212,14 +296,18 @@ int main(int argc, char **argv)
       auto partition_info = run_partition(options);
 
       int num_nodes = 1; // TODO fix this
-      auto [input_cmds, run_cmds] = generate_commands(
+      generate_commands_t g(
         options.get_dag(),
         partition_info,
         [&uds](int which){ return uds[which]; },
         num_nodes);
 
+      auto [input_cmds, run_cmds] = g.extract();
+
       run_commands(node, input_cmds,   "Loaded input commands",   "Ran input commands");
       run_commands(node, run_cmds, "Loaded compute commands", "Ran compute commands");
+
+      repl(node, g);
 
       auto [did_shutdown, message] = node.shutdown_cluster();
       if(!did_shutdown) {
