@@ -189,7 +189,16 @@ tuple<bool, vector<int>> parse_repl_line(std::string const& str)
   vector<int> ret;
 
   while(!s.eof()) {
+    if(s.peek() == std::stringstream::traits_type::eof()) {
+      if(ret.size() > 0) {
+        return {true, ret};
+      } else {
+        return {false, {}};
+      }
+    }
+
     char c = s.peek();
+
     if(std::isspace(c)) {
       s.get();
       continue;
