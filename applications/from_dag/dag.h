@@ -46,12 +46,8 @@ struct param_t {
 
 bbts::command_param_t to_bbts_param(param_t p);
 
-}}
-
 std::ostream& operator<<(std::ostream& os, bbts::dag::param_t p);
 std::istream& operator>>(std::istream& is, bbts::dag::param_t& p);
-
-namespace bbts { namespace dag {
 
 using nid_t  = int;
 using dim_t  = int;

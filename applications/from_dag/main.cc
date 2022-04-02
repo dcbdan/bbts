@@ -11,6 +11,10 @@
 #include "partition/partition.h"
 #include "generate.h"
 
+//https://stackoverflow.com/questions/3682773/pass-an-absolute-path-as-preprocessor-directive-on-compiler-command-line
+#define STRINGIZE2(x) #x
+#define STRINGIZE(x) STRINGIZE2(x)
+
 using namespace bbts::dag;
 using namespace Gecode;
 
@@ -39,7 +43,7 @@ public:
     BaseOptions(n),
     _restart_scale("restart-scale","scale factor for restart sequence",150),
     _seed("seed","random number generator seed",1U),
-    _dag_file("dag-file", "File containing the dag to partition", "dag/matmul.dag"),
+    _dag_file("dag-file", "File containing the dag to partition", "matmul.dag"),
     _num_workers("num-workers", "Number of workers", 24),
     _flops_per_time("flops-per-time", "Number of flops per unit of time", 1e8),
     _min_cost("min-cost", "defaults to number of workers", -1),
@@ -180,10 +184,10 @@ void run_commands(
   std::cout << msg_run << std::endl;
 };
 
-
 int main(int argc, char **argv)
 {
   auto options = get_options(argc, argv);
+
 
   // make the configuration
   auto config = std::make_shared<bbts::node_config_t>(
@@ -203,7 +207,7 @@ int main(int argc, char **argv)
   if (node.get_rank() == 0) {
     t = std::thread([&]()
     {
-      auto uds = load_cutensor_lib(node, "PROJECT_SOURCE_DIR/libraries/libbarbcu.so");
+      auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
 
       auto partition_info = run_partition(options);
 
@@ -216,6 +220,11 @@ int main(int argc, char **argv)
 
       run_commands(node, input_cmds,   "Loaded input commands",   "Ran input commands");
       run_commands(node, run_cmds, "Loaded compute commands", "Ran compute commands");
+
+      auto [did_shutdown, message] = node.shutdown_cluster();
+      if(!did_shutdown) {
+        throw std::runtime_error("did not shutdown: " + message);
+      }
     });
   }
 

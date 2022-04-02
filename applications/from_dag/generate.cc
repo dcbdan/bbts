@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <numeric>
 
+#define DCB01(x) std::cout << x << std::endl;
+
 namespace bbts { namespace dag {
 
 using namespace bbts;
@@ -135,18 +137,35 @@ struct impl_t {
       // Now we have all the inputs, figure out what the node is and use that
       // to create the command and get a new tid.
 
-      // Create an apply command
-      if(node.type == node_t::node_type::input ||
-         node.type == node_t::node_type::join)
+      if(node.type == node_t::node_type::input)
       {
-        auto insert = [&](command_ptr_t cmd) {
-          if(node.type == node_t::node_type::input) {
-            input_commands.emplace_back(std::move(cmd));
-          } else {
-            commands.emplace_back(std::move(cmd));
-          }
-        };
+        tid_loc_t cur{ next_tid(), compute_location };
 
+        auto params = node.get_bbts_params();
+        // input kernels in libbarb_cutensor require
+        // appending for each rank
+        //   (which blk, local dim size, output dim size)
+        // as parameters
+        using uint_type = decltype(bbts::command_param_t().u);
+        auto const& ps = relations[nid].partition;
+        for(int r = 0; r != bid.size(); ++r) {
+          params.push_back({ .u = static_cast<uint_type>(bid[r])               });
+          params.push_back({ .u = static_cast<uint_type>(node.dims[r] / ps[r]) });
+          params.push_back({ .u = static_cast<uint_type>(node.dims[r])         });
+        }
+
+        input_commands.emplace_back(command_t::create_apply(
+          next_command_id(),
+          get_ud(node.kernel),
+          false,
+          params,
+          {},
+          {cur}));
+
+        relations[nid][bid] = cur;
+      }
+      else if(node.type == node_t::node_type::join)
+      {
         // for each input, move it to the location if necessary
         vector<tid_loc_t> apply_inputs;
         apply_inputs.reserve(inputs.size());
@@ -154,7 +173,7 @@ struct impl_t {
           if(loc == compute_location) {
             apply_inputs.push_back({tid, compute_location});
           } else {
-            insert(command_t::create_move(
+            commands.emplace_back(command_t::create_move(
               next_command_id(),
               {tid, loc},
               {tid, compute_location}));
@@ -164,7 +183,7 @@ struct impl_t {
 
         tid_loc_t cur{ next_tid(), compute_location };
 
-        insert(command_t::create_apply(
+        commands.emplace_back(command_t::create_apply(
           next_command_id(),
           get_ud(node.kernel),
           false,
@@ -278,13 +297,16 @@ struct impl_t {
   }
 
   struct relation_t {
-    relation_t(impl_t* self, nid_t nid):
-      self(self),
-      nid(nid),
-      partition(self->info[nid].blocking),
-      is_no_op(_is_no_op()),
-      tid_locs(is_no_op ? 0 : product(partition), {-1, -1})
-    {}
+    relation_t(impl_t* self_, nid_t nid_):
+      self(self_),
+      nid(nid_),
+      partition(self_->info[nid_].blocking),
+      is_no_op(_is_no_op())
+    {
+      tid_locs = vector<tid_loc_t>(
+        is_no_op ? 0 : product(partition),
+        {-1, -1});
+    }
 
     // Go into the input relations and get the input tid_locs
     vector<tid_loc_t> get_inputs(vector<int> const& bid) {
@@ -411,36 +433,37 @@ struct impl_t {
       return tid_locs[idx];
     }
 
-    bool const is_no_op;
-    std::vector<int> const& partition;
     private:
-      bool _is_no_op() {
-        node_t const& node = self->dag[nid];
-        if(node.type == node_t::node_type::input) {
-          return false;
-        }
-        if(node.type == node_t::node_type::join) {
-          return false;
-        }
-        if(node.type == node_t::node_type::reblock) {
-          // if these are the same, there is no reblock
-          auto const& my_blocking    = self->info[nid].blocking;
-          auto const& input_blocking = self->info[node.downs[0]].blocking;
-          return my_blocking == input_blocking;
-        }
-        if(node.type == node_t::node_type::agg) {
-          auto const& my_blocking    = self->info[nid].blocking;
-          auto const& join_blocking = self->info[node.downs[0]].blocking;
-          // if there is nothing to agg, this is a no op
-          return product(my_blocking) == product(join_blocking);
-        }
-        throw std::runtime_error("should not reach");
-        return true;
+    bool _is_no_op() {
+      node_t const& node = self->dag[nid];
+      if(node.type == node_t::node_type::input) {
+        return false;
       }
+      if(node.type == node_t::node_type::join) {
+        return false;
+      }
+      if(node.type == node_t::node_type::reblock) {
+        // if these are the same, there is no reblock
+        auto const& my_blocking    = self->info[nid].blocking;
+        auto const& input_blocking = self->info[node.downs[0]].blocking;
+        return my_blocking == input_blocking;
+      }
+      if(node.type == node_t::node_type::agg) {
+        auto const& my_blocking    = self->info[nid].blocking;
+        auto const& join_blocking = self->info[node.downs[0]].blocking;
+        // if there is nothing to agg, this is a no op
+        return product(my_blocking) == product(join_blocking);
+      }
+      throw std::runtime_error("should not reach");
+      return true;
+    }
 
-      impl_t* self;
-      nid_t const nid;
-      vector<tid_loc_t> tid_locs;
+    impl_t* self;
+    nid_t const nid;
+    vector<tid_loc_t> tid_locs;
+  public:
+    std::vector<int> const& partition;
+    bool const is_no_op;
   };
 
 private:

@@ -523,7 +523,7 @@ void bbts::coordinator_t::_print_tensor(tid_t id, std::stringstream &ss) {
 
   // check if it exists
   if(!_storage->has_tensor(id)) {
-    return;;
+    return;
   }
 
   // run the transaction

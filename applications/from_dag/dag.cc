@@ -14,9 +14,10 @@ bbts::command_param_t to_bbts_param(param_t p) {
   }
 
   if(p.which == param_t::which_t::I) {
-    // TODO: die violently if the integer isn't in the correct range
-    using integer_type = decltype(bbts::command_param_t().i);
-    return { .i = static_cast<integer_type>(p.val.i) };
+    // TODO: die violently if the integer is too big
+    using unsigned_integer_type = decltype(bbts::command_param_t().u);
+    assert(p.val.i >= 0);
+    return { .u = static_cast<unsigned_integer_type>(p.val.i) };
   }
 
   throw std::runtime_error("should not reach: to_bbts_param");
@@ -37,7 +38,7 @@ std::ostream& node_t::print(std::ostream& os) const
   auto print_params = [this, &os]() {
     os << "[";
     for(param_t const& p: params) {
-      std::cout << p;
+      os << p;
     }
     os << "]";
   };
@@ -78,10 +79,6 @@ std::ostream& node_t::print(std::ostream& os) const
   print_list(os, dims);
   return os;
 }
-
-}}
-
-using namespace bbts::dag;
 
 std::ostream& operator<<(std::ostream& os, param_t p)
 {
@@ -135,8 +132,6 @@ std::istream& operator>>(std::istream& is, param_t& p) {
   throw std::runtime_error("should not reach here");
   return is;
 }
-
-namespace bbts { namespace dag {
 
 vector<nid_t> dag_t::_set_inputs() {
   vector<nid_t> ret;
