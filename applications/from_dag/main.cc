@@ -229,9 +229,18 @@ tuple<bool, vector<int>> parse_repl_line(std::string const& str)
 // - or given an empty line, print out the dag + partitioning.
 void repl(bbts::node_t& node, generate_commands_t& g) {
   auto print_dag = [&]() {
-    for(nid_t nid = 0; nid != g.size(); ++nid) {
-      std::cout << nid << ": ";
+    vector<nid_t> idxs = g.priority_dag_order();
+    for(nid_t nid: idxs) {
+      std::cout << nid;
+      if(!g[nid].is_no_op) {
+        std::cout << "    *";
+      } else {
+        std::cout << "     ";
+      }
+      std::cout << ": ";
+
       g[nid].print(std::cout);
+      std::cout << std::endl;
     }
   };
 
@@ -294,7 +303,7 @@ int main(int argc, char **argv)
 
   // make the configuration
   auto config = std::make_shared<bbts::node_config_t>(
-          bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 24});
+          bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 12});
 
   // create the node
   bbts::node_t node(config);

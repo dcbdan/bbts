@@ -53,6 +53,11 @@ struct generate_commands_t {
     return dag.size();
   }
 
+  vector<nid_t> priority_dag_order() const {
+    return dag.priority_dag_order(
+      [&](nid_t nid){ return info[nid].priority; });
+  }
+
   struct relation_t {
     relation_t(generate_commands_t* self_, nid_t nid_);
 
@@ -61,6 +66,7 @@ struct generate_commands_t {
     tid_loc_t& operator[](vector<int> const& bid);
 
     void print(std::ostream& os) const;
+
   private:
     bool _is_no_op();
 

@@ -73,7 +73,8 @@ double partition_options_t::get_flops_per_time() const {
 
 vector<int> partition_options_t::get_all_blocks() const {
   // TODO: make this an option
-  return {1,2,4,8,16,24,32,48,64,72,96,120,128,144,168,192};
+  //return {1,2,4,8,16,24,32,48,64,72,96,120,128,144,168,192};
+  return {1,2,3,4,6,8,12,15,16,18,21,24};
 }
 
 int partition_options_t::get_min_cost() const {
