@@ -1,8 +1,11 @@
 #include "dag.h"
 #include <cassert>
 #include <algorithm>
+#include <queue>
 
 namespace bbts { namespace dag {
+
+using std::function;
 
 bbts::command_param_t to_bbts_param(param_t p) {
   if(p.which == param_t::which_t::F) {
@@ -296,6 +299,52 @@ vector<nid_t> dag_t::super(nid_t nid) const {
   return ret;
 }
 
+struct priority_compare_t {
+  priority_compare_t(function<int(nid_t)> f): f(f) {}
+
+  bool operator()(nid_t const& lhs, nid_t const& rhs) {
+    return f(lhs) > f(rhs);
+  }
+
+  function<int(nid_t)> f;
+};
+
+vector<nid_t> dag_t::priority_dag_order(
+  function<int(nid_t)> get_priority) const
+{
+  using queue_t = std::priority_queue<nid_t, vector<nid_t>, priority_compare_t>;
+
+  queue_t queue = queue_t(priority_compare_t(get_priority));
+
+  vector<nid_t> ret;
+  ret.reserve(dag.size());
+
+  vector<int> counts;
+  counts.reserve(dag.size());
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    counts[nid] = dag[nid].downs.size();
+  }
+
+  for(nid_t const& input: inputs()) {
+    queue.push(input);
+  }
+
+  while(!queue.empty()) {
+    nid_t cur = queue.top();
+    queue.pop();
+
+    ret.push_back(cur);
+
+    for(nid_t up: dag[cur].ups) {
+      counts[up]--;
+      if(counts[up] == 0) {
+        queue.push(up);
+      }
+    }
+  }
+
+  return ret;
+}
 
 vector<nid_t> dag_t::get_compute_nids() const {
   vector<nid_t> ret;

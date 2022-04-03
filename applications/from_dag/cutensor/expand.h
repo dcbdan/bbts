@@ -24,6 +24,7 @@ tuple<
   bool compact = params.get_bool<0>();
   int which = static_cast<int>(params.get_uint<1>());
 
+
   int rank = (params.num_parameters() - 2) / 4;
 
   vector<int> dims(rank);
@@ -31,10 +32,10 @@ tuple<
   vector<int> blk_out(rank);
   vector<int> which_blk_out(rank);
   for(int i = 0; i != rank; ++i) {
-    dims.push_back(          static_cast<int>(params.get_raw(2 + 4*i).u));
-    blk_inn.push_back(       static_cast<int>(params.get_raw(3 + 4*i).u));
-    blk_out.push_back(       static_cast<int>(params.get_raw(4 + 4*i).u));
-    which_blk_out.push_back( static_cast<int>(params.get_raw(5 + 4*i).u));
+    dims[i]          = static_cast<int>(params.get_raw(2 + 4*i).u);
+    blk_inn[i]       = static_cast<int>(params.get_raw(3 + 4*i).u);
+    blk_out[i]       = static_cast<int>(params.get_raw(4 + 4*i).u);
+    which_blk_out[i] = static_cast<int>(params.get_raw(5 + 4*i).u);
   }
 
   expand_indexer_t indexer(blk_inn, blk_out);

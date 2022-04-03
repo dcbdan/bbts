@@ -65,12 +65,8 @@ generate_commands_t::generate_commands_t(
     relations.emplace_back(this, nid);
   }
 
-  vector<nid_t> idxs(info.size());
-  std::iota(idxs.begin(), idxs.end(), 0);
-  std::sort(idxs.begin(), idxs.end(),
-    [&info](nid_t const& lhs, nid_t const& rhs) {
-      return info[lhs].priority < info[rhs].priority;
-    });
+  vector<nid_t> idxs = dag.priority_dag_order(
+    [&](nid_t nid){ return info[nid].priority; });
 
   // Starting with nodes of the lowest priorty, add them to
   // the relation dag
@@ -198,7 +194,8 @@ void generate_commands_t::add_node(nid_t nid) {
       expand_indexer_t const& expand_indexer = *expand_indexer_ptr;
 
       // the same reblock params are used for each of the inputs
-      vector<command_param_t> reblock_params(4*node.dims.size());
+      vector<command_param_t> reblock_params;
+      reblock_params.reserve(4*node.dims.size());
       auto insert = [&](int x) {
         reblock_params.push_back({ .u = static_cast<uint32_t>(x) });
       };
@@ -307,7 +304,7 @@ generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
   if(node.type == node_t::node_type::agg) {
     // basically, cartesian product over the agg dimensions.
     nid_t join_nid = node.downs[0];
-    node_t const& join_node = self->dag[nid];
+    node_t const& join_node = self->dag[join_nid];
     auto const& aggs = join_node.aggs;
     auto const& join_blocking = self->info[join_nid].blocking;
 
@@ -376,7 +373,6 @@ generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
 
 // If this node is a no op, then reach past this relation.
 tid_loc_t& generate_commands_t::relation_t::operator[](vector<int> const& bid) {
-  DCB01("[] nid: " << nid << "..... " << partition.size() << "...." << bid.size());
   assert(bid.size() == partition.size());
   if(is_no_op) {
     node_t const& node = self->dag[nid];
@@ -404,9 +400,6 @@ tid_loc_t& generate_commands_t::relation_t::operator[](vector<int> const& bid) {
         aggs,
         bid,
         vector<int>(aggs.size(), 0));
-      DCB01("bid size " << bid.size() <<
-            " ... aggs size " << aggs.size() <<
-            " ... inc bid size " << inc_bid.size());
 
       return self->relations[join_nid][inc_bid];
     }

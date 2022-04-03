@@ -9,6 +9,7 @@
 #include <iostream>
 #include <cassert>
 #include <map>
+#include <functional>
 
 #include "../../src/utils/cache_holder.h"
 #include "../../src/commands/command_utils.h"
@@ -109,6 +110,11 @@ struct dag_t {
   vector<nid_t> const& inputs() const {
     return _inputs();
   }
+
+  // Given a priority value for each dag, return nodes with the smallest value
+  // first, subject to being in a dag order.
+  vector<nid_t> priority_dag_order(
+    std::function<int(nid_t)> get_priority) const;
 
   vector<nid_t> const& depth_dag_order() const {
     return _depth_dag_order();

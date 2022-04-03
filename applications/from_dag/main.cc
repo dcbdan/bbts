@@ -158,6 +158,16 @@ vector<bbts::ud_impl_id_t> load_cutensor_lib(
   return ret;
 }
 
+void verbose(std::ostream &out, bbts::node_t &node, bool val) {
+  // run all the commands
+  auto [did_load, message] = node.set_verbose(val);
+
+  // did we fail
+  if(!did_load) {
+    throw std::runtime_error("could not set verbose");
+  }
+}
+
 void run_commands(
   bbts::node_t& node,
   std::vector<bbts::command_ptr_t>& cmds,
@@ -300,9 +310,21 @@ int main(int argc, char **argv)
   if (node.get_rank() == 0) {
     t = std::thread([&]()
     {
+      //verbose(std::cout, node, true);
+
       auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
 
       auto partition_info = run_partition(options);
+
+      //for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
+      //  std::cout << "start    " << partition_info[nid].priority;
+      //  std::cout << "         nid " << nid << ": " << options.get_dag()[nid];
+      //  std::cout << "       ";
+      //  for(int x: partition_info[nid].blocking) {
+      //    std::cout << x << " ";
+      //  }
+      //  std::cout << std::endl;
+      //}
 
       int num_nodes = 1; // TODO fix this
       generate_commands_t g(
@@ -313,10 +335,24 @@ int main(int argc, char **argv)
 
       auto [input_cmds, run_cmds] = g.extract();
 
-      run_commands(node, input_cmds,   "Loaded input commands",   "Ran input commands");
-      run_commands(node, run_cmds, "Loaded compute commands", "Ran compute commands");
+      //for(auto& cmd: input_cmds) {
+      //  std::string s;
+      //  std::stringstream ss(s);
+      //  cmd->print(ss);
+      //  std::cout << ss.str();
+      //}
+      //std::cout << "-------------------------------------------------" << std::endl;
+      //for(auto& cmd: run_cmds) {
+      //  std::string s;
+      //  std::stringstream ss(s);
+      //  cmd->print(ss);
+      //  std::cout << ss.str();
+      //}
 
-      repl(node, g);
+      run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
+      run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
+
+      //repl(node, g);
 
       auto [did_shutdown, message] = node.shutdown_cluster();
       if(!did_shutdown) {
