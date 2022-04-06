@@ -64,21 +64,7 @@ Partition* _run(Partition* init, partition_options_t const& opt) {
 
 vector<partition_info_t> run_partition(partition_options_t const& opt)
 {
-  auto init_info = Partition::build_init(opt);
-
-  Partition* partition = _run(new Partition(opt, init_info), opt);
-
-  while(partition && !partition->covers_all()) {
-    // get the next cover
-    Partition* next_init = new Partition(*partition, init_info);
-
-    // reset partition
-    delete partition;
-    partition = nullptr;
-
-    // solve for this cover
-    partition = _run(next_init, opt);
-  }
+  Partition* partition = _run(new Partition(opt), opt);
 
   if(!partition) {
     throw std::runtime_error("Could not find a solution!");
@@ -89,8 +75,10 @@ vector<partition_info_t> run_partition(partition_options_t const& opt)
   ret.reserve(opt.get_dag().size());
   for(nid_t nid = 0; nid != opt.get_dag().size(); ++nid) {
     ret.push_back(partition_info_t{
-      .priority = partition->get_set_start_time(nid),
-      .blocking = partition->get_set_partition(nid)
+      .blocking = partition->get_partition(nid),
+      .start    = partition->get_start(nid),
+      .duration = partition->get_duration(nid),
+      .worker   = partition->get_worker(nid)
     });
   }
 

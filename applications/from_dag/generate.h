@@ -54,7 +54,7 @@ struct generate_commands_t {
 
   vector<nid_t> priority_dag_order() const {
     return dag.priority_dag_order(
-      [&](nid_t nid){ return info[nid].priority; });
+      [&](nid_t nid){ return info[nid].start; });
   }
 
   struct relation_t {

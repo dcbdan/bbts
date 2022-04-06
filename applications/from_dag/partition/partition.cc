@@ -1,462 +1,568 @@
 #include "partition.h"
-#include <set>
+
+#include "../misc.h"
+
+#include <unordered_map>
+#include <numeric>
+
+#define DCB_BEFORE_DYNAMIC(x) //std::cout << __LINE__ << " " << x << std::endl
+#define DCB_ACCESS_VAR(x)     //std::cout << __LINE__ << " " << x << std::endl;
+#define DCB_P_CONSTRUCTOR(x)  //std::cout << __LINE__ << " " << x << std::endl;
+#define DCB01(x)              //std::cout << __LINE__ << " " << x << std::endl;
 
 namespace bbts { namespace dag {
 
 using namespace Gecode;
 
-//#define DCB1(x) std::cout << x << std::endl
-#define DCB1(x)
-//#define DCB2(x) std::cout << x << std::endl;
-#define DCB2(x)
+// inn   out   ret  ceiling(inn / out)
+// 1     1     1     1
+// 2     1     2     2
+// 1     2     1     1
+// 3     2     2     2
+// 2     3     2     1
+// 4     3
+int get_max_num_inputs_est(int inn, int out) {
+  // Here is the 3 , 2 case
+  //  inn xxxooo
+  //  out xxooxx
+  // In this case, the middle out partition depends
+  // on both inputs. The goal is to figure out what the maximum
+  // number of inputs could be...
+  //
+  // The idea is to place the out starting at the last of the first input
+  // and then see how far it reaches
+  //
+  // inn 3 xxxoooxxxooo
+  // out 5   ooooo
+  // ^ the answer is 3
 
-using Gecode::Int::IntView;
+  // inn goes from [0,inn)
+  // out goes from [inn-1, inn-1+out)
+  int end = inn-1+out;
+  return (end+inn-1) / inn; // celing(end / inn)
+}
 
-partition_init_t Partition::build_init(partition_options_t const& opt) {
-  vector<node_t> const& dag = opt.get_dag();
+vector<vector<int>> cartesian(
+  vector<vector<int> > const& vs)
+{
+  // assuming all vs have a size greater than zero
 
-  partition_init_t ret(dag.size());
+  vector<int> max;
+  for(auto const& v: vs) {
+    max.push_back(v.size());
+  }
+  indexer_t indexer(max);
 
+  vector<vector<int>> ret;
+  do {
+    vector<int> next_val;
+    next_val.reserve(vs.size());
+    for(int which_v = 0; which_v != vs.size(); ++ which_v) {
+      next_val.push_back(vs[which_v][indexer.idx[which_v]]);
+    }
+    ret.push_back(next_val);
+  } while(indexer.increment());
+
+  return ret;
+}
+
+vector<int> partition_options_t::_set_possible_parts()
+{
+  vector<int> ret;
+  ret.reserve(40);
+  // just powers of 2s and multiples of 12,
+  // early multiples of 3
+  for(int x: {1,2,3,4,6,8,9,12,15,18,21,24,32,36,48,
+              60,64,72,84,96,108,120,132,144})
   {
-    // For a partitioning where all join nodes are maximally partitioned,
-    // determine how long each node takes
-    vector<vector<dim_t>> partitionings = opt.get_max_full_dag_partitioning();
-    vector<int> durations;
-    for(nid_t nid = 0; nid != dag.size(); ++nid) {
-      auto [d, _] = opt.get_duration_worker_pair(partitionings, nid);
-      durations.push_back(d);
-    }
-
-    // Use that info to determine the max possible time
-    ret.max_possible_time = 1; // just in case
-    for(auto t: durations) {
-      ret.max_possible_time += t;
-    }
-
-    // Take the duration variable and set every node except join nodes
-    // to have zero computation. Use that to compute a lower bound
-    // for the start times of all nodes
-    for(nid_t nid = 0; nid != dag.size(); ++nid) {
-      node_t const& node = dag[nid];
-      if(node.type != node_t::node_type::join) {
-        durations[nid] = 0;
-      }
-    }
-    auto min_times_complete = opt.time_to_completion(durations);
-
-    for(int i = 0; i != dag.size(); ++i) {
-      int min_time_start = min_times_complete[i] - durations[i];
-      ret.start_min[i] = min_time_start;
-      ret.start_max[i] = ret.max_possible_time;
-    }
-
-    // min possible time really means lower bound
-    ret.min_possible_time = 0;
-    for(auto v: min_times_complete) {
-      ret.min_possible_time = std::max(ret.min_possible_time, v);
-    }
-  }
-
-  // No branching will happen on duration, end or worker nodes.
-  // And duration, worker pairs will be set when the corresponding partition
-  // information is known.
-  // So don't worry about restricting their domains.
-  // But I'm not sure for zerod nodes what cumulative enforces..
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    if(dag[nid].type == node_t::node_type::input) {
-      ret.duration_min[nid] = 0;
-      ret.duration_max[nid] = 0;
-      ret.worker_min[nid] = 0;
-      ret.worker_max[nid] = 0;
+    if(x <= num_workers()) {
+      ret.push_back(x);
     } else {
-      ret.duration_min[nid] = 0;
-      ret.duration_max[nid] = ret.max_possible_time;
-      ret.worker_min[nid] = 0;
-      ret.worker_max[nid] = opt.get_num_workers();
-    }
-  }
-
-  // iniitialize partitions
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    node_t const& node = dag[nid];
-    if(node.type == node_t::node_type::join ||
-       node.type == node_t::node_type::input)
-    {
-      ret.partitions_min[nid] = 0;
-      ret.partitions_max[nid] = opt.all_partitions(nid).size() - 1;
-      // partitions[nid] is an index into opt.all_partitions(nid)
-    } else {
-      // this nid partitions isn't gonna be used
-      ret.partitions_min[nid] = 0;
-      ret.partitions_max[nid] = 0;
+      return ret;
     }
   }
   return ret;
 }
 
-Partition::Partition(Partition const& other, partition_init_t const& info):
-  IntMinimizeSpace(),
-  opt(other.opt),
-  rnd(other.rnd),
-  cover_to(other.cover_to + opt.cover_size())
+vector<int> partition_options_t::all_parts(dim_t dim) const {
+  if(_all_parts_cache.count(dim) == 0) {
+    vector<int> val;
+    val.reserve(possible_parts().size());
+    for(int const& p: possible_parts()) {
+      if(dim % p == 0) {
+        val.push_back(p);
+      }
+    }
+    _all_parts_cache[dim] = val;
+    return val;
+  }
+  return _all_parts_cache[dim];
+}
+
+vector<vector<int>>
+partition_options_t::all_partitions(nid_t nid, int m) const
 {
-  vector<node_t> const& dag = opt.get_dag();
-
-  makespan = IntVar(*this, 0, info.max_possible_time);
-
-  start      = IntVarArray(*this, dag.size());
-  duration   = IntVarArray(*this, dag.size());
-  end        = IntVarArray(*this, dag.size());
-  worker     = IntVarArray(*this, dag.size());
-  partitions = IntVarArray(*this, dag.size());
-
-  auto _prev_nids = _get_nids(other.cover_to);
-  std::set<nid_t> prev_nids(_prev_nids.begin(), _prev_nids.end());
-  auto was_covered = [&prev_nids](nid_t nid) {
-    return prev_nids.count(nid) == 1;
-  };
-  auto same_domain_var = [&](IntVar const& var){
-    IntVarRanges rngs(var);
-    return IntVar(*this, IntSet(rngs));
-  };
-
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    if(was_covered(nid)) {
-      //std::cout << nid << " " << dag[nid].type << ": (" << other.start[nid] << ", " << other.end[nid] << ") @ " << other.worker[nid] << " | " << other.partitions[nid] << "                   " << dag[nid] << std::endl;
-      start[nid]      = same_domain_var(other.start[nid]);
-      duration[nid]   = same_domain_var(other.duration[nid]);
-      end[nid]        = same_domain_var(other.end[nid]);
-      worker[nid]     = same_domain_var(other.worker[nid]);
-      partitions[nid] = same_domain_var(other.partitions[nid]);
-    } else {
-      //std::cout << nid << std::endl;
-      start[nid]      = info.start(     *this, nid);
-      duration[nid]   = info.duration(  *this, nid);
-      end[nid]        = info.end(       *this, nid);
-      worker[nid]     = info.worker(    *this, nid);
-      partitions[nid] = info.partitions(*this, nid);
-    }
-  }
-
-  _init_propagations();
-
-  int n = _cover_propagations_and_branches(cover_to);
-
-  std::cout << "COPYING PREVIOUSLY COVERED SPACE" << std::endl;
-  std::cout << "LOWER_BOUND_TIME: " << info.min_possible_time << std::endl;
-  std::cout << "UPPER_BOUND_TIME: " << info.max_possible_time << std::endl;
-  std::cout << "DAG SIZE: " << dag.size() << std::endl;
-  std::cout << "COVER TO: " << n << std::endl;
-}
-
-Partition::Partition(partition_options_t const& opt0, partition_init_t const& info):
-  IntMinimizeSpace(),
-  opt(opt0),
-  rnd(opt0.seed()),
-  cover_to(opt.cover() ? opt.cover_size() : opt.get_dag().size())
-{
-  vector<node_t> const& dag = opt.get_dag();
-
-  makespan = IntVar(*this, 0, info.max_possible_time);
-
-  start      = IntVarArray(*this, dag.size());
-  duration   = IntVarArray(*this, dag.size());
-  end        = IntVarArray(*this, dag.size());
-  worker     = IntVarArray(*this, dag.size());
-  partitions = IntVarArray(*this, dag.size());
-
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    start[nid]      = info.start(     *this, nid);
-    duration[nid]   = info.duration(  *this, nid);
-    end[nid]        = info.end(       *this, nid);
-    worker[nid]     = info.worker(    *this, nid);
-    partitions[nid] = info.partitions(*this, nid);
-  }
-
-  _init_propagations();
-
-  int n = _cover_propagations_and_branches(cover_to);
-
-  std::cout << "LOWER_BOUND_TIME: " << info.min_possible_time << std::endl;
-  std::cout << "UPPER_BOUND_TIME: " << info.max_possible_time << std::endl;
-  std::cout << "DAG SIZE: " << dag.size() << std::endl;
-  std::cout << "COVER TO: " << n << std::endl;
-}
-
-void Partition::_init_propagations() {
-  vector<node_t> const& dag = opt.get_dag();
-
-  // set end directly
-  end = IntVarArray(*this, dag.size());
-  for(nid_t i = 0; i != dag.size(); ++i) {
-    end[i] = expr(*this, start[i] + duration[i]);
-  }
-
-  // Now whenever a partition takes on a single value, assign the
-  // join and agg nodes duration and worker values
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    node_t const& node = dag[nid];
-    if(node.type == node_t::node_type::join) {
-      wait(*this, partitions[nid],
-        [nid](Space& home) {
-          Partition* self = static_cast<Partition*>(&home);
-          return self->assign_join_agg(nid);
-       });
-    }
-  }
-
-  // Now whenever a reblock from above and below is assigned, set the duration and worker
-  // for that node
-  for(node_t const& node: dag) {
-    if(node.type == node_t::node_type::reblock) {
-      nid_t nid = node.id;
-      nid_t join_above          = node.ups[0];
-      nid_t join_or_input_below = opt.get_compute_nid(node.downs[0]);
-      IntVarArgs corresponding_parts({
-        partitions[join_above],
-        partitions[join_or_input_below]});
-      wait(*this, corresponding_parts,
-        [nid](Space& home) {
-          Partition* self = static_cast<Partition*>(&home);
-          return self->assign_reblock(nid);
-       });
-    }
-  }
-}
-
-int Partition::_cover_propagations_and_branches(int num_compute_cover) {
-  //  < propagators >
-  //  - set dag ordering
-  //  - set cumulative constraint
-  //  - set make span constraint
-  //  < branch >
-  //  - set branch partitions
-  //  - set branch start
-  //  - set branch makespan
-
-  vector<node_t> const& dag = opt.get_dag();
-
-  vector<nid_t> nids = _get_nids(num_compute_cover);
-
-  // traverse the dag and schedule ordering constraints:
-  //   each node can start after the inputs have completed
-  for(nid_t nid: nids) {
-    for(nid_t prev_nid: dag[nid].downs) {
-      // start prev: 0
-      // duration prev: 3
-      // [0,3) <= [3,duration)
-      rel(*this,
-          end[prev_nid] <= start[nid],
-          opt.ipl());
-    }
-  }
-
-  // We only care about the subset we are covering,
-  // so get args for that subset.
-  IntVarArgs _start(nids.size());
-  IntVarArgs _duration(nids.size());
-  IntVarArgs _end(nids.size());
-  IntVarArgs _worker(nids.size());
-  IntVarArgs _partitions(nids.size());
-  for(int which = 0; which != nids.size(); ++which) {
-    nid_t nid = nids[which];
-    _start[which]      = start[nid];
-    _duration[which]   = duration[nid];
-    _end[which]        = end[nid];
-    _worker[which]     = worker[nid];
-    _partitions[which] = partitions[nid];
-  }
-
-  // make sure worker capacity is not violated
-  _cumulative(
-    opt.get_num_workers(),
-    _start,
-    _duration,
-    _end,
-    _worker,
-    opt.ipl());
-
-  // set the makespan
-  for(nid_t nid: nids) {
-    rel(*this, end[nid] <= makespan, opt.ipl());
-  }
-
-  // Now we have the propagators set, but we need to do the branching.
-  for(int i = 0; i != dag.size(); ++i) {
-    branch(*this, _partitions, INT_VAR_NONE(), INT_VAL_RND(rnd));
-  }
-  branch(*this, _start, INT_VAR_RND(rnd), INT_VAL_MIN());
-  branch(*this, makespan, INT_VAL_MIN());
-
-  return nids.size();
-}
-
-void Partition::assign_join_agg(nid_t join_nid) {
-  DCB2("assign join agg");
-  // assumption: the join has one partition in it's domain
-  vector<int> inc_part = opt.get_which_partition(join_nid, partitions[join_nid].val());
-
-  {
-    auto [d,w] = opt.get_est_duration_worker_pair(inc_part, join_nid);
-    IntView _d = duration[join_nid];
-    IntView _w = worker[join_nid];
-    if(_d.in(d) && _w.in(w)) {
-      _d.eq(*this, d);
-      _w.eq(*this, w);
-    } else {
-      this->fail();
-      DCB2("---------------");
-      return;
-    }
-  }
-
-  {
-    nid_t agg_nid = opt.get_dag()[join_nid].ups[0];
-    auto [d,w] = opt.get_est_duration_worker_pair(inc_part, agg_nid);
-    IntView _d = duration[agg_nid];
-    IntView _w = worker[agg_nid];
-    if(_d.in(d) && _w.in(w)) {
-      _d.eq(*this, d);
-      _w.eq(*this, w);
-    } else {
-      this->fail();
-      DCB2("---------------");
-      return;
-    }
-  }
-  DCB2("---------------");
-}
-
-void Partition::assign_reblock(nid_t reblock_nid) {
-  DCB2("ASSIGN REBLOCK " << std::boolalpha << failed());
-  node_t const& reblock_node = opt.get_dag()[reblock_nid];
-
-  nid_t nid_above = reblock_node.ups[0];
-  nid_t nid_below = opt.get_compute_nid(reblock_node.downs[0]);
-
-  vector<int> inc_above = opt.get_which_partition(nid_above, partitions[nid_above].val());
-  vector<int> inc_below = opt.get_which_partition(nid_below, partitions[nid_below].val());
-
-  IntView _d = duration[reblock_nid];
-  IntView _w = worker[reblock_nid];
-
-  DCB2("setting d and w");
-  auto above = opt.get_reblock_out(inc_above, reblock_nid);
-  auto below = opt.get_out(inc_below, nid_below);
-  if(above == below) {
-    if(_d.in(0) && _w.in(0)) {
-      _d.eq(*this, 0);
-      _w.eq(*this, 0);
-    } else {
-      this->fail();
-    }
-  } else {
-    auto [d,w] = opt.get_est_duration_worker_pair(inc_above, reblock_nid);
-    if(_d.in(d) && _w.in(w)) {
-      _d.eq(*this, d);
-      _w.eq(*this, w);
-    } else {
-      this->fail();
-    }
-  }
-  DCB2("--------------");
-}
-
-int Partition::select_partition(nid_t nid) const {
-  vector<node_t> const& dag = opt.get_dag();
   node_t const& node = dag[nid];
 
-  IntVar const& domain = partitions[nid];
-  vector<vector<dim_t>> const& parts = opt.all_partitions(nid);
+  vector<vector<int>> options;
+  options.reserve(node.dims.size());
+  for(int r = 0; r != node.dims.size(); ++r) {
+    options.push_back(all_parts(node.dims[r]));
+  }
 
-  int num_select_branch = 10;
-  // For the first num_select_branch partitions, pick the one with
-  // the least score..Here, a score is +1 for an agg, +1 for each reblock.
-  int cnt = 0;
-  int bst = 100000;
-  int ret = 0;
-  for(IntVarValues i(domain); i(); ++i) {
-    if(cnt == num_select_branch)
-      break;
-    /////////////
-    vector<dim_t> const& inc_part = parts[i.val()];
-    int score = 0;
-
-    // Will there be an agg?
-    for(int const& a: node.aggs) {
-      if(inc_part[a] > 1) {
-        score++;
-        break;
-      }
+  // get all possible partitions.
+  // A partition is not possible is the number of units
+  // is more than "m"
+  auto xs = cartesian(options);
+  vector<vector<int>> ret;
+  for(auto const& x: xs) {
+    if(product(x) <= m) {
+      ret.push_back(x);
     }
-
-    //// How many reblocks will there be?
-    for(nid_t reblock_nid: node.downs) {
-      node_t const& reblock = dag[reblock_nid];
-      nid_t down_compute = opt.get_compute_nid(reblock.downs[0]);
-
-      // If the down node isn't set, don't score it
-      if(partitions[down_compute].size() == 1) {
-        vector<dim_t> const& inc_down = opt.get_which_partition(
-          down_compute,
-          partitions[down_compute].val());
-        auto out_down = opt.get_out(inc_down, down_compute);
-        auto out_part = opt.get_reblock_out(inc_part, reblock_nid);
-        if(out_down != out_part) {
-          score++;
-        }
-      }
-    }
-
-    if(score < bst) {
-      ret = i.val();
-      bst = score;
-    }
-    /////////////
-    cnt++;
   }
   return ret;
 }
 
-void Partition::print(std::ostream& os) const {
-  vector<node_t> const& dag = opt.get_dag();
-  int total = 0;
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    // it need not be the case that there is only one domain for duration,
-    // apparently.
-    total += worker[nid].min() * duration[nid].min();
+vector<int>
+partition_options_t::max_partition(nid_t nid, int m) const
+{
+  auto xs = all_partitions(nid, m);
+  int best = product(xs[0]);
+  auto ret = xs[0];
+  for(int i = 1; i < xs.size(); ++i) {
+    int score = product(xs[i]);
+    if(score > best) {
+      score = best;
+      ret = xs[i];
+    }
   }
-  float utilization = 100.0 * (total / (1.0*opt.get_num_workers()*makespan.val()));
+  return ret;
+}
 
-  os << "Partition makespan, utilization:  " << makespan.val() << ",  ";
-  os << utilization << "%" << std::endl;
+int partition_options_t::_cost(
+  vector<vector<int>> const& inputs_bs,
+  vector<int>         const& output_bs,
+  vector<int>         const& flop_bs) const
+{
+  int input_total = 0;
+  for(auto const& bs: inputs_bs) {
+    input_total += raw_bytes_cost(bs);
+  }
 
-  //for(nid_t nid = 0; nid != dag.size(); ++nid) {
-  //  node_t const& node = dag[nid];
+  return
+    min_cost() +
+    input_bytes_multiplier()  * input_total  +
+    output_bytes_multiplier() * raw_bytes_cost(output_bs) +
+    flops_multiplier()        * raw_flops_cost(flop_bs)   ;
+}
 
-  //  std::cout << nid << ": " << node << " ";
 
-  //  std::cout << "% t = " << start[nid];
-  //  std::cout << "% d = " << duration[nid];
+int partition_options_t::get_reblock_kernel_cost(
+  vector<int> const& out_part,
+  vector<int> const& inn_part,
+  nid_t reblock_nid) const
+{
+  node_t const& node = dag[reblock_nid];
+  vector<int> const& dims = node.dims;
 
-  //  std::cout << " % b = ";
-  //  nid_t compute_nid = opt.get_compute_nid(nid);
-  //  vector<int> inc_part = opt.get_which_partition(
-  //    compute_nid,
-  //    partitions[compute_nid].val());
+  assert(out_part.size() == dims.size() &&
+         inn_part.size() == dims.size());
 
-  //  vector<int> part;
-  //  if(node.type == node_t::node_type::join) {
-  //    part = inc_part;
-  //  } else {
-  //    part = opt.get_out_from_compute(inc_part, nid);
-  //  }
-  //  for(int p: part) {
-  //    std::cout << p << " ";
-  //  }
+  assert(node.type == node_t::node_type::reblock);
 
-  //  std::cout << std::endl;
-  //}
+  if(out_part == inn_part) {
+    // this is a no op, nothing to do
+    return 0;
+  }
+
+  vector<vector<int>> inputs_bs;
+  vector<int> output_bs, flop_bs;
+
+  vector<int> inn_shape;
+  vector<int> out_shape;
+  inn_shape.reserve(dims.size());
+  out_shape.reserve(dims.size());
+  for(int i = 0; i != inn_part.size(); ++i) {
+    inn_shape.push_back(dims[i] / inn_part[i]);
+    out_shape.push_back(dims[i] / out_part[i]);
+  }
+
+  output_bs = out_shape;
+
+  flop_bs = out_shape;
+
+  int max_num_inputs = 1;
+  for(int r = 0; r != dims.size(); ++r) {
+    max_num_inputs *= get_max_num_inputs_est(inn_part[r], out_part[r]);
+  }
+  inputs_bs.push_back(inn_shape);
+  inputs_bs[0].push_back(max_num_inputs);
+
+  return _cost(inputs_bs, output_bs, flop_bs);
+}
+
+int partition_options_t::get_join_kernel_cost(
+  vector<int> const& inc_part,
+  nid_t join_nid) const
+{
+  vector<vector<int>> inputs_bs;
+  vector<int> output_bs, flop_bs;
+
+  node_t const& node = dag[join_nid];
+  assert(node.type == node_t::node_type::join);
+
+  flop_bs = get_local_dims(inc_part, join_nid);
+  output_bs = get_out(flop_bs, join_nid);
+  for(nid_t child: node.downs) {
+    inputs_bs.push_back(get_reblock_out(flop_bs, child));
+  }
+
+  return _cost(inputs_bs, output_bs, flop_bs);
+}
+
+int partition_options_t::get_agg_kernel_cost(
+  vector<int> const& inc_part,
+  nid_t agg_nid) const
+{
+  nid_t compute_nid = get_compute_nid(agg_nid);
+
+  vector<vector<int>> inputs_bs;
+  vector<int> output_bs, flop_bs;
+
+  node_t const& node = dag[agg_nid];
+  assert(node.type == node_t::node_type::agg);
+
+  auto inc_local = get_local_dims(inc_part, compute_nid);
+
+  int num_to_agg = product(get_agg(inc_part, compute_nid));
+  if(num_to_agg == 1) {
+    return 0;
+  }
+
+  output_bs = get_out(inc_local, compute_nid);
+
+  inputs_bs.push_back(output_bs);
+  inputs_bs[0].push_back(num_to_agg);
+
+  flop_bs = inputs_bs[0];
+
+  return _cost(inputs_bs, output_bs, flop_bs);
+}
+
+int partition_options_t::get_input_kernel_cost(
+  vector<int> const&,
+  nid_t) const
+{
+  return 0;
+}
+
+int partition_options_t::get_kernel_cost(
+  function<vector<int>(nid_t)> get_inc_part,
+  nid_t nid) const
+{
+  node_t const& node         = dag[nid];
+
+  if(node.type == node_t::node_type::input) {
+    return get_input_kernel_cost(get_inc_part(nid), nid);
+  } else
+  if(node.type == node_t::node_type::join) {
+    return get_join_kernel_cost(get_inc_part(nid), nid);
+  } else
+  if(node.type == node_t::node_type::agg) {
+    return get_agg_kernel_cost(
+      get_inc_part(node.downs[0]),
+      nid);
+  } else
+  if(node.type == node_t::node_type::reblock) {
+    nid_t compute_nid   = get_compute_nid(nid);
+    nid_t compute_below = get_compute_nid(node.downs[0]);
+
+    auto above_part_inc = get_inc_part(compute_nid);
+    auto below_part_inc = get_inc_part(compute_below);
+
+    auto out_part = get_reblock_out(above_part_inc, nid);
+    auto inn_part = get_out(below_part_inc, compute_below);
+
+    return get_reblock_kernel_cost(out_part, inn_part, nid);
+  } else {
+    assert(false);
+    return 0;
+  }
+}
+
+vector<int> partition_options_t::get_local_dims(
+    vector<int> const& inc_part,
+    nid_t nid) const
+{
+  node_t const& node = dag[nid];
+
+  assert(node.dims.size() == inc_part.size());
+
+  vector<int> ret;
+  ret.reserve(inc_part.size());
+  for(int r = 0; r != inc_part.size(); ++r) {
+    assert(node.dims[r] % inc_part[r] == 0);
+    ret.push_back(node.dims[r] / inc_part[r]);
+  }
+  return ret;
+}
+
+int partition_options_t::upper_bound_time() const {
+  std::unordered_map<int, vector<int>> parts;
+
+  // This will get called for only for compute nodes..
+  // And in this case, for all compute nodes.
+  function<vector<int>(nid_t)> get_inc_part = [&](nid_t nid) {
+    if(parts.count(nid) == 0) {
+      parts[nid] = max_partition(nid, num_workers());
+    }
+    return parts[nid];
+  };
+
+  int total = 0;
+  for(nid_t nid: breadth_dag_order()) {
+    // there is no need to call get_node_cost since
+    // the all kernels for this guy will happen all at once.
+    // (the max units is set to num_workers() in get_inc_part)
+    total += get_kernel_cost(get_inc_part, nid);
+  }
+  return total;
+}
+
+int partition_options_t::get_node_cost(
+  function<vector<int>(nid_t)> get_inc_part,
+  nid_t nid,
+  int num_assigned_workers) const
+{
+  int kernel_cost = get_kernel_cost(get_inc_part, nid);
+  int num_units = get_num_units(get_inc_part, nid);
+  assert(num_units % num_assigned_workers == 0);
+  int num_calls = num_units / num_assigned_workers;
+  return kernel_cost * num_calls;
+}
+
+int partition_options_t::get_num_units(
+  function<vector<int>(nid_t)> get_inc_part,
+  nid_t nid) const
+{
+  return product(
+    get_node_incident(get_inc_part(get_compute_nid(nid)), nid));
+}
+
+Partition::pode_t::pode_t(
+  Partition* self_, nid_t nid_, int upper_limit):
+    self(self_), nid(nid_)
+{
+  start    = IntVar(*self, 0, upper_limit);
+  duration = IntVar(*self, 0, upper_limit);
+
+  // set end directly
+  end = expr(*self, start + duration);
+
+  worker   = IntVar(*self, 0, self->opt.num_workers());
+
+  unit     = IntVar(*self, 0, self->opt.num_workers() * self->opt.max_units());
+
+  kernel_duration = IntVar(*self, 0, upper_limit);
+}
+
+void Partition::pode_t::set_base_constraint() {
+  // this node can start after child nodes
+  node_t const& node = self->opt[nid];
+  for(nid_t nid: node.downs) {
+    pode_t& child = *(self->vars[nid]);
+    rel(*self, child.end <= start, self->opt.ipl());
+  }
+
+  // the makespan is done when this node is done
+  rel(*self, end <= self->makespan, self->opt.ipl());
+
+  // the duration is just the kernel duration called however many times
+  IntVar call(*self, 0, self->opt.num_workers() * self->opt.max_units());
+  rel(*self, duration == call * kernel_duration, self->opt.ipl());
+
+  // the number of workers determines how many times it must be called
+  rel(*self, unit == call * worker);
+  rel(*self, (unit == 0) >> (call == 0));
+  rel(*self, (unit == 0) >> (worker == 0));
+  rel(*self, (unit == 0) == (kernel_duration == 0));
+
+  // this should be held by the initial domain, but just in case
+  rel(*self, unit <= self->opt.max_units());
+}
+
+Partition::pagg_t::pagg_t(
+  Partition* self, nid_t nid, int upper_limit):
+    Partition::pode_t(self, nid, upper_limit)
+{
+  is_no_op = BoolVar(*self, 0, 1);
+}
+
+Partition::preblock_t::preblock_t(
+  Partition* self, nid_t nid, int upper_limit):
+    Partition::pode_t(self, nid, upper_limit)
+{
+  is_no_op = BoolVar(*self, 0, 1);
+}
+
+#define CONSTRUCTOR_PARTITION                                          \
+  auto const& opt = self->opt;                                         \
+  node_t const& node = opt[nid];                                       \
+  partition = IntVarArray(*self, node.dims.size());                    \
+  for(int i = 0; i != node.dims.size(); ++i) {                         \
+    partition[i] = IntVar(*self, IntSet(opt.all_parts(node.dims[i]))); \
+  }
+
+Partition::pinput_t::pinput_t(
+  Partition* self, nid_t nid, int upper_limit):
+    Partition::pode_t(self, nid, upper_limit)
+{
+  CONSTRUCTOR_PARTITION
+}
+
+Partition::pjoin_t::pjoin_t(
+  Partition* self, nid_t nid, int upper_limit):
+    Partition::pode_t(self, nid, upper_limit)
+{
+  CONSTRUCTOR_PARTITION
+}
+
+Partition::Partition(partition_options_t const& opt0):
+  IntMinimizeSpace(),
+  opt(opt0),
+  rnd(opt0.seed())
+{
+  DCB_P_CONSTRUCTOR("A");
+  int upper_limit = opt.upper_bound_time();
+  DCB_P_CONSTRUCTOR("B");
+
+  makespan = IntVar(*this, 0, upper_limit);
+  DCB_P_CONSTRUCTOR("C");
+
+  vars.reserve(opt.size());
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    node_t const& node = opt[nid];
+    if(node.type == node_t::node_type::input) {
+      vars.emplace_back(new pinput_t(this, nid, upper_limit));
+    } else
+    if(node.type == node_t::node_type::join) {
+      vars.emplace_back(new pjoin_t(this, nid, upper_limit));
+    } else
+    if(node.type == node_t::node_type::agg) {
+      vars.emplace_back(new pagg_t(this, nid, upper_limit));
+    } else
+    if(node.type == node_t::node_type::reblock) {
+      vars.emplace_back(new preblock_t(this, nid, upper_limit));
+    } else {
+      assert(false);
+    }
+  }
+  DCB_P_CONSTRUCTOR("D");
+
+  // Set the dag ordering and the makespan and wtvr else
+  // the base constraint does
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    vars[nid]->set_base_constraint();
+  }
+  DCB_P_CONSTRUCTOR("E");
+
+  // Set the cumulative constriant
+  IntVarArgs start;
+  IntVarArgs duration;
+  IntVarArgs end;
+  IntVarArgs worker;
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    pode_t& p = *vars[nid];
+    start    << p.start;
+    duration << p.duration;
+    end      << p.end;
+    worker   << p.worker;
+  }
+  DCB_P_CONSTRUCTOR("F");
+
+  _cumulative(opt.num_workers(), start, duration, end, worker);
+
+  // For each node, set the partition related constraints specific to that node
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    vars[nid]->set_constraints();
+  }
+
+  // Now that all the variables and the constraints on those variables are set up,
+  // branching needs to happen.
+  _set_branching();
+  DCB_P_CONSTRUCTOR("G");
+}
+
+Partition::Partition(Partition& other):
+  IntMinimizeSpace(other),
+  opt(other.opt),
+  rnd(other.rnd)
+{
+  makespan.update(*this, other.makespan);
+
+  vars.reserve(opt.size());
+  // static cast should also be valid, right?
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    node_t const& node = opt[nid];
+    if(node.type == node_t::node_type::input) {
+      DCB_BEFORE_DYNAMIC("A");
+      vars.emplace_back(new pinput_t(this,
+        dynamic_cast<pinput_t&>(*other.vars[nid])));
+    } else
+    if(node.type == node_t::node_type::join) {
+      DCB_BEFORE_DYNAMIC("B");
+      vars.emplace_back(new pjoin_t(this,
+        dynamic_cast<pjoin_t&>(*other.vars[nid])));
+    } else
+    if(node.type == node_t::node_type::agg) {
+      DCB_BEFORE_DYNAMIC("C");
+      vars.emplace_back(new pagg_t(this,
+        dynamic_cast<pagg_t&>(*other.vars[nid])));
+    } else
+    if(node.type == node_t::node_type::reblock) {
+      DCB_BEFORE_DYNAMIC("D");
+      vars.emplace_back(new preblock_t(this,
+        dynamic_cast<preblock_t&>(*other.vars[nid])));
+    } else {
+      assert(false);
+    }
+  }
+}
+
+Partition::pode_t::pode_t(Partition* new_self, Partition::pode_t& other):
+  self(new_self),
+  nid(other.nid)
+{
+  start.update           ( *self, other.start           );
+  end.update             ( *self, other.end             );
+  duration.update        ( *self, other.duration        );
+  worker.update          ( *self, other.worker          );
+  unit.update            ( *self, other.unit            );
+  kernel_duration.update ( *self, other.kernel_duration );
+}
+
+Partition::pagg_t::pagg_t(Partition* new_self, Partition::pagg_t& other):
+  Partition::pode_t(new_self, other)
+{
+  is_no_op.update(*self, other.is_no_op);
+}
+
+Partition::preblock_t::preblock_t(Partition* new_self, Partition::preblock_t& other):
+  Partition::pode_t(new_self, other)
+{
+  is_no_op.update(*self, other.is_no_op);
+}
+
+Partition::pinput_t::pinput_t(Partition* new_self, Partition::pinput_t& other):
+  Partition::pode_t(new_self, other)
+{
+  partition.update(*self, other.partition);
+}
+
+Partition::pjoin_t::pjoin_t(Partition* new_self, Partition::pjoin_t& other):
+  Partition::pode_t(new_self, other)
+{
+  partition.update(*self, other.partition);
 }
 
 void Partition::_cumulative(
@@ -473,87 +579,387 @@ void Partition::_cumulative(
     zeros, _start, _duration, _end, _resource_usage, capacities, true, ipl);
 }
 
-// This is a bit annoying. Each node in the dag is either
-// input/reblock/join/agg, but the dag is structured into "super nodes"
-// where a super node is either an input or a [reblocks]->join->agg.
-// If any node of a super node is included, all the nodes of that super node
-// need to be inlcuded.
-vector<nid_t> Partition::_get_nids(int n) const {
-  vector<node_t> const& dag = opt.get_dag();
+void Partition::print(std::ostream& os) const {
+  int total = 0;
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    auto& p = *vars[nid];
+    total += p.worker.min() * p.duration.min();
+  }
+  float utilization = 100.0 * (total / (1.0*opt.num_workers()*makespan.val()));
 
-  // include all the inputs right off the bat
-  vector<nid_t> const& nids =
-    opt.breadth_order()     ?
-    opt.super_breadth_dag_order() :
-    opt.super_depth_dag_order()   ;
+  os << "Partition makespan, utilization:  " << makespan.val() << ",  ";
+  os << utilization << "%" << std::endl;
+}
 
-  //std::cout << "-----------------------" << std::endl;
-  //for(nid_t nid: nids) {
-  //  std::cout << nid << "            " << dag[nid] << std::endl;
-  //}
-  //std::cout << "-----------------------" << std::endl;
+void Partition::pagg_t::propagate_is_no_op()
+{
+  auto const& opt = self->opt;
+  node_t const& node = opt[nid];
 
-  vector<nid_t> ret;
-  int cnt = 0;
-  for(int idx = 0; idx < nids.size() && idx < n; ++idx) {
-    nid_t const& compute_nid = nids[idx];
+  nid_t join_nid = node.downs[0];
+  node_t const& join_node = opt[join_nid];
+  DCB_BEFORE_DYNAMIC("PAGG PROP");
+  Partition::pjoin_t& pjoin = dynamic_cast<Partition::pjoin_t&>(*self->vars[join_nid]);
 
-    for(nid_t nid: opt.super(compute_nid)) {
-      ret.push_back(nid);
-    }
+  BoolVarArgs args;
+  for(auto const& which: join_node.aggs) {
+    BoolVar v = expr(*self, pjoin.partition[which] == 1);
+    args << v;
   }
 
+  // This node is a no op if and only if all agg incident partitions
+  // have size 1.
+  rel(*self, BOT_AND, args, is_no_op);
+
+  // If this is a no op, set a bunch of stuff to zero
+  Partition::pode_t::_set_no_op(is_no_op);
+}
+
+IntVarArgs
+Partition::preblock_t::local_partition_above()
+{
+  auto const& opt = self->opt;
+
+  node_t const& node = opt[nid];
+
+  nid_t const& above_nid = node.ups[0];
+
+  int n_inc_above = opt[above_nid].dims.size();
+
+  std::vector<int> inc_above(n_inc_above);
+
+  std::iota(inc_above.begin(), inc_above.end(), 0);
+
+  vector<int> idxs_above = opt.get_reblock_out(inc_above, nid);
+
+  DCB_BEFORE_DYNAMIC("PREBLOCK LOCAL PART");
+  Partition::pjoin_t& pabove = dynamic_cast<Partition::pjoin_t&>(*self->vars[above_nid]);
+
+  IntVarArgs ret;
+  for(auto const& idx: idxs_above) {
+    ret << pabove.partition[idx];
+  }
   return ret;
 }
 
-void Partition::write_usage(std::ostream& out) const {
-  vector<node_t> const& dag = opt.get_dag();
+IntVarArgs
+Partition::preblock_t::local_partition_below()
+{
+  auto const& opt = self->opt;
 
-  // 144 * 50000 = not that big when you have >100GB of ram...
-  // for each worker, for each time point, is this thread working
-  vector<vector<char>> vs(opt.get_num_workers(), vector<char>(makespan.val(), 0));
-  auto get_worker = [&vs](int beg, int end) {
-    for(int w = 0; w != vs.size(); ++w) {
-      bool valid = true;
-      for(int j = beg; j != end && valid; ++j) {
-        if(vs[w][j]) {
-          valid = false;
-        }
-      }
-      if(valid) {
-        std::fill(vs[w].begin() + beg, vs[w].begin() + end, 1);
-        return w;
-      }
-    }
-    //throw std::runtime_error("this shouldn't happen"); (but it does)
-    return -1;
-  };
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    // NOTE: not all domains have to be fixed at this point(?)
-    //       using the minimum.
-    int s = start[nid].min();
-    int e = end[nid].min();
-    int n = worker[nid].min();
-    for(int i = 0; i != n; ++i) {
-      out << s << ","
-          << e << ","
-          << get_worker(s,e) << ","
-          << dag[nid].type << std::endl;
-    }
+  node_t const& node = opt[nid];
+
+  nid_t const& below_nid = opt.get_compute_nid(node.downs[0]);
+
+  int n_inc_below = opt[below_nid].dims.size();
+
+  std::vector<int> inc_below(n_inc_below);
+
+  std::iota(inc_below.begin(), inc_below.end(), 0);
+
+  vector<int> idxs_below = opt.get_out(inc_below, below_nid);
+
+  DCB_BEFORE_DYNAMIC("PREBLOCK LOCAL PART BELOW");
+  IntVarArgs inc_part;
+  if(self->opt[below_nid].type == node_t::node_type::input) {
+    auto& p = dynamic_cast<Partition::pinput_t&>(*self->vars[below_nid]);
+    inc_part << p.partition;
+  } else {
+    auto& p = dynamic_cast<Partition::pjoin_t&>(*self->vars[below_nid]);
+    inc_part << p.partition;
+  }
+
+  IntVarArgs ret;
+  for(auto const& idx: idxs_below) {
+    ret << inc_part[idx];
+  }
+  return ret;
+}
+
+IntVarArgs
+Partition::pagg_t::local_partition()
+{
+  auto const& opt = self->opt;
+
+  node_t const& node = opt[nid];
+
+  nid_t join_nid = node.downs[0];
+
+  int n_inc = opt[join_nid].dims.size();
+
+  std::vector<int> inc(n_inc);
+
+  std::iota(inc.begin(), inc.end(), 0);
+
+  vector<int> idxs = opt.get_out(inc, join_nid);
+
+  DCB_BEFORE_DYNAMIC("PAGG LOCAL PART");
+  Partition::pjoin_t& pjoin = dynamic_cast<Partition::pjoin_t&>(*self->vars[join_nid]);
+
+  IntVarArgs ret;
+  for(auto const& idx: idxs) {
+    ret << pjoin.partition[idx];
+  }
+  return ret;
+}
+
+void Partition::preblock_t::propagate_is_no_op()
+{
+  IntVarArgs above = local_partition_above();
+  IntVarArgs below = local_partition_below();
+
+  assert(above.size() == below.size());
+  BoolVarArgs args;
+  for(int which = 0; which != below.size(); ++which) {
+    BoolVar v = expr(*self, above[which] == below[which]);
+    args << v;
+  }
+
+  // This node is a no op if and only if above part == below part
+  rel(*self, BOT_AND, args, is_no_op);
+
+  // If this is a no op, set a bunch of stuff to zero
+  Partition::pode_t::_set_no_op(is_no_op);
+}
+
+void Partition::pode_t::_set_no_op(BoolVar& is_no_op) {
+  // If this is a no op, the following are zero
+  rel(*self, is_no_op >> (duration        == 0));
+  rel(*self, is_no_op >> (worker          == 0));
+  rel(*self, is_no_op >> (unit            == 0));
+  rel(*self, is_no_op >> (kernel_duration == 0));
+}
+
+void Partition::pode_t::_set_unit_and_kernel_duration(int _unit, int _kernel_duration) {
+  Int::IntView _kd = kernel_duration;
+  Int::IntView _u  = unit;
+
+  ModEvent _ev_kd = _kd.eq(*self, _unit            == 0 ? 0 : _kernel_duration);
+  ModEvent _ev_u  = _u.eq (*self, _kernel_duration == 0 ? 0 : _unit);
+  // ^ if one of these is zero, they are both zero
+
+  // If one of these variables don't contain the required value in the domain,
+  // the space should fail.
+
+  if(_ev_kd == Int::ME_INT_FAILED ||
+     _ev_u  == Int::ME_INT_FAILED)
+  {
+    self->fail();
   }
 }
 
-// get the output partition, only valid if the corresponding
-// partitions variable has a domain of 1, that is if a solution
-// has been found
-vector<int> Partition::get_set_partition(nid_t nid) const {
-  nid_t compute_nid = opt.get_compute_nid(nid);
-  vector<int> compute_partition = opt.get_which_partition(
-    compute_nid,
-    // this is only valid if the domain of partitions[nid] is size 1
-    partitions[compute_nid].val());
+// guarantee that atleast one up reblock node is indeed a no op
+void Partition::pinput_t::propagate_prefer_no_reblock() {
+  node_t const& node = self->opt[nid];
 
-  return opt.get_node_incident(compute_partition, nid);
+  BoolVarArgs args;
+  for(nid_t reblock_up: node.ups) {
+    DCB_BEFORE_DYNAMIC("PROP INPUT PREFER");
+    Partition::preblock_t& p_up = dynamic_cast<Partition::preblock_t&>(*self->vars[reblock_up]);
+    args << p_up.is_no_op;
+  }
+
+  // atleast one of the up nodes must have a no op reblock
+  rel(*self, BOT_OR, args, 1);
+}
+
+void Partition::pinput_t::propagate_no_cost_input() {
+  rel(*self, start           == 0);
+  rel(*self, duration        == 0);
+  rel(*self, worker          == 0);
+  rel(*self, kernel_duration == 0);
+}
+
+void Partition::pinput_t::when_partition_info_set() {
+  nid_t _nid = nid;
+  wait(*self, partition, [_nid](Space& home)
+  {
+    Partition& self = static_cast<Partition&>(home);
+    Partition::pinput_t& p = static_cast<Partition::pinput_t&>(*self.vars[_nid]);
+
+    int rank = p.rank();
+    vector<int> inc_part;
+    inc_part.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      inc_part.push_back(p.partition[i].val());
+    }
+
+    int unit = product(inc_part);
+    int kernel_duration = self.opt.get_input_kernel_cost(inc_part, p.nid);
+    DCB01("input nid "
+      << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
+    p._set_unit_and_kernel_duration(unit, kernel_duration);
+  });
+}
+void Partition::pjoin_t::when_partition_info_set() {
+  nid_t _nid = nid;
+  wait(*self, partition, [_nid](Space& home)
+  {
+    Partition& self = static_cast<Partition&>(home);
+    Partition::pjoin_t& p = static_cast<Partition::pjoin_t&>(*self.vars[_nid]);
+
+    int rank = p.rank();
+    vector<int> inc_part;
+    inc_part.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      inc_part.push_back(p.partition[i].val());
+    }
+
+    int unit = product(inc_part);
+    int kernel_duration = self.opt.get_join_kernel_cost(inc_part, p.nid);
+    DCB01("join nid "
+      << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
+    p._set_unit_and_kernel_duration(unit, kernel_duration);
+  });
+}
+void Partition::pagg_t::when_partition_info_set() {
+  node_t const& node = self->opt[nid];
+
+  nid_t _nid = nid;
+  nid_t _join_nid = node.downs[0];
+
+  Partition::pjoin_t& _pjoin = static_cast<Partition::pjoin_t&>(*self->vars[_join_nid]);
+  IntVarArgs partition = _pjoin.partition;
+
+  wait(*self, partition, [_nid, _join_nid](Space& home)
+  {
+    Partition& self = static_cast<Partition&>(home);
+    Partition::pjoin_t& pjoin = static_cast<Partition::pjoin_t&>(*self.vars[_join_nid]);
+    Partition::pagg_t&  pagg  = static_cast<Partition::pagg_t&> (*self.vars[_nid]);
+
+    std::vector<int> inc_part;
+    int rank = self.opt[_join_nid].dims.size();
+    inc_part.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      inc_part.push_back(pjoin.partition[i].val());
+    }
+
+    int unit = product(self.opt.get_out(inc_part, _join_nid));
+    int kernel_duration = self.opt.get_agg_kernel_cost(inc_part, pagg.nid);
+    DCB01("agg nid "
+      << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
+    pagg._set_unit_and_kernel_duration(unit, kernel_duration);
+  });
+}
+
+void Partition::preblock_t::when_partition_info_set() {
+  node_t const& node = self->opt[nid];
+
+  nid_t _nid = nid;
+
+  IntVarArgs args_above = local_partition_above();
+  IntVarArgs args_below = local_partition_below();
+  assert(args_above.size() == args_below.size());
+
+  IntVarArgs args = args_above + args_below;
+
+  wait(*self, args, [_nid](Space& home)
+  {
+    Partition& self = static_cast<Partition&>(home);
+    Partition::preblock_t& p = static_cast<Partition::preblock_t&>(*self.vars[_nid]);
+
+    IntVarArgs args_above = p.local_partition_above();
+    IntVarArgs args_below = p.local_partition_below();
+
+    std::vector<int> above;
+    std::vector<int> below;
+    above.reserve(args_above.size());
+    below.reserve(args_above.size());
+    for(int i = 0; i != args_above.size(); ++i) {
+      above.push_back(args_above[i].val());
+      below.push_back(args_below[i].val());
+    }
+
+    int unit = product(above);
+    int kernel_duration = self.opt.get_reblock_kernel_cost(above, below, p.nid);
+    DCB01("reblock nid "
+      << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
+    p._set_unit_and_kernel_duration(unit, kernel_duration);
+  });
+}
+
+void Partition::_set_branching() {
+  IntVarArgs starts;
+  IntVarArgs workers;
+  BoolVarArgs is_no_ops;
+  IntVarArgs all_parts;
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
+    node_t const& node = opt[nid];
+
+    pode_t& p = *vars[nid];
+
+    starts  << p.start;
+    workers << p.worker;
+    DCB_BEFORE_DYNAMIC("SET BRANCHING");
+    if(node.type == node_t::node_type::agg) {
+      pagg_t& pagg = dynamic_cast<pagg_t&>(p);
+      is_no_ops << pagg.is_no_op;
+    } else
+    if(node.type == node_t::node_type::reblock) {
+      preblock_t& preblock = dynamic_cast<preblock_t&>(p);
+      is_no_ops << preblock.is_no_op;
+    } else
+    if(node.type == node_t::node_type::join) {
+      pjoin_t& pjoin = dynamic_cast<pjoin_t&>(p);
+      all_parts << pjoin.partition;
+    } else
+    if(node.type == node_t::node_type::input) {
+      pinput_t& pinput = dynamic_cast<pinput_t&>(p);
+      all_parts << pinput.partition;
+    } else {
+      assert(false);
+    }
+  }
+
+  // TODO: how to branch?
+
+  branch(*this, is_no_ops, BOOL_VAR_RND(rnd), BOOL_VAL_MAX());
+  branch(*this, all_parts, INT_VAR_RND(rnd),  INT_VAL_RND(rnd));
+  branch(*this, workers,   INT_VAR_NONE(),    INT_VAL_RND(rnd));
+  branch(*this, starts,    INT_VAR_RND(rnd),  INT_VAL_MIN());
+  branch(*this, makespan,  INT_VAL_MIN());
+}
+
+vector<int> Partition::get_partition(nid_t nid) const {
+  DCB_ACCESS_VAR("partition");
+  nid_t compute_nid = opt.get_compute_nid(nid);
+  node_t const& compute_node = opt[compute_nid];
+
+  vector<int> inc_part;
+  inc_part.reserve(compute_node.dims.size());
+
+  IntVarArgs partition;
+  if(compute_node.type == node_t::node_type::input) {
+    DCB_BEFORE_DYNAMIC("GET PART");
+    partition = dynamic_cast<pinput_t&>(*(vars[compute_nid])).partition;
+  } else
+  if(compute_node.type == node_t::node_type::join) {
+    DCB_BEFORE_DYNAMIC("GET PART");
+    partition = dynamic_cast<pjoin_t&>(*(vars[compute_nid])).partition;
+  } else {
+    assert(false);
+  }
+
+  for(int i = 0; i != compute_node.dims.size(); ++i) {
+    inc_part.push_back(partition[i].val());
+  }
+
+  return opt.get_node_incident(inc_part, nid);
+}
+
+int Partition::get_start(nid_t nid)     const {
+  DCB_ACCESS_VAR("start");
+  return vars[nid]->start.val();
+}
+
+int Partition::get_duration(nid_t nid)  const {
+  DCB_ACCESS_VAR("duration");
+  return vars[nid]->duration.val();
+}
+
+int Partition::get_worker(nid_t nid)    const {
+  DCB_ACCESS_VAR("worker");
+  return vars[nid]->worker.val();
 }
 
 }}

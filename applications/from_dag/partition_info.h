@@ -5,8 +5,10 @@
 namespace bbts { namespace dag {
 
 struct partition_info_t {
-  int priority;
-  std::vector<int> blocking;
+  vector<int> blocking;
+  int start;
+  int duration;
+  int worker;
 };
 
 }}

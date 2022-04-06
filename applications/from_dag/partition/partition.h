@@ -9,12 +9,15 @@
 #include <gecode/int.hh>
 #include <gecode/minimodel.hh>
 
-#include <map>
+#include <vector>
+#include <tuple>
+#include <functional>
 
 namespace bbts { namespace dag {
 
 using std::vector;
 using std::tuple;
+using std::function;
 
 // ints are used everywhere, but to make it
 // clear what things the ints are referring to,
@@ -29,10 +32,12 @@ struct partition_options_t : public dag_t {
   int _seed;
   int _num_workers;
   double _flops_per_time;
+  double _bytes_per_time;
   int _min_cost;
-  bool _breadth_order;
-  bool _cover;
-  int _cover_size;
+  int _input_bytes_multiplier;
+  int _output_bytes_multiplier;
+  int _flops_multiplier;
+  int _max_units;
   int _search_compute_threads;
   int _search_restart_scale;
   int _search_time_per_cover;
@@ -45,10 +50,12 @@ public:
     int seed,
     int num_workers,
     double flops_per_time,
+    double bytes_per_time,
     int min_cost,
-    int breadth_order,
-    bool cover,
-    int cover_size,
+    int input_bytes_multiplier,
+    int output_bytes_multiplier,
+    int flops_multiplier,
+    int max_units,
     int search_compute_threads,
     int search_restart_scale,
     int search_time_per_cover):
@@ -58,239 +65,245 @@ public:
       _seed(seed),
       _num_workers(num_workers),
       _flops_per_time(flops_per_time),
+      _bytes_per_time(bytes_per_time),
       _min_cost(min_cost),
-      _breadth_order(breadth_order),
-      _cover(cover),
-      _cover_size(cover_size),
+      _input_bytes_multiplier(input_bytes_multiplier),
+      _output_bytes_multiplier(output_bytes_multiplier),
+      _flops_multiplier(flops_multiplier),
+      _max_units(max_units),
       _search_compute_threads(search_compute_threads),
       _search_restart_scale(search_restart_scale),
       _search_time_per_cover(search_time_per_cover),
-      _all_partitions_per_node(std::bind(
-        &partition_options_t::_set_all_partitions_per_node, this))
+      _possible_parts(std::bind(&partition_options_t::_set_possible_parts, this))
   {}
 
+  Gecode::IntPropLevel     ipl()                      const { return _ipl                      ; }
+  int                      restart_scale()            const { return _restart_scale            ; }
+  int                      seed()                     const { return _seed                     ; }
+  int                      num_workers()              const { return _num_workers              ; }
+  double                   flops_per_time()           const { return _flops_per_time           ; }
+  double                   bytes_per_time()           const { return _bytes_per_time           ; }
+  int                      min_cost()                 const { return _min_cost                 ; }
+  int                      input_bytes_multiplier()   const { return _input_bytes_multiplier   ; }
+  int                      output_bytes_multiplier()  const { return _output_bytes_multiplier  ; }
+  int                      flops_multiplier()         const { return _flops_multiplier         ; }
+  int                      max_units()                const { return _max_units                ; }
+  int                      search_compute_threads()   const { return _search_compute_threads   ; }
+  int                      search_restart_scale()     const { return _search_restart_scale     ; }
+  int                      search_time_per_cover()    const { return _search_time_per_cover    ; }
 
-  partition_options_t(vector<node_t> const& dag):
-    dag_t(dag),
-    _ipl(Gecode::IPL_DEF),
-    _restart_scale(150),
-    _seed(1),
-    _num_workers(24),
-    _flops_per_time(1e8),
-    _min_cost(-1),
-    _breadth_order(false),
-    _cover(false),
-    _cover_size(20),
-    _search_compute_threads(24),
-    _search_restart_scale(Gecode::Search::Config::slice),
-    _search_time_per_cover(400),
-    _all_partitions_per_node(std::bind(
-      &partition_options_t::_set_all_partitions_per_node, this))
-  {}
+  vector<int> const& possible_parts() const {
+    return _possible_parts();
+  }
+  vector<int> all_parts(dim_t dim) const;
 
-  int                      get_restart_scale()      const;
-  int                      seed()                   const;
-  Gecode::IntPropLevel     ipl()                    const;
-  int                      get_num_workers()        const;
-  double                   get_flops_per_time()     const;
-  vector<int>              get_all_blocks()         const;
-  int                      get_min_cost()           const;
-  bool                     breadth_order()          const;
-  bool                     cover()                  const;
-  int                      cover_size()             const;
-  int                      search_compute_threads() const;
-  int                      search_restart_scale()   const;
-  double                   search_time_per_cover()  const;
+  static int raw_cost(double total, double unit_per_time) {
+    return lround(total / unit_per_time);
+  }
 
-  // Computing things over the dag
+  static int raw_cost(vector<int> const& xs, double unit_per_time) {
+    double total = 1.0;
+    for(auto const& x: xs) {
+      total *= (1.0*x);
+    }
+    return raw_cost(total, unit_per_time);
+  }
 
-  // take the product of dims and turn it into an integer that corresponds to flops
-  int raw_flops(vector<int> const& dims) const;
+  int raw_flops_cost(vector<int> const& xs) const {
+    return raw_cost(xs, flops_per_time());        }
+  int raw_flops_cost(double total) const          {
+    return raw_cost(total, flops_per_time());     }
 
-  // compute cost = min_cost + raw_flops
-  int get_compute_cost(int raw_flops_cost) const;
-  int get_compute_cost(vector<int> const& dims) const;
+  int raw_bytes_cost(vector<int> const& xs) const      {
+    return raw_cost(xs, bytes_per_time());             }
+  int raw_bytes_cost(double total) const               {
+    return raw_cost(total, bytes_per_time());          }
 
-  // a partition of all 1s
-  vector<dim_t> single_partition(nid_t nid) const;
-  // the largest partition for a node
-  vector<dim_t> max_partition(nid_t nid) const;
-  // all incident partitions a node can have
-  vector<vector<dim_t>> const& all_partitions(nid_t id) const;
-  // given an index to all_partitions(nid), return the corresponding partition
-  // so all_partitions(nid)[which] == get_which_partition(nid, which)
-  vector<dim_t> const& get_which_partition(nid_t nid, int which) const;
+  int _cost(
+    vector<vector<int>> const& inputs_bs,
+    vector<int>         const& output_bs,
+    vector<int>         const& flop_bs) const;
 
-  // return all possible number of blocks for this dimension
-  vector<dim_t> all_blocks(dim_t dim) const;
-
-  // Compute the time it takes to get to each node.
-  // There are no resource limitations or anything.
-  // This can serve as the minimum time for each node given resource
-  // limitations.
-  vector<int> time_to_completion(
-    // for each node, how long that computation takes
-    vector<int> const& times) const;
-
-  vector<vector<dim_t>> get_random_full_dag_partitioning() const;
-  vector<vector<dim_t>> get_max_full_dag_partitioning() const;
-
-  // for each partition of nid, get the kernel size
-  vector<dim_t> get_kernel_inc_dims(vector<dim_t> const& parts, nid_t nid) const;
-
-  // given the join-incident partition, get the (computation time, num workers) pairs
-  // (assuming a computation will happen!)
-  // This function should work for any node type
-  tuple<int, int> get_est_duration_worker_pair(vector<int> const& inc_part, nid_t nid) const;
-
-  tuple<int, int> get_duration_worker_pair(
-    vector<vector<int>> const& all_parts,
+  // get the cost for a node given the required incident parts.
+  int get_kernel_cost(
+    // this function should get the partition for whatever comptue nodes necessary
+    function<vector<int>(nid_t)> get_inc_part,
+    // get the cost of this particular node with the required partitioning
     nid_t nid) const;
-  tuple<int, int> get_duration_worker_pair(
-    std::function<vector<int>(nid_t)> f,
+  int get_node_cost(
+    function<vector<int>(nid_t)> get_inc_part,
+    nid_t nid,
+    int num_assigned_workers) const;
+  int get_num_units(
+    function<vector<int>(nid_t)> get_inc_part,
     nid_t nid) const;
+  int get_reblock_kernel_cost(
+    vector<int> const& out_part,
+    vector<int> const& inn_part,
+    nid_t reblock_nid) const;
+  int get_join_kernel_cost(
+    vector<int> const& inc_part,
+    nid_t join_nid) const;
+  int get_agg_kernel_cost(
+    vector<int> const& inc_part,
+    nid_t agg_nid) const;
+  int get_input_kernel_cost(
+    vector<int> const& inc_part,
+    nid_t input_nid) const;
 
+  vector<int> get_local_dims(
+      vector<int> const& inc_part,
+      nid_t nid) const;
+  vector<int> get_local_dims(
+    function<vector<int>(nid_t)> get_inc_part,
+    nid_t nid) const
+  {
+    return get_local_dims(get_inc_part(nid), nid);
+  }
+
+  vector<vector<int>> all_partitions(nid_t nid, int m) const;
+  vector<vector<int>> all_partitions(nid_t nid) const {
+    return all_partitions(nid, max_units());
+  }
+
+  // get the max allowable partition
+  vector<int> max_partition(nid_t nid, int m) const;
+  vector<int> max_partition(nid_t nid) const {
+    return max_partition(nid, max_units());
+  }
+
+  // given that each node has it's max partition up to the number
+  // of workers, figure out how long the whole thing will take, doing
+  // one node after the other
+  int upper_bound_time() const;
 private:
-  vector<vector<dim_t>> _get_partitioning(
-    std::function<vector<dim_t>(nid_t)> f) const;
+  mutable std::unordered_map<int, vector<int>> _all_parts_cache;
 
-  cache_holder_t<vector<vector<vector<dim_t>>>> _all_partitions_per_node;
-  vector<vector<vector<dim_t>>> _set_all_partitions_per_node();
-};
+  cache_holder_t<vector<int>> _possible_parts;
 
-///////////////////////////////////////////////////////////////////////////////
-
-struct partition_init_t {
-  partition_init_t(int n):
-    start_min(n),      start_max(n),
-    duration_min(n),   duration_max(n),
-    worker_min(n),     worker_max(n),
-    partitions_min(n), partitions_max(n),
-    min_possible_time(0), max_possible_time(0)
-  {}
-
-  vector<int> start_min,      start_max;
-  vector<int> duration_min,   duration_max;
-  vector<int> worker_min,     worker_max;
-  vector<int> partitions_min, partitions_max;
-
-  int min_possible_time, max_possible_time;
-
-  Gecode::IntVar start(Gecode::Space& home, nid_t nid) const {
-    return Gecode::IntVar(home, start_min[nid], start_max[nid]);
-  }
-  Gecode::IntVar duration(Gecode::Space& home, nid_t nid) const {
-    return Gecode::IntVar(home, duration_min[nid], duration_max[nid]);
-  }
-  Gecode::IntVar end(Gecode::Space& home, nid_t nid) const {
-    return Gecode::IntVar(home, 0, max_possible_time);
-  }
-  Gecode::IntVar worker(Gecode::Space& home, nid_t nid) const {
-    return Gecode::IntVar(home, worker_min[nid], worker_max[nid]);
-  }
-  Gecode::IntVar partitions(Gecode::Space& home, nid_t nid) const {
-    return Gecode::IntVar(home, partitions_min[nid], partitions_max[nid]);
-  }
+  vector<int> _set_possible_parts();
 };
 
 struct Partition : public Gecode::IntMinimizeSpace {
-  // Set up the space for use with optimization. The cover is set to the
-  // initial covering
-  Partition(partition_options_t const& opt0, partition_init_t const& init);
+  Partition(partition_options_t const& opt);
 
-  // Take the pervious space fix previously computed values and increment
-  // the cover
-  Partition(Partition const& other, partition_init_t const& init);
-
-  static partition_init_t build_init(partition_options_t const& opt);
+  Partition(Partition &other);
 
   virtual void print(std::ostream& os) const;
 
-protected:
+  vector<int> get_partition(nid_t nid)         const;
+  int         get_start(nid_t nid)             const;
+  int         get_duration(nid_t nid)          const;
+  int         get_worker(nid_t nid)            const;
+
+private:
+  struct pode_t {
+    pode_t(Partition* self, nid_t nid, int upper_limit);
+    pode_t(Partition* new_self, pode_t& other);
+
+    // virtual void means no one else can override this function
+    virtual void set_base_constraint() final;
+
+    // each child class must implement this
+    virtual void set_constraints() = 0;
+
+    // Is this a no op? then that implies a bunch of things are zero
+    void _set_no_op(Gecode::BoolVar& is_no_op);
+
+    Gecode::IntVar start;           // this can start when inputs are available
+    Gecode::IntVar end;             // end = start + duration
+    Gecode::IntVar duration;        // duration == (unit / worker) * kernel_duration
+    Gecode::IntVar worker;          // the number of workers
+
+    Gecode::IntVar unit;            // number of parallel units of work
+    Gecode::IntVar kernel_duration; // how long a unit takes
+
+    // When a node has enough information, unit and kerenl_duration are set
+    void _set_unit_and_kernel_duration(int fixed_unit, int fixed_kernel_duration);
+
+    Partition* self;
+    nid_t nid;
+
+    int rank() const { return self->opt[nid].dims.size(); }
+  };
+  struct pagg_t : pode_t {
+    pagg_t(Partition* self, nid_t nid, int upper_limit);
+    pagg_t(Partition* new_self, pagg_t& other);
+    Gecode::BoolVar is_no_op;
+    void propagate_is_no_op();
+    void when_partition_info_set();
+    void set_constraints() override {
+      propagate_is_no_op();
+      when_partition_info_set();
+    }
+
+    Gecode::IntVarArgs local_partition();
+  };
+  struct preblock_t : pode_t {
+    preblock_t(Partition* self, nid_t nid, int upper_limit);
+    preblock_t(Partition* new_self, preblock_t& other);
+    Gecode::BoolVar is_no_op;
+    void propagate_is_no_op();
+    void when_partition_info_set();
+    void set_constraints() override {
+      propagate_is_no_op();
+      when_partition_info_set();
+    }
+
+    Gecode::IntVarArgs local_partition_above();
+    Gecode::IntVarArgs local_partition_below();
+  };
+  struct pjoin_t: pode_t {
+    pjoin_t(Partition* self, nid_t nid, int upper_limit);
+    pjoin_t(Partition* new_self, pjoin_t& other);
+    Gecode::IntVarArray partition;
+    void when_partition_info_set();
+    void set_constraints() override {
+      when_partition_info_set();
+    }
+  };
+  struct pinput_t : pode_t {
+    pinput_t(Partition* self, nid_t nid, int upper_limit);
+    pinput_t(Partition* new_self, pinput_t& other);
+    Gecode::IntVarArray partition;
+    void propagate_prefer_no_reblock();
+    void propagate_no_cost_input();
+    void when_partition_info_set();
+    void set_constraints() override {
+      propagate_prefer_no_reblock();
+      propagate_no_cost_input();
+      when_partition_info_set();
+    }
+  };
+
+  using pode_ptr = std::unique_ptr<pode_t>;
+
+private:
   partition_options_t const& opt;
 
   Gecode::Rnd rnd;
 
-  // We're trying to minimize this guy
   Gecode::IntVar makespan;
 
-  Gecode::IntVarArray start;
-  Gecode::IntVarArray duration;
-  Gecode::IntVarArray end;
-  Gecode::IntVarArray worker;
+  vector<pode_ptr> vars;
 
-  // For each input and join node we have a partition
-  // For all slots that aren't inputs or joins, just set the domain equal to {0} as it
-  // won't be used.
-  Gecode::IntVarArray partitions;
-  // ^ given a compute identifier nid, partitions[nid] specifies
-  //   which partition in opt.all_partitions(nid) the current partition has.
+  void _cumulative(
+    int                   capacity,
+    Gecode::IntVarArgs    const& start,
+    Gecode::IntVarArgs    const& duration,
+    Gecode::IntVarArgs    const& end,
+    Gecode::IntVarArgs    const& resource_usage,
+    Gecode::IntPropLevel  ipl = Gecode::IPL_DEF);
 
-  int cover_to;
-
+  void _set_branching();
 public:
-  Partition(Partition& other):
-    Gecode::IntMinimizeSpace(other),
-    opt(other.opt),
-    rnd(other.rnd),
-    cover_to(other.cover_to)
-  {
-    makespan.update  (  *this, other.makespan    );
-
-    start.update     (  *this, other.start       );
-    duration.update  (  *this, other.duration    );
-    end.update       (  *this, other.end         );
-    worker.update    (  *this, other.worker      );
-
-    partitions.update(  *this, other.partitions  );
-  }
-
-  virtual Gecode::Space* copy(void) {
+  virtual Gecode::Space* copy() {
     return new Partition(*this);
   }
 
   virtual Gecode::IntVar cost() const {
     return makespan;
   }
-
-  bool covers_all() const {
-    return _get_nids(cover_to).size() >= opt.get_dag().size();
-  }
-
-  // get the output partition, only valid if the corresponding
-  // partitions variable has a domain of 1, that is if a solution
-  // has been found
-  vector<int> get_set_partition(nid_t nid) const;
-
-  int get_set_start_time(nid_t nid) const {
-    return start[nid].val();
-  }
-
-  // print a file where each line contains
-  // (start,finish,worker,label)
-  void write_usage(std::ostream& out) const;
-
-private:
-  void assign_join_agg(nid_t join_nid);
-  void assign_reblock(nid_t reblock_nid);
-
-  int select_partition(nid_t nid) const;
-
-  void _cumulative(
-    int                capacity,
-    Gecode::IntVarArgs  const& start,
-    Gecode::IntVarArgs  const& duration,
-    Gecode::IntVarArgs  const& end,
-    Gecode::IntVarArgs  const& resource_usage,
-    Gecode::IntPropLevel       ipl = Gecode::IPL_DEF);
-
-  vector<nid_t> _get_nids(int n) const;
-
-  // These propagations are for all values of voer to
-  void _init_propagations();
-
-  // use cover_to to specify the problem and the branches
-  int _cover_propagations_and_branches(int n);
 };
 
 // For each node, get the run info by
@@ -298,4 +311,3 @@ private:
 vector<partition_info_t> run_partition(partition_options_t const& opt);
 
 }}
-
