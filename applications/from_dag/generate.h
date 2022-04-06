@@ -10,7 +10,6 @@
 
 namespace bbts { namespace dag {
 
-using namespace bbts;
 using std::vector;
 using std::tuple;
 using std::function;
@@ -38,7 +37,7 @@ private:
 // A node in ::bbts is a distinct
 // compute object in a cluster.
 using tid_loc_t = command_t::tid_node_id_t;
-using loc_t = bbts::node_id_t;
+using loc_t = ::bbts::node_id_t;
 
 struct generate_commands_t {
   generate_commands_t(

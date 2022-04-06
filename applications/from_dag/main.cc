@@ -8,8 +8,8 @@
 
 #include "dag.h"
 #include "parse.h"
-#include "partition/partition.h"
-#include "generate.h"
+#include "partition2/partition.h"
+//#include "generate.h"
 
 //https://stackoverflow.com/questions/3682773/pass-an-absolute-path-as-preprocessor-directive-on-compiler-command-line
 #define STRINGIZE2(x) #x
@@ -25,15 +25,15 @@ class PartitionOptions : public Gecode::BaseOptions {
   Driver::StringValueOption _dag_file;
   Driver::UnsignedIntOption _num_workers;
   Driver::DoubleOption _flops_per_time;
+  Driver::DoubleOption _bytes_per_time;
   Driver::IntOption _min_cost;
-  Driver::BoolOption _breadth_order;
-  Driver::BoolOption _cover;
-  Driver::UnsignedIntOption _cover_size;
+  Driver::IntOption _input_bytes_multiplier;
+  Driver::IntOption _output_bytes_multiplier;
+  Driver::IntOption _flops_multiplier;
+  Driver::IntOption _max_units;
   Driver::UnsignedIntOption _search_compute_threads;
   Driver::UnsignedIntOption _search_restart_scale;
   Driver::UnsignedIntOption _search_time_per_cover;
-  Driver::StringValueOption _output_file;
-  Driver::StringValueOption _usage_file;
 public:
 
   // Initialize options
@@ -43,34 +43,34 @@ public:
     _seed("seed","random number generator seed",1U),
     _dag_file("dag-file", "File containing the dag to partition", "matmul.dag"),
     _num_workers("num-workers", "Number of workers", 24),
-    _flops_per_time("flops-per-time", "Number of flops per unit of time", 1e8),
-    _min_cost("min-cost", "defaults to number of workers", -1),
-    _breadth_order("breadth-order", "Additional constraint on order of nodes", false),
-    _cover("cover", "Whether or not to use the cover algorithm", false),
-    _cover_size("cover-size", "Number of nodes to consider at a time in iterative solve", 20),
+    _flops_per_time("flops-per-time", "flops thinger", 1e8),
+    _bytes_per_time("bytes-per-time", "bytes thinger", 1e8),
+    _min_cost("m-intercept", "...", 0),
+    _input_bytes_multiplier("m-input-bytes", "...", 1),
+    _output_bytes_multiplier("m-output-bytes", "...", 1),
+    _flops_multiplier("m-flops", "...", 1),
+    _max_units("max-units", "...", 1000),
     _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
     _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
-    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
-    _output_file("output-file", "write the blockings here", ""),
-    _usage_file("usage-file", "write out [(start,end,thread,label)] to this file", "")
-    // ^ Here, a 10k matrix multiply (with 1e4^3=1e12 flops) will take
-    //   get_min_cost() + 10,000 units of time
+    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000)
   {
     add(_ipl);
     add(_seed);
     add(_restart_scale);
     add(_dag_file);
     add(_num_workers);
+
     add(_min_cost);
     add(_flops_per_time);
-    add(_breadth_order);
-    add(_cover);
-    add(_cover_size);
+    add(_bytes_per_time);
+    add(_input_bytes_multiplier);
+    add(_output_bytes_multiplier);
+
+    add(_flops_multiplier);
+    add(_max_units);
     add(_search_compute_threads);
     add(_search_restart_scale);
     add(_search_time_per_cover);
-    add(_output_file);
-    add(_usage_file);
   }
 
   // Parse options from arguments
@@ -85,10 +85,12 @@ public:
       static_cast<int>(_seed.value()),
       static_cast<int>(_num_workers.value()),
       _flops_per_time.value(),
+      _bytes_per_time.value(),
       _min_cost.value(),
-      _breadth_order.value(),
-      _cover.value(),
-      static_cast<int>(_cover_size.value()),
+      _input_bytes_multiplier.value(),
+      _output_bytes_multiplier.value(),
+      _flops_multiplier.value(),
+      _max_units.value(),
       static_cast<int>(_search_compute_threads.value()),
       static_cast<int>(_search_restart_scale.value()),
       static_cast<int>(_search_time_per_cover.value()));
@@ -99,9 +101,90 @@ partition_options_t get_options(int argc, char** argv) {
   PartitionOptions opt("from_dag");
   return opt.parse(argc, argv);
 }
+//class PartitionOptions : public Gecode::BaseOptions {
+//  Driver::IplOption         _ipl;
+//  Driver::UnsignedIntOption _restart_scale;
+//  Driver::UnsignedIntOption _seed;
+//  Driver::StringValueOption _dag_file;
+//  Driver::UnsignedIntOption _num_workers;
+//  Driver::DoubleOption _flops_per_time;
+//  Driver::IntOption _min_cost;
+//  Driver::BoolOption _breadth_order;
+//  Driver::BoolOption _cover;
+//  Driver::UnsignedIntOption _cover_size;
+//  Driver::UnsignedIntOption _search_compute_threads;
+//  Driver::UnsignedIntOption _search_restart_scale;
+//  Driver::UnsignedIntOption _search_time_per_cover;
+//  Driver::StringValueOption _output_file;
+//  Driver::StringValueOption _usage_file;
+//public:
+//
+//  // Initialize options
+//  PartitionOptions(const char* n):
+//    BaseOptions(n),
+//    _restart_scale("restart-scale","scale factor for restart sequence",150),
+//    _seed("seed","random number generator seed",1U),
+//    _dag_file("dag-file", "File containing the dag to partition", "matmul.dag"),
+//    _num_workers("num-workers", "Number of workers", 24),
+//    _flops_per_time("flops-per-time", "Number of flops per unit of time", 1e8),
+//    _min_cost("min-cost", "defaults to number of workers", -1),
+//    _breadth_order("breadth-order", "Additional constraint on order of nodes", false),
+//    _cover("cover", "Whether or not to use the cover algorithm", false),
+//    _cover_size("cover-size", "Number of nodes to consider at a time in iterative solve", 20),
+//    _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
+//    _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
+//    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
+//    _output_file("output-file", "write the blockings here", ""),
+//    _usage_file("usage-file", "write out [(start,end,thread,label)] to this file", "")
+//    // ^ Here, a 10k matrix multiply (with 1e4^3=1e12 flops) will take
+//    //   get_min_cost() + 10,000 units of time
+//  {
+//    add(_ipl);
+//    add(_seed);
+//    add(_restart_scale);
+//    add(_dag_file);
+//    add(_num_workers);
+//    add(_min_cost);
+//    add(_flops_per_time);
+//    add(_breadth_order);
+//    add(_cover);
+//    add(_cover_size);
+//    add(_search_compute_threads);
+//    add(_search_restart_scale);
+//    add(_search_time_per_cover);
+//    add(_output_file);
+//    add(_usage_file);
+//  }
+//
+//  // Parse options from arguments
+//  partition_options_t parse(int& argc, char* argv[])
+//  {
+//    BaseOptions::parse(argc,argv);
+//
+//    return partition_options_t(
+//      parse_dag(_dag_file.value()),
+//      _ipl.value(),
+//      static_cast<int>(_restart_scale.value()),
+//      static_cast<int>(_seed.value()),
+//      static_cast<int>(_num_workers.value()),
+//      _flops_per_time.value(),
+//      _min_cost.value(),
+//      _breadth_order.value(),
+//      _cover.value(),
+//      static_cast<int>(_cover_size.value()),
+//      static_cast<int>(_search_compute_threads.value()),
+//      static_cast<int>(_search_restart_scale.value()),
+//      static_cast<int>(_search_time_per_cover.value()));
+//  }
+//};
+//
+//partition_options_t get_options(int argc, char** argv) {
+//  PartitionOptions opt("from_dag");
+//  return opt.parse(argc, argv);
+//}
 
-vector<bbts::ud_impl_id_t> load_cutensor_lib(
-  bbts::node_t &node,
+vector<::bbts::ud_impl_id_t> load_cutensor_lib(
+  ::bbts::node_t &node,
   const std::string &file_path)
 {
   // try to open the file
@@ -124,7 +207,7 @@ vector<bbts::ud_impl_id_t> load_cutensor_lib(
     throw std::runtime_error(message);
   }
 
-  vector<bbts::ud_impl_id_t> ret;
+  vector<::bbts::ud_impl_id_t> ret;
   ret.reserve(8);
   auto insert = [&](std::string name, int inn, int out) {
     auto matcher = node._udf_manager->get_matcher_for(name);
@@ -158,7 +241,7 @@ vector<bbts::ud_impl_id_t> load_cutensor_lib(
   return ret;
 }
 
-void verbose(std::ostream &out, bbts::node_t &node, bool val) {
+void verbose(std::ostream &out, ::bbts::node_t &node, bool val) {
   // run all the commands
   auto [did_load, message] = node.set_verbose(val);
 
@@ -169,8 +252,8 @@ void verbose(std::ostream &out, bbts::node_t &node, bool val) {
 }
 
 void run_commands(
-  bbts::node_t& node,
-  std::vector<bbts::command_ptr_t>& cmds,
+  ::bbts::node_t& node,
+  std::vector<::bbts::command_ptr_t>& cmds,
   std::string loaded,
   std::string ran)
 {
@@ -192,189 +275,207 @@ void run_commands(
   std::cout << msg_run << std::endl;
 };
 
-tuple<bool, vector<int>> parse_repl_line(std::string const& str)
-{
-  std::stringstream s(str);
-  int i;
-  vector<int> ret;
-
-  while(!s.eof()) {
-    if(s.peek() == std::stringstream::traits_type::eof()) {
-      if(ret.size() > 0) {
-        return {true, ret};
-      } else {
-        return {false, {}};
-      }
-    }
-
-    char c = s.peek();
-
-    if(std::isspace(c)) {
-      s.get();
-      continue;
-    }
-
-    if(std::isdigit(static_cast<unsigned char>(c))) {
-      s >> i;
-      ret.push_back(i);
-    } else {
-      return {false, {}};
-    }
-  }
-  return {true, ret};
-}
-
-// A very bad finicky repl..... There are two things it does:
-// - given an (nid, bid) pair, print out the corresponding tensor.
-// - or given an empty line, print out the dag + partitioning.
-void repl(bbts::node_t& node, generate_commands_t& g) {
-  auto print_dag = [&]() {
-    vector<nid_t> idxs = g.priority_dag_order();
-    for(nid_t nid: idxs) {
-      std::cout << nid;
-      if(!g[nid].is_no_op) {
-        std::cout << "    *";
-      } else {
-        std::cout << "     ";
-      }
-      std::cout << ": ";
-
-      g[nid].print(std::cout);
-      std::cout << std::endl;
-    }
-  };
-
-  print_dag();
-
-  std::string s;
-  while(true) {
-    std::cout << "##>> ";
-    std::getline(std::cin, s);
-
-    if(s == "") {
-      print_dag();
-      continue;
-    }
-
-    auto [success, ints] = parse_repl_line(s);
-    if(success) {
-      nid_t nid = ints[0];
-      if(nid < 0 || nid >= g.size()) {
-        std::cout << "invalid node id" << std::endl;
-        continue;
-      }
-
-      vector<int> bid(ints.begin() + 1, ints.end());
-      auto& relation = g[nid];
-      if(bid.size() != relation.partition.size()) {
-        std::cout << "invalid block id" << std::endl;
-        continue;
-      }
-
-      int which_bad = -1;
-      for(int r = 0; r != relation.partition.size(); ++r) {
-        if(bid[r] < 0 || bid[r] >= relation.partition[r]) {
-          which_bad = r;
-          break;
-        }
-      }
-      if(which_bad >= 0) {
-        std::cout << "invalid block id, index " << which_bad << std::endl;
-        continue;
-      }
-
-      auto [tid, _0] = g[nid][bid];
-      auto [got_it, msg] = node.print_tensor_info(tid);
-      if(!got_it) {
-        std::cout << "Could not get tensor id " << tid << ". " << msg << std::endl;
-        continue;
-      }
-      std::cout << msg << std::endl;
-    } else {
-      std::cout << "exiting..." << std::endl;
-      return;
-    }
-  }
-}
+//tuple<bool, vector<int>> parse_repl_line(std::string const& str)
+//{
+//  std::stringstream s(str);
+//  int i;
+//  vector<int> ret;
+//
+//  while(!s.eof()) {
+//    if(s.peek() == std::stringstream::traits_type::eof()) {
+//      if(ret.size() > 0) {
+//        return {true, ret};
+//      } else {
+//        return {false, {}};
+//      }
+//    }
+//
+//    char c = s.peek();
+//
+//    if(std::isspace(c)) {
+//      s.get();
+//      continue;
+//    }
+//
+//    if(std::isdigit(static_cast<unsigned char>(c))) {
+//      s >> i;
+//      ret.push_back(i);
+//    } else {
+//      return {false, {}};
+//    }
+//  }
+//  return {true, ret};
+//}
+//
+//// A very bad finicky repl..... There are two things it does:
+//// - given an (nid, bid) pair, print out the corresponding tensor.
+//// - or given an empty line, print out the dag + partitioning.
+//void repl(::bbts::node_t& node, generate_commands_t& g) {
+//  auto print_dag = [&]() {
+//    vector<nid_t> idxs = g.priority_dag_order();
+//    for(nid_t nid: idxs) {
+//      std::cout << nid;
+//      if(!g[nid].is_no_op) {
+//        std::cout << "    *";
+//      } else {
+//        std::cout << "     ";
+//      }
+//      std::cout << ": ";
+//
+//      g[nid].print(std::cout);
+//      std::cout << std::endl;
+//    }
+//  };
+//
+//  print_dag();
+//
+//  std::string s;
+//  while(true) {
+//    std::cout << "##>> ";
+//    std::getline(std::cin, s);
+//
+//    if(s == "") {
+//      print_dag();
+//      continue;
+//    }
+//
+//    auto [success, ints] = parse_repl_line(s);
+//    if(success) {
+//      nid_t nid = ints[0];
+//      if(nid < 0 || nid >= g.size()) {
+//        std::cout << "invalid node id" << std::endl;
+//        continue;
+//      }
+//
+//      vector<int> bid(ints.begin() + 1, ints.end());
+//      auto& relation = g[nid];
+//      if(bid.size() != relation.partition.size()) {
+//        std::cout << "invalid block id" << std::endl;
+//        continue;
+//      }
+//
+//      int which_bad = -1;
+//      for(int r = 0; r != relation.partition.size(); ++r) {
+//        if(bid[r] < 0 || bid[r] >= relation.partition[r]) {
+//          which_bad = r;
+//          break;
+//        }
+//      }
+//      if(which_bad >= 0) {
+//        std::cout << "invalid block id, index " << which_bad << std::endl;
+//        continue;
+//      }
+//
+//      auto [tid, _0] = g[nid][bid];
+//      auto [got_it, msg] = node.print_tensor_info(tid);
+//      if(!got_it) {
+//        std::cout << "Could not get tensor id " << tid << ". " << msg << std::endl;
+//        continue;
+//      }
+//      std::cout << msg << std::endl;
+//    } else {
+//      std::cout << "exiting..." << std::endl;
+//      return;
+//    }
+//  }
+//}
 
 int main(int argc, char **argv)
 {
   partition_options_t options = get_options(argc, argv);
 
-  // make the configuration
-  auto config = std::make_shared<bbts::node_config_t>(
-          bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 12});
+  auto partition_info = run_partition(options);
 
-  // create the node
-  bbts::node_t node(config);
+  //auto get_inc_part = [&partition_info](nid_t nid) {
+  //  return partition_info[nid].blocking;
+  //};
 
-  // init the node
-  node.init();
-
-  // sync everything
-  node.sync();
-
-  // kick off the prompt
-  std::thread t;
-  if (node.get_rank() == 0) {
-    t = std::thread([&]()
-    {
-      //verbose(std::cout, node, true);
-
-      auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
-
-      auto partition_info = run_partition(options);
-
-      //for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
-      //  std::cout << "start    " << partition_info[nid].priority;
-      //  std::cout << "         nid " << nid << ": " << options.get_dag()[nid];
-      //  std::cout << "       ";
-      //  for(int x: partition_info[nid].blocking) {
-      //    std::cout << x << " ";
-      //  }
-      //  std::cout << std::endl;
-      //}
-
-      int num_nodes = 1; // TODO fix this
-      generate_commands_t g(
-        options.get_dag(),
-        partition_info,
-        [&uds](int which){ return uds[which]; },
-        num_nodes);
-
-      auto [input_cmds, run_cmds] = g.extract();
-
-      //for(auto& cmd: input_cmds) {
-      //  std::string s;
-      //  std::stringstream ss(s);
-      //  cmd->print(ss);
-      //  std::cout << ss.str();
-      //}
-      //std::cout << "-------------------------------------------------" << std::endl;
-      //for(auto& cmd: run_cmds) {
-      //  std::string s;
-      //  std::stringstream ss(s);
-      //  cmd->print(ss);
-      //  std::cout << ss.str();
-      //}
-
-      run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
-      run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
-
-      //repl(node, g);
-
-      auto [did_shutdown, message] = node.shutdown_cluster();
-      if(!did_shutdown) {
-        throw std::runtime_error("did not shutdown: " + message);
-      }
-    });
+  for(nid_t nid = 0; nid != partition_info.size(); ++nid) {
+    std::cout << nid << ": ";
+    std::cout << options[nid] << "               ";
+    for(int i: partition_info[nid].blocking) {
+      std::cout << i << " ";
+    }
+    std::cout << std::endl;
   }
 
-  // the node
-  node.run();
-
-  // wait for the prompt to finish
-  if (node.get_rank() == 0) { t.join();}
-
+//  partition_options_t options = get_options(argc, argv);
+//
+//  // make the configuration
+//  auto config = std::make_shared<bbts::node_config_t>(
+//          bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 12});
+//
+//  // create the node
+//  bbts::node_t node(config);
+//
+//  // init the node
+//  node.init();
+//
+//  // sync everything
+//  node.sync();
+//
+//  // kick off the prompt
+//  std::thread t;
+//  if (node.get_rank() == 0) {
+//    t = std::thread([&]()
+//    {
+//      //verbose(std::cout, node, true);
+//
+//      auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
+//
+//      auto partition_info = run_partition(options);
+//
+//      //for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
+//      //  std::cout << "start    " << partition_info[nid].priority;
+//      //  std::cout << "         nid " << nid << ": " << options.get_dag()[nid];
+//      //  std::cout << "       ";
+//      //  for(int x: partition_info[nid].blocking) {
+//      //    std::cout << x << " ";
+//      //  }
+//      //  std::cout << std::endl;
+//      //}
+//
+//      int num_nodes = 1; // TODO fix this
+//      generate_commands_t g(
+//        options.get_dag(),
+//        partition_info,
+//        [&uds](int which){ return uds[which]; },
+//        num_nodes);
+//
+//      auto [input_cmds, run_cmds] = g.extract();
+//
+//      //for(auto& cmd: input_cmds) {
+//      //  std::string s;
+//      //  std::stringstream ss(s);
+//      //  cmd->print(ss);
+//      //  std::cout << ss.str();
+//      //}
+//      //std::cout << "-------------------------------------------------" << std::endl;
+//      //for(auto& cmd: run_cmds) {
+//      //  std::string s;
+//      //  std::stringstream ss(s);
+//      //  cmd->print(ss);
+//      //  std::cout << ss.str();
+//      //}
+//
+//      run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
+//      run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
+//
+//      //repl(node, g);
+//
+//      auto [did_shutdown, message] = node.shutdown_cluster();
+//      if(!did_shutdown) {
+//        throw std::runtime_error("did not shutdown: " + message);
+//      }
+//    });
+//  }
+//
+//  // the node
+//  node.run();
+//
+//  // wait for the prompt to finish
+//  if (node.get_rank() == 0) { t.join();}
+//
   return 0;
 }
+

@@ -6,12 +6,9 @@ get_filename_component(app_dir ${CMAKE_CURRENT_LIST_FILE} DIRECTORY)
 add_executable(from_dag ${app_dir}/main.cc
                         ${app_dir}/dag.cc
                         ${app_dir}/parse.cc
-                        ${app_dir}/generate.cc
-                        ${app_dir}/partition/partition_options.cc
-                        ${app_dir}/partition/partition.cc
-                        ${app_dir}/partition/run.cc)
+                        ${app_dir}/partition2/partition.cc
+                        ${app_dir}/partition2/run.cc)
 set_target_properties(from_dag PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-
 
 # link the stuff we need
 target_link_libraries(from_dag bbts-common)
