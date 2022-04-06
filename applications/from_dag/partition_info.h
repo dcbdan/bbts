@@ -9,6 +9,7 @@ struct partition_info_t {
   int start;
   int duration;
   int worker;
+  int unit;
 };
 
 }}

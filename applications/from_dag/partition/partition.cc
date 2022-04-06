@@ -139,25 +139,72 @@ partition_options_t::max_partition(nid_t nid, int m) const
   return ret;
 }
 
-int partition_options_t::_cost(
+uint64_t product_to_uint64(vector<int> const& xs) {
+  uint64_t ret = 1;
+  for(int const& x: xs) {
+    assert(x >= 0);
+    ret *= x;
+  }
+  return ret;
+}
+
+partition_options_t::cost_t
+partition_options_t::_cost(
   vector<vector<int>> const& inputs_bs,
   vector<int>         const& output_bs,
   vector<int>         const& flop_bs) const
 {
-  int input_total = 0;
+  uint64_t input_total = 0;
   for(auto const& bs: inputs_bs) {
-    input_total += raw_bytes_cost(bs);
+    input_total += product_to_uint64(bs);
   }
 
-  return
-    min_cost() +
-    input_bytes_multiplier()  * input_total  +
-    output_bytes_multiplier() * raw_bytes_cost(output_bs) +
-    flops_multiplier()        * raw_flops_cost(flop_bs)   ;
+  return partition_options_t::cost_t(
+    input_total,
+    product_to_uint64(output_bs),
+    product_to_uint64(flop_bs)
+  );
 }
 
+partition_options_t::cost_terms_t
+partition_options_t::to_gecode_cost_terms(partition_options_t::cost_t const& c) const {
+  if(c.is_no_op()) {
+    return cost_terms_t {
+      .init    = 0,
+      .input   = 0,
+      .output  = 0,
+      .compute = 0
+    };
+  }
+  auto ceiling_div = [](uint64_t x, int y) {
+    // https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c
+    if(x == 0) { return 0; }
+    assert(y > 0);
+    uint64_t ret = (1 + ((x - 1) / y)); // if x != 0
 
-int partition_options_t::get_reblock_kernel_cost(
+    // make sure the return value should is less than, say, 2^30.
+    assert(ret < (uint64_t(1) << 30));
+    return int(ret);
+  };
+
+  return cost_terms_t {
+    .init = min_cost(),
+    .input =
+      input_bytes_multiplier()  * ceiling_div(c.input_bytes(),  bytes_per_time()),
+    .output =
+      output_bytes_multiplier() * ceiling_div(c.output_bytes(), bytes_per_time()),
+    .compute =
+      flops_multiplier()        * ceiling_div(c.flops(),        flops_per_time())
+  };
+}
+
+int partition_options_t::to_gecode_cost(partition_options_t::cost_t const& c) const {
+  cost_terms_t r = to_gecode_cost_terms(c);
+  return r.init + r.input + r.output + r.compute;
+}
+
+partition_options_t::cost_t
+partition_options_t::get_reblock_kernel_cost(
   vector<int> const& out_part,
   vector<int> const& inn_part,
   nid_t reblock_nid) const
@@ -172,7 +219,7 @@ int partition_options_t::get_reblock_kernel_cost(
 
   if(out_part == inn_part) {
     // this is a no op, nothing to do
-    return 0;
+    return partition_options_t::cost_t(true);
   }
 
   vector<vector<int>> inputs_bs;
@@ -201,7 +248,8 @@ int partition_options_t::get_reblock_kernel_cost(
   return _cost(inputs_bs, output_bs, flop_bs);
 }
 
-int partition_options_t::get_join_kernel_cost(
+partition_options_t::cost_t
+partition_options_t::get_join_kernel_cost(
   vector<int> const& inc_part,
   nid_t join_nid) const
 {
@@ -220,7 +268,8 @@ int partition_options_t::get_join_kernel_cost(
   return _cost(inputs_bs, output_bs, flop_bs);
 }
 
-int partition_options_t::get_agg_kernel_cost(
+partition_options_t::cost_t
+partition_options_t::get_agg_kernel_cost(
   vector<int> const& inc_part,
   nid_t agg_nid) const
 {
@@ -236,7 +285,7 @@ int partition_options_t::get_agg_kernel_cost(
 
   int num_to_agg = product(get_agg(inc_part, compute_nid));
   if(num_to_agg == 1) {
-    return 0;
+    return partition_options_t::cost_t(true);
   }
 
   output_bs = get_out(inc_local, compute_nid);
@@ -249,14 +298,16 @@ int partition_options_t::get_agg_kernel_cost(
   return _cost(inputs_bs, output_bs, flop_bs);
 }
 
-int partition_options_t::get_input_kernel_cost(
+partition_options_t::cost_t
+partition_options_t::get_input_kernel_cost(
   vector<int> const&,
   nid_t) const
 {
-  return 0;
+  return partition_options_t::cost_t(true);
 }
 
-int partition_options_t::get_kernel_cost(
+partition_options_t::cost_t
+partition_options_t::get_kernel_cost(
   function<vector<int>(nid_t)> get_inc_part,
   nid_t nid) const
 {
@@ -286,7 +337,7 @@ int partition_options_t::get_kernel_cost(
     return get_reblock_kernel_cost(out_part, inn_part, nid);
   } else {
     assert(false);
-    return 0;
+    return partition_options_t::cost_t(true);
   }
 }
 
@@ -324,7 +375,7 @@ int partition_options_t::upper_bound_time() const {
     // there is no need to call get_node_cost since
     // the all kernels for this guy will happen all at once.
     // (the max units is set to num_workers() in get_inc_part)
-    total += get_kernel_cost(get_inc_part, nid);
+    total += to_gecode_cost(get_kernel_cost(get_inc_part, nid));
   }
   return total;
 }
@@ -334,7 +385,7 @@ int partition_options_t::get_node_cost(
   nid_t nid,
   int num_assigned_workers) const
 {
-  int kernel_cost = get_kernel_cost(get_inc_part, nid);
+  int kernel_cost = to_gecode_cost(get_kernel_cost(get_inc_part, nid));
   int num_units = get_num_units(get_inc_part, nid);
   assert(num_units % num_assigned_workers == 0);
   int num_calls = num_units / num_assigned_workers;
@@ -785,7 +836,8 @@ void Partition::pinput_t::when_partition_info_set() {
     }
 
     int unit = product(inc_part);
-    int kernel_duration = self.opt.get_input_kernel_cost(inc_part, p.nid);
+    int kernel_duration = self.opt.to_gecode_cost(
+          self.opt.get_input_kernel_cost(inc_part, p.nid));
     DCB01("input nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
@@ -806,7 +858,8 @@ void Partition::pjoin_t::when_partition_info_set() {
     }
 
     int unit = product(inc_part);
-    int kernel_duration = self.opt.get_join_kernel_cost(inc_part, p.nid);
+    int kernel_duration = self.opt.to_gecode_cost(
+          self.opt.get_join_kernel_cost(inc_part, p.nid));
     DCB01("join nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
@@ -835,7 +888,8 @@ void Partition::pagg_t::when_partition_info_set() {
     }
 
     int unit = product(self.opt.get_out(inc_part, _join_nid));
-    int kernel_duration = self.opt.get_agg_kernel_cost(inc_part, pagg.nid);
+    int kernel_duration = self.opt.to_gecode_cost(
+          self.opt.get_agg_kernel_cost(inc_part, pagg.nid));
     DCB01("agg nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     pagg._set_unit_and_kernel_duration(unit, kernel_duration);
@@ -871,7 +925,8 @@ void Partition::preblock_t::when_partition_info_set() {
     }
 
     int unit = product(above);
-    int kernel_duration = self.opt.get_reblock_kernel_cost(above, below, p.nid);
+    int kernel_duration = self.opt.to_gecode_cost(
+          self.opt.get_reblock_kernel_cost(above, below, p.nid));
     DCB01("reblock nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
@@ -960,6 +1015,11 @@ int Partition::get_duration(nid_t nid)  const {
 int Partition::get_worker(nid_t nid)    const {
   DCB_ACCESS_VAR("worker");
   return vars[nid]->worker.val();
+}
+
+int Partition::get_unit(nid_t nid)      const {
+  DCB_ACCESS_VAR("unit");
+  return vars[nid]->unit.val();
 }
 
 }}

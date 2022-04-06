@@ -11,6 +11,8 @@
 #include "partition/partition.h"
 #include "generate.h"
 
+#include "print_table.h"
+
 //https://stackoverflow.com/questions/3682773/pass-an-absolute-path-as-preprocessor-directive-on-compiler-command-line
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
@@ -326,16 +328,26 @@ int main(int argc, char **argv)
       auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
 
       auto partition_info = run_partition(options);
+      auto get_inc_part = [&](nid_t nid) {
+        return partition_info[nid].blocking;
+      };
 
-      //for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
-      //  std::cout << "start    " << partition_info[nid].priority;
-      //  std::cout << "         nid " << nid << ": " << options.get_dag()[nid];
-      //  std::cout << "       ";
-      //  for(int x: partition_info[nid].blocking) {
-      //    std::cout << x << " ";
-      //  }
-      //  std::cout << std::endl;
-      //}
+      {
+        table_t table(2);
+        table << "nid" << "node" << "partition" << "start"
+              << "unit" << "# workers" << "d:init" << "d:in" << "d:out" << "d:compute"
+              << table.endl;
+        for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
+          auto const& pp = partition_info[nid];
+          auto cc = options.to_gecode_cost_terms(
+            options.get_kernel_cost(get_inc_part, nid));
+          table << nid << options.get_dag()[nid] << pp.blocking <<
+            pp.start << pp.unit << pp.worker << cc.init << cc.input << cc.output <<
+            cc.compute << table.endl;
+        }
+
+        std::cout << table << std::endl;
+      }
 
       int num_nodes = 1; // TODO fix this
       generate_commands_t g(
@@ -345,20 +357,6 @@ int main(int argc, char **argv)
         num_nodes);
 
       auto [input_cmds, run_cmds] = g.extract();
-
-      //for(auto& cmd: input_cmds) {
-      //  std::string s;
-      //  std::stringstream ss(s);
-      //  cmd->print(ss);
-      //  std::cout << ss.str();
-      //}
-      //std::cout << "-------------------------------------------------" << std::endl;
-      //for(auto& cmd: run_cmds) {
-      //  std::string s;
-      //  std::stringstream ss(s);
-      //  cmd->print(ss);
-      //  std::cout << ss.str();
-      //}
 
       run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
       run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");

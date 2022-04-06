@@ -97,57 +97,70 @@ public:
   }
   vector<int> all_parts(dim_t dim) const;
 
-  static int raw_cost(double total, double unit_per_time) {
-    return lround(total / unit_per_time);
-  }
-
-  static int raw_cost(vector<int> const& xs, double unit_per_time) {
-    double total = 1.0;
-    for(auto const& x: xs) {
-      total *= (1.0*x);
+  struct cost_t {
+    cost_t(bool b):
+      _is_no_op(b), _input_bytes(0), _output_bytes(0), _flops(0)
+    {
+      assert(_is_no_op);
     }
-    return raw_cost(total, unit_per_time);
-  }
 
-  int raw_flops_cost(vector<int> const& xs) const {
-    return raw_cost(xs, flops_per_time());        }
-  int raw_flops_cost(double total) const          {
-    return raw_cost(total, flops_per_time());     }
+    cost_t(uint64_t i, uint64_t o, uint64_t f):
+      _is_no_op(false), _input_bytes(i), _output_bytes(o), _flops(f)
+    {}
 
-  int raw_bytes_cost(vector<int> const& xs) const      {
-    return raw_cost(xs, bytes_per_time());             }
-  int raw_bytes_cost(double total) const               {
-    return raw_cost(total, bytes_per_time());          }
+    bool is_no_op() const { return _is_no_op; }
 
-  int _cost(
+    uint64_t input_bytes()  const { assert(!is_no_op()); return _input_bytes;  }
+    uint64_t output_bytes() const { assert(!is_no_op()); return _output_bytes; }
+    uint64_t flops()        const { assert(!is_no_op()); return _flops;        }
+
+  private:
+    bool     const _is_no_op;
+    uint64_t const _input_bytes;
+    uint64_t const _output_bytes;
+    uint64_t const _flops;
+  };
+
+  cost_t _cost(
     vector<vector<int>> const& inputs_bs,
     vector<int>         const& output_bs,
     vector<int>         const& flop_bs) const;
+  int to_gecode_cost(cost_t const& c) const;
 
-  // get the cost for a node given the required incident parts.
-  int get_kernel_cost(
-    // this function should get the partition for whatever comptue nodes necessary
-    function<vector<int>(nid_t)> get_inc_part,
-    // get the cost of this particular node with the required partitioning
-    nid_t nid) const;
+  struct cost_terms_t {
+    int init;
+    int input;
+    int output;
+    int compute;
+  };
+  cost_terms_t to_gecode_cost_terms(cost_t const& c) const;
+
   int get_node_cost(
     function<vector<int>(nid_t)> get_inc_part,
     nid_t nid,
     int num_assigned_workers) const;
+
+  // get the cost for a node given the required incident parts.
+  cost_t get_kernel_cost(
+    // this function should get the partition for whatever comptue nodes necessary
+    function<vector<int>(nid_t)> get_inc_part,
+    // get the cost of this particular node with the required partitioning
+    nid_t nid) const;
   int get_num_units(
     function<vector<int>(nid_t)> get_inc_part,
     nid_t nid) const;
-  int get_reblock_kernel_cost(
+
+  cost_t get_reblock_kernel_cost(
     vector<int> const& out_part,
     vector<int> const& inn_part,
     nid_t reblock_nid) const;
-  int get_join_kernel_cost(
+  cost_t get_join_kernel_cost(
     vector<int> const& inc_part,
     nid_t join_nid) const;
-  int get_agg_kernel_cost(
+  cost_t get_agg_kernel_cost(
     vector<int> const& inc_part,
     nid_t agg_nid) const;
-  int get_input_kernel_cost(
+  cost_t get_input_kernel_cost(
     vector<int> const& inc_part,
     nid_t input_nid) const;
 
@@ -195,6 +208,7 @@ struct Partition : public Gecode::IntMinimizeSpace {
   int         get_start(nid_t nid)             const;
   int         get_duration(nid_t nid)          const;
   int         get_worker(nid_t nid)            const;
+  int         get_unit(nid_t nid)              const;
 
 private:
   struct pode_t {

@@ -78,7 +78,8 @@ vector<partition_info_t> run_partition(partition_options_t const& opt)
       .blocking = partition->get_partition(nid),
       .start    = partition->get_start(nid),
       .duration = partition->get_duration(nid),
-      .worker   = partition->get_worker(nid)
+      .worker   = partition->get_worker(nid),
+      .unit     = partition->get_unit(nid)
     });
   }
 
