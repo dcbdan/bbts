@@ -9,6 +9,7 @@
 #define DCB_ACCESS_VAR(x)     //std::cout << __LINE__ << " " << x << std::endl;
 #define DCB_P_CONSTRUCTOR(x)  //std::cout << __LINE__ << " " << x << std::endl;
 #define DCB01(x)              //std::cout << __LINE__ << " " << x << std::endl;
+#define DCB02(x)              //std::cout << x << std::endl;
 
 namespace bbts { namespace dag {
 
@@ -491,6 +492,7 @@ Partition::Partition(partition_options_t const& opt0):
   DCB_P_CONSTRUCTOR("A");
   int upper_limit = opt.upper_bound_time();
   DCB_P_CONSTRUCTOR("B");
+  DCB02("UPPER LIMIT OF " << upper_limit);
 
   makespan = IntVar(*this, 0, upper_limit);
   DCB_P_CONSTRUCTOR("C");
@@ -975,6 +977,7 @@ void Partition::_set_branching() {
 
   branch(*this, is_no_ops, BOOL_VAR_RND(rnd), BOOL_VAL_MAX());
   branch(*this, all_parts, INT_VAR_RND(rnd),  INT_VAL_RND(rnd));
+  branch(*this, all_parts, INT_VAR_RND(rnd),  INT_VAL_MAX());
   branch(*this, workers,   INT_VAR_NONE(),    INT_VAL_RND(rnd));
   branch(*this, starts,    INT_VAR_RND(rnd),  INT_VAL_MIN());
   branch(*this, makespan,  INT_VAL_MIN());

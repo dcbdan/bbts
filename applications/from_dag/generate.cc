@@ -170,6 +170,7 @@ void generate_commands_t::add_node(nid_t nid) {
         node.get_bbts_params(),
         apply_inputs,
         {cur}));
+      (commands.back())->priority = info[nid].start * -1;
 
       relations[nid][bid] = cur;
     }
@@ -185,6 +186,7 @@ void generate_commands_t::add_node(nid_t nid) {
         node.get_bbts_params(),
         inputs,
         cur));
+      (commands.back())->priority = info[nid].start * -1;
 
       relations[nid][bid] = cur;
     }
@@ -219,111 +221,45 @@ void generate_commands_t::add_node(nid_t nid) {
 
         ///////////////////////////////////////////////////////////////////////
 
-        bool cleanup_touching_tid = false;
-        tid_t touching_tid = tid;
-        if(loc != compute_location) {
-          if(expand.is_compact_inn()) {
-            // if it is already compact, just send it
-            commands.emplace_back(command_t::create_move(
-              next_command_id(),
-              {tid, loc},
-              {tid, compute_location}));
-          } else {
-            // if it can be compacted, compact it
-            tid_t compact_tid = next_tid();
-            touching_tid = compact_tid;
-
-            // do the compact into compact_tid
-            commands.emplace_back(command_t::create_compact(
-              next_command_id(),
-              get_ud(node.kernel),
-              false,
-              which_input,
-              reblock_params,
-              {tid, loc},
-              {compact_tid, loc}));
-
-            // move the compacted tensor to the compute location
-            commands.emplace_back(command_t::create_move(
-              next_command_id(),
-              {compact_tid, loc},
-              {compact_tid, compute_location}));
-
-            // now delete the compacted tensor
-            cleanup_touching_tid = true;
-            commands.emplace_back(command_t::create_delete(
-              next_command_id(),
-              {tid_loc_t{compact_tid, loc}}));
-          }
-        }
-
-        // do the touch
-        commands.emplace_back(command_t::create_touch(
-          next_command_id(),
-          get_ud(node.kernel),
-          false,
-          which_input,
-          inputs.size(),
-          reblock_params,
-          {tid_loc_t{touching_tid, compute_location}},
-          cur));
-        // if we eneded up moving this guy, delete it
-        if(cleanup_touching_tid) {
-          commands.emplace_back(command_t::create_delete(
-            next_command_id(),
-            {tid_loc_t{touching_tid, compute_location}}));
-        }
-
-        ///////////////////////////////////////////////////////////////////////
-
-        //// The expand kernel has two parts:
-        ////   compact and uncompact.
-        //// Compact compresses the input into a contiguous region.
-        //// Uncompact takes that contiguous region and writes to the output.
-        ////
-        //// If the input is already contiguous, no compact is needed to happen
-        //// and the write can happen directly to the output.
-        ////
-        //// But if the expand kernel is called and a compact does need to happen,
-        //// it has to allocate memory to hold the compact value.
-        ////
-        //// Here, we split the compact and uncompact into separate kernel calls so
-        //// that the tos can have its memory. And we always delete the
-        //// compact temporaries with the tos too.
-
-        //// If the input needs to be compacted, compact it.
-        //// Anywhere a new compact tensor created, make sure it
-        //// gets deleted.
-        //bool compact_is_new = false;
-        //tid_t compact_tid = tid;
-        //if(!expand.is_compact_inn()) {
-        //  compact_tid = next_tid();
-        //  compact_is_new = true;
-
-        //  // do the compact into compact_tid
-        //  commands.emplace_back(command_t::create_compact(
-        //    next_command_id(),
-        //    get_ud(node.kernel),
-        //    false,
-        //    which_input,
-        //    reblock_params,
-        //    {tid, loc},
-        //    {compact_tid, loc}));
-        //}
-        //// if the compact input needs to be moved, move it
+        //bool cleanup_touching_tid = false;
+        //tid_t touching_tid = tid;
         //if(loc != compute_location) {
-        //  commands.emplace_back(command_t::create_move(
-        //    next_command_id(),
-        //    {compact_tid, loc},
-        //    {compact_tid, compute_location}));
-        //  if(compact_is_new) {
+        //  if(expand.is_compact_inn()) {
+        //    // if it is already compact, just send it
+        //    commands.emplace_back(command_t::create_move(
+        //      next_command_id(),
+        //      {tid, loc},
+        //      {tid, compute_location}));
+        //  } else {
+        //    // if it can be compacted, compact it
+        //    tid_t compact_tid = next_tid();
+        //    touching_tid = compact_tid;
+
+        //    // do the compact into compact_tid
+        //    commands.emplace_back(command_t::create_compact(
+        //      next_command_id(),
+        //      get_ud(node.kernel),
+        //      false,
+        //      which_input,
+        //      reblock_params,
+        //      {tid, loc},
+        //      {compact_tid, loc}));
+
+        //    // move the compacted tensor to the compute location
+        //    commands.emplace_back(command_t::create_move(
+        //      next_command_id(),
+        //      {compact_tid, loc},
+        //      {compact_tid, compute_location}));
+
+        //    // now delete the compacted tensor
+        //    cleanup_touching_tid = true;
         //    commands.emplace_back(command_t::create_delete(
         //      next_command_id(),
         //      {tid_loc_t{compact_tid, loc}}));
         //  }
         //}
-        //// now a compact item exists at the destination location,
-        //// so do the touch
+
+        //// do the touch
         //commands.emplace_back(command_t::create_touch(
         //  next_command_id(),
         //  get_ud(node.kernel),
@@ -331,13 +267,84 @@ void generate_commands_t::add_node(nid_t nid) {
         //  which_input,
         //  inputs.size(),
         //  reblock_params,
-        //  {tid_loc_t{compact_tid, compute_location}},
+        //  {tid_loc_t{touching_tid, compute_location}},
         //  cur));
-        //if(compact_is_new) {
+        //(commands.back())->priority = info[nid].start * -1;
+
+        //// if we eneded up moving this guy, delete it
+        //if(cleanup_touching_tid) {
         //  commands.emplace_back(command_t::create_delete(
         //    next_command_id(),
-        //    {tid_loc_t{compact_tid, compute_location}}));
+        //    {tid_loc_t{touching_tid, compute_location}}));
         //}
+
+        ///////////////////////////////////////////////////////////////////////
+
+        // The expand kernel has two parts:
+        //   compact and uncompact.
+        // Compact compresses the input into a contiguous region.
+        // Uncompact takes that contiguous region and writes to the output.
+        //
+        // If the input is already contiguous, no compact is needed to happen
+        // and the write can happen directly to the output.
+        //
+        // But if the expand kernel is called and a compact does need to happen,
+        // it has to allocate memory to hold the compact value.
+        //
+        // Here, we split the compact and uncompact into separate kernel calls so
+        // that the tos can have its memory. And we always delete the
+        // compact temporaries with the tos too.
+
+        // If the input needs to be compacted, compact it.
+        // Anywhere a new compact tensor created, make sure it
+        // gets deleted.
+        bool compact_is_new = false;
+        tid_t compact_tid = tid;
+        if(!expand.is_compact_inn()) {
+          compact_tid = next_tid();
+          compact_is_new = true;
+
+          // do the compact into compact_tid
+          commands.emplace_back(command_t::create_compact(
+            next_command_id(),
+            get_ud(node.kernel),
+            false,
+            which_input,
+            reblock_params,
+            {tid, loc},
+            {compact_tid, loc}));
+          (commands.back())->priority = info[nid].start * -1;
+        }
+        // if the compact input needs to be moved, move it
+        if(loc != compute_location) {
+          commands.emplace_back(command_t::create_move(
+            next_command_id(),
+            {compact_tid, loc},
+            {compact_tid, compute_location}));
+          (commands.back())->priority = info[nid].start * -1;
+          if(compact_is_new) {
+            commands.emplace_back(command_t::create_delete(
+              next_command_id(),
+              {tid_loc_t{compact_tid, loc}}));
+          }
+        }
+        // now a compact item exists at the destination location,
+        // so do the touch
+        commands.emplace_back(command_t::create_touch(
+          next_command_id(),
+          get_ud(node.kernel),
+          false,
+          which_input,
+          inputs.size(),
+          reblock_params,
+          {tid_loc_t{compact_tid, compute_location}},
+          cur));
+        (commands.back())->priority = info[nid].start * -1;
+        if(compact_is_new) {
+          commands.emplace_back(command_t::create_delete(
+            next_command_id(),
+            {tid_loc_t{compact_tid, compute_location}}));
+        }
       }
 
       relations[nid][bid] = cur;

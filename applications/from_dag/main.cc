@@ -307,7 +307,7 @@ int main(int argc, char **argv)
 
   // make the configuration
   auto config = std::make_shared<bbts::node_config_t>(
-          bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 12});
+          bbts::node_config_t{.argc=argc, .argv = argv});
 
   // create the node
   bbts::node_t node(config);
