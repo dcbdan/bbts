@@ -6,12 +6,75 @@
 #include <condition_variable>
 #include <tuple>
 #include <memory>
-#include <deque>
+#include <queue>
+#include <tuple>
+#include <vector>
 #include "command.h"
 #include "../tensor/tensor.h"
 #include "../storage/storage.h"
 
 namespace bbts {
+
+// This is a _stable_ priority queue for unique pointers
+// (well, for just command ptrs here)
+struct _command_priority_queue {
+  _command_priority_queue(): count(0) {}
+  void push(command_ptr_t && t) {
+    q.emplace(std::move(t), count--);
+  }
+
+  // 1. All the stl containers have pop and top separated.. Presumably so you can do
+  //      for(; !container.empty(); container.pop()) {
+  //        auto const& x = container.top(); ...
+  //      }
+  //    In this container, when you pop, it is removed.
+  // 2. stl priority queues only give you const& access via top. That poses a problem
+  //    when you're storing unique_ptrs in the thing. So here, get the const& from top
+  //    and use C++ cheat-mode to get a reference. Then move the unique pointer out.
+
+  command_ptr_t pop() {
+    auto const& [const_cmd, _0] = q.top();
+    command_ptr_t& cmd = const_cast<command_ptr_t&>(const_cmd);
+    command_ptr_t ret = std::move(cmd);
+    q.pop();
+    return std::move(ret);
+  }
+  bool empty() const {
+    return q.empty();
+  }
+  size_t size() const {
+    return q.size();
+  }
+  void clear() {
+    q = _queue_t();
+  }
+private:
+  struct compare_t {
+    bool operator()(
+      std::tuple<command_ptr_t, int64_t> const& lhs,
+      std::tuple<command_ptr_t, int64_t> const& rhs) const
+    {
+      auto const& [tl, cl] = lhs;
+      auto const& [tr, cr] = rhs;
+
+      int32_t const& pl = tl->priority;
+      int32_t const& pr = tr->priority;
+
+      if(pl == pr) {
+        return cl < cr;
+      }
+      return pl < pr;
+    }
+  };
+
+  using _queue_t = std::priority_queue<
+                     std::tuple<command_ptr_t, int64_t>,
+                     std::vector<std::tuple<command_ptr_t, int64_t>>,
+                     compare_t>;
+  _queue_t q;
+  int64_t count;
+};
+
 
 // here we queue all the commands this node needs to execute
 // and we notify all the reservation stations on the other nodes when tensors
@@ -149,9 +212,9 @@ class reservation_station_t {
   command_id_t _last_cmd = -1;
 
   // commands ready to execute
-  std::deque<command_ptr_t> _execute_ud;
-  std::deque<command_ptr_t> _execute_move;
-  std::deque<command_ptr_t> _execute_reduce;
+  _command_priority_queue _execute_ud;
+  _command_priority_queue _execute_move;
+  _command_priority_queue _execute_reduce;
 
   // the local commands and the number of tensors they are waiting for
   std::unordered_map<command_id_t, std::pair<command_ptr_t, int32_t>> _local_commands;

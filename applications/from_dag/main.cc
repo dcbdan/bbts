@@ -335,14 +335,15 @@ int main(int argc, char **argv)
       {
         table_t table(2);
         table << "nid" << "node" << "partition" << "start"
-              << "unit" << "# workers" << "d:init" << "d:in" << "d:out" << "d:compute"
+              << "unit" << "# workers" << "d" << "d:init" << "d:in" << "d:out" << "d:compute"
               << table.endl;
         for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
           auto const& pp = partition_info[nid];
           auto cc = options.to_gecode_cost_terms(
             options.get_kernel_cost(get_inc_part, nid));
+          int d = cc.init + cc.input + cc.output + cc.compute;
           table << nid << options.get_dag()[nid] << pp.blocking <<
-            pp.start << pp.unit << pp.worker << cc.init << cc.input << cc.output <<
+            (d == 0 ? (-1) : pp.start) << pp.unit << pp.worker << d << cc.init << cc.input << cc.output <<
             cc.compute << table.endl;
         }
 

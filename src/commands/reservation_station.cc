@@ -218,8 +218,7 @@ bbts::command_ptr_t bbts::reservation_station_t::get_next_move_command() {
   }
 
   // pop the unique pointer of the vector
-  auto tmp = std::move(_execute_move.front());
-  _execute_move.pop_front();
+  auto tmp = _execute_move.pop();
 
   // call the hook if necessary
   if constexpr (static_config::enable_hooks) {
@@ -244,8 +243,7 @@ bbts::command_ptr_t bbts::reservation_station_t::get_next_apply_command() {
   }
 
   // pop the unique pointer of the vector
-  auto tmp = std::move(_execute_ud.front());
-  _execute_ud.pop_front();
+  auto tmp = _execute_ud.pop();
 
   // call the hook if necessary
   if constexpr (static_config::enable_hooks) {
@@ -270,8 +268,7 @@ bbts::command_ptr_t bbts::reservation_station_t::get_next_reduce_command() {
   }
 
   // pop the unique pointer of the vector
-  auto tmp = std::move(_execute_reduce.front());
-  _execute_reduce.pop_front();
+  auto tmp = _execute_reduce.pop();
 
   // call the hook if necessary
   if constexpr (static_config::enable_hooks) {
@@ -564,10 +561,10 @@ bool bbts::reservation_station_t::_queue_local(bbts::command_ptr_t _command) {
   if(num_not_present == 0) {
 
     switch (_command->type) {
-      case command_t::op_type_t::APPLY:  _execute_ud.emplace_back(    std::move(_command)); break;
-      case command_t::op_type_t::TOUCH:  _execute_ud.emplace_back(    std::move(_command)); break;
-      case command_t::op_type_t::MOVE:   _execute_move.emplace_back(  std::move(_command)); break;
-      case command_t::op_type_t::REDUCE: _execute_reduce.emplace_back(std::move(_command)); break;
+      case command_t::op_type_t::APPLY:  _execute_ud.push    (std::move(_command)); break;
+      case command_t::op_type_t::TOUCH:  _execute_ud.push    (std::move(_command)); break;
+      case command_t::op_type_t::MOVE:   _execute_move.push  (std::move(_command)); break;
+      case command_t::op_type_t::REDUCE: _execute_reduce.push(std::move(_command)); break;
       default: assert(false); // this is not supposed to happen
     }
 
@@ -833,10 +830,10 @@ void bbts::reservation_station_t::_schedule_for_execution(bbts::command_ptr_t _c
 
   // schedule the command for execution
   switch (_cmd->type) {
-    case command_t::op_type_t::APPLY:  _execute_ud.emplace_back(    std::move(_cmd)); break;
-    case command_t::op_type_t::TOUCH:  _execute_ud.emplace_back(    std::move(_cmd)); break;
-    case command_t::op_type_t::MOVE:   _execute_move.emplace_back(  std::move(_cmd)); break;
-    case command_t::op_type_t::REDUCE: _execute_reduce.emplace_back(std::move(_cmd)); break;
+    case command_t::op_type_t::APPLY:  _execute_ud.push(    std::move(_cmd)); break;
+    case command_t::op_type_t::TOUCH:  _execute_ud.push(    std::move(_cmd)); break;
+    case command_t::op_type_t::MOVE:   _execute_move.push(  std::move(_cmd)); break;
+    case command_t::op_type_t::REDUCE: _execute_reduce.push(std::move(_cmd)); break;
     default: assert(false); // this is not supposed to happen
   }
 

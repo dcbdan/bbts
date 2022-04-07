@@ -95,6 +95,9 @@ command_ptr_t command_t::clone() {
   auto pDerived = (bbts::command_t *)(pReleased);
   auto d = std::unique_ptr<bbts::command_t, command_deleter_t>(pDerived);
 
+  // give every command the the same default priority.
+  d->priority = 0;
+
   // move the command
   return std::move(d);
 }
@@ -177,6 +180,7 @@ command_ptr_t command_t::create_apply(
   tmp->type = APPLY;
   tmp->fun_id = fun_id;
   tmp->nfo.is_gpu = is_gpu;
+  tmp->priority = 0;
   tmp->_num_parameters = params.size();
   tmp->_num_nodes = 1;
   tmp->_num_inputs = in.size();

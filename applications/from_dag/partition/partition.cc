@@ -433,6 +433,11 @@ void Partition::pode_t::set_base_constraint() {
   rel(*self, duration == call * kernel_duration, self->opt.ipl());
 
   // the number of workers determines how many times it must be called
+
+  ////////////////////////////////////////////////////////
+  //rel(*self, unit == worker);
+  ////////////////////////////////////////////////////////
+
   rel(*self, unit == call * worker);
   rel(*self, (unit == 0) >> (call == 0));
   rel(*self, (unit == 0) >> (worker == 0));

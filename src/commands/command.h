@@ -206,8 +206,9 @@ struct command_t {
 
   } nfo;
 
-private:
+  int32_t priority;
 
+private:
   // the number of parameters
   uint16_t _num_parameters;
 
