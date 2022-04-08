@@ -7,6 +7,8 @@
 #include <fstream>
 #include <stdexcept>
 
+#include "../../../src/utils/expand.h"
+
 using namespace bbts;
 
 namespace _register_init {
@@ -78,17 +80,26 @@ void load_block(float* data, params_t const& params) {
     throw std::runtime_error("couldn't open: " + file);
   }
 
-  // The idea is to walk through the entire file. Whenever the index is in the
-  // right range, write it to the output.
-  // This could be faster, but correctness is the first goal.
-  indexer_t indexer(params.bid, params.dims, params.total_dims);
-  float val;
-  do {
-    f.read((char*)(&val), sizeof(float));
-    if(indexer.in_range()) {
-      *data++ = val;
-    }
-  } while(indexer.increment());
+  using utils::expand::part_dim_t;
+
+  int rank = params.dims.size();
+  std::vector<part_dim_t> part_dims;
+  part_dims.reserve(rank);
+  for(int r = 0; r != rank; ++r) {
+    part_dims.push_back(part_dim_t{
+      .start    = static_cast<int>(params.dims[r]*params.bid[r]),
+      .interval = static_cast<int>(params.dims[r]),
+      .full     = static_cast<int>(params.total_dims[r])
+    });
+  }
+
+  utils::expand::column_major_expand_t::for_each_offset(
+    part_dims,
+    [&](int offset, int num_copy) {
+      f.seekg(sizeof(float)*offset);
+      f.read((char*)data, sizeof(float)*num_copy);
+      data += num_copy;
+    });
 }
 
 params_t parse(const bbts::ud_impl_t::tensor_params_t &params) {
