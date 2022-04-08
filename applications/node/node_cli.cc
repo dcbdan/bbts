@@ -87,7 +87,7 @@ void compile_commands(std::ostream &out, bbts::node_t &node, const std::string &
   // compile the commands and load them
   auto [did_compile, message] = node.compile_commands(file_path);
 
-  // finish the loading message  
+  // finish the loading message
   b = true; t.join();
 
   if(!did_compile) {
@@ -120,7 +120,7 @@ bool load_shared_library(std::ostream &out, bbts::node_t &node, const std::strin
   auto file_bytes = new char[file_len];
   in.readsome(file_bytes, file_len);
 
-  // finish the loading message  
+  // finish the loading message
   b = true; t.join();
 
   // kick off a registering message
@@ -141,7 +141,7 @@ bool load_shared_library(std::ostream &out, bbts::node_t &node, const std::strin
     return true;
   }
 
-  
+
 }
 
 // for string delimiter
@@ -180,7 +180,7 @@ bool load_tensors(std::ostream &out, bbts::node_t &node, const std::string &file
   std::vector<std::tuple<bbts::tid_t, std::string, std::string>> parsed_file_list;
   std::string line;
   while(std::getline(in, line)){
-    
+
     // split the file list
     auto values = split(line, "|");
     if(values.size() != 3) {
@@ -199,10 +199,10 @@ bool load_tensors(std::ostream &out, bbts::node_t &node, const std::string &file
         b = true; t.join();
         out << bbts::red << "\nThe tid must be an integer \n" << bbts::reset;
         return false;
-      }  
+      }
     }
     bbts::tid_t parsed_tid = std::atoi(values[0].c_str());
-    
+
 
     // turn the values[2] into a full path and make sure it exists
 
@@ -215,7 +215,7 @@ bool load_tensors(std::ostream &out, bbts::node_t &node, const std::string &file
       b = true; t.join();
       out << bbts::red << "\nCould not find the tensor file: " << concated_path << " \n" << bbts::reset;
       return false;
-    } 
+    }
 
 
     // right now it is hardcoded to add  tensors in front of it
@@ -240,9 +240,9 @@ bool load_tensors(std::ostream &out, bbts::node_t &node, const std::string &file
   return false;
 }
 
-void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_kernel_size, 
+void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_kernel_size,
                               const std::string &file_path, std::vector<std::string> file_args) {
-  
+
   std::vector<std::string> args;
 
   std::filesystem::path p = "./bin/toBarbaTos";
@@ -267,7 +267,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
     command += arg + " ";
   }
   command.pop_back();
-  
+
   // execute the file
   FILE* pipe = popen(command.c_str(), "r");
   if (!pipe)
@@ -290,7 +290,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
 
   out << bbts::green << "SUCCESS!\n" << bbts::reset;
   out << "Gnerated multiple kernels pick one : \n";
-  
+
   int32_t idx = 0;
   while(true) {
 
@@ -306,7 +306,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
     return;
   }
   out << "Options : [" << 0 << " ... " << idx - 1 << "] or -1 for exit\n";
-  
+
   // input chose one of the kernels
   int kernel_choice;
   while (true) {
@@ -315,7 +315,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
 
     if(kernel_choice >= 0 && kernel_choice < idx) { break; }
   }
-  
+
   // compiling kernel
   out << "Compiling kernel " << kernel_choice << " which compiler to use : \n";
   out << "-1) to abort\n";
@@ -327,7 +327,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
       cmds.push_back(path);
     }
   }
-  
+
   // compiler choice
   int compiler_choice;
   while (true) {
@@ -363,7 +363,7 @@ void compile_einkorn_commands(std::ostream &out, bbts::node_t &node, int max_ker
 
   // great we compiled this now we need to load the libarry
   out << bbts::green << "COMPILED!\n";
-  bool didLoad = load_shared_library(out, node, "./generated/libkernel.so"); 
+  bool didLoad = load_shared_library(out, node, "./generated/libkernel.so");
   if(!didLoad) {
     return;
   }
@@ -445,7 +445,7 @@ void set(std::ostream &out, bbts::node_t &node, const std::string &what, const s
 
   // parse the number of threads
   if(what == "no_threads") {
-    
+
     // check the value
     if(value.empty()) {
       out << "You must provide a number of threads.\n";
@@ -488,7 +488,7 @@ void set(std::ostream &out, bbts::node_t &node, const std::string &what, const s
       // finish the loading message
       b = true; t.join();
       out << bbts::red  << "The value must be a positive number followed by [K|M|G].\n" << bbts::reset;
-      
+
       return;
     }
 
@@ -497,10 +497,10 @@ void set(std::ostream &out, bbts::node_t &node, const std::string &what, const s
 
     // apply the unit
     switch(unit) {
-      case 'K' : val *= 1024; break; 
-      case 'M' : val *= (1024 * 1024); break; 
+      case 'K' : val *= 1024; break;
+      case 'M' : val *= (1024 * 1024); break;
       case 'G' : val *= (1024 * 1024 * 1024); break;
-      default : break; 
+      default : break;
     }
 
     // set the value
@@ -590,17 +590,17 @@ void prompt(bbts::node_t &node) {
   auto loadSubMenu = std::make_unique<Menu>("load");
 
   loadSubMenu->Insert("commands",[&](std::ostream &out, const std::string &file) {
-  
+
     load_binary_command(out, node, file);
-  
+
   },"Load commands form a binary file. Usage : load commands <file>\n");
-  
+
   loadSubMenu->Insert("library", [&](std::ostream &out, const std::string &file) {
 
-    load_shared_library(out, node, file);  
-  
+    load_shared_library(out, node, file);
+
    },"Load a shared object file. Usage : load library <file>\n");
-  
+
   // file_list.txt
   // tid|type_name|path_to_file
   // ...
@@ -619,14 +619,14 @@ void prompt(bbts::node_t &node) {
       node.print_cluster_info(out);
     }
     else if(what == "storage") {
-      
+
       auto [success, message] = node.print_storage_info();
       if(!success) {
         out << bbts::red << "[ERROR]\n";
       }
       out << message << '\n';
     }
-    
+
   },"Returns information about the cluster. Usage : info [cluster, storage, tensor] \n ");
 
   rootMenu->Insert("info",[&](std::ostream &out, const std::string &what, int32_t id) {
@@ -683,13 +683,13 @@ void prompt(bbts::node_t &node) {
       max_kernel_size = std::stoi(args[0].c_str(), &ptr);
     }
     catch(std::exception ignore) {
-      out << bbts::red << "Wrong kernel size" << bbts::reset;  
+      out << bbts::red << "Wrong kernel size" << bbts::reset;
       return;
     }
 
     // get the file
     std::string file = args[1];
-    
+
     // copy the argments
     std::vector<std::string> file_args;
     for(size_t idx = 2; idx < args.size(); idx++) {
@@ -729,7 +729,8 @@ void prompt(bbts::node_t &node) {
 int main(int argc, char **argv) {
 
   // make the configuration
-  auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 8});
+  auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t(argc, argv));
+  config->num_threads = 8;
 
   // create the node
   bbts::node_t node(config);

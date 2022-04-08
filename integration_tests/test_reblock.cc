@@ -84,8 +84,8 @@ int main(int argc, char **argv) {
                                      (num_blocks_inn_j*num_blocks_out_j*num_small_j) << std::endl;
 
   // make the configuration
-  auto config = std::make_shared<bbts::node_config_t>(
-    bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 8});
+  auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t(argc, argv));
+  config->num_threads = 8;
 
   // create the node
   bbts::node_t node(config);

@@ -43,10 +43,17 @@ namespace bbts {
         auto out = res.create_or_get.front().get().tensor;
 
         // recieve the request and check if there is an error
+#ifdef ENABLE_IB
+        if (!_comm.recv_sync(out, _num_bytes, _node, _cmd_id)) {
+          std::cout << "Failed to recieve the tensor, in a MOVE operation.\n";
+          exit(-1);
+        }
+#else
         if (!_comm.receive_request_sync(_node, _cmd_id, out, _num_bytes)) {
           std::cout << "Failed to recieve the tensor, in a MOVE operation.\n";
           exit(-1);
         }
+#endif
       });
     }
   }

@@ -90,9 +90,15 @@ void reduce_op_t::apply() {
           auto r = res.create_or_get[0].get().tensor;
 
           // recieve the request and check if there is an error
+#ifdef ENABLE_IB
+          if (!_comm.recv_sync(r, rhs_size, rnk, _tag)) {
+            std::cout << "Failed to recieve the tensors for a REDUCE operation\n";
+          }
+#else
           if (!_comm.receive_request_sync(rnk, _tag, r, rhs_size)) {
             std::cout << "Failed to recieve the tensors for a REDUCE operation\n";
           }
+#endif
 
           // how much do we need to allocated
           _input_meta.set<0>(l->_meta);

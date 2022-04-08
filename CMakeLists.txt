@@ -118,7 +118,19 @@ file(GLOB SERVER_SOURCE "src/utils/*.cc")
 add_library(utils OBJECT ${SERVER_SOURCE})
 
 # the communication
-file(GLOB COMMUNICATION_SOURCE "src/communication/*.cc")
+if(${ENABLE_IB})
+  file(GLOB COMMUNICATION_SOURCE
+         "src/communication/parse_args.cc"
+         "src/communication/ib_communicator.cc"
+         "src/communication/infiniband/connection.cc"
+         "src/communication/infiniband/mr_bytes.cc"
+         "src/communication/infiniband/recv_queue.cc"
+         "src/communication/infiniband/send_queue.cc")
+else()
+  file(GLOB COMMUNICATION_SOURCE
+         "src/communication/parse_args.cc"
+         "src/communication/mpi_communicator.cc")
+endif()
 add_library(communication OBJECT ${COMMUNICATION_SOURCE})
 
 # the ud functions
@@ -141,6 +153,13 @@ target_link_libraries(bbts-common ${CMAKE_DL_LIBS})
 
 # the blas implementation
 target_link_libraries(bbts-common ${BLAS_LIBRARIES})
+
+if(${ENABLE_IB})
+  # link ibverbs
+  target_link_libraries(bbts-common ibverbs)
+else()
+  #target_link_libraries(bbts-common ${MPI_CXX_LIBRARIES})
+endif()
 
 # link the cublas library
 if(${ENABLE_GPU})

@@ -16,7 +16,7 @@ struct static_config {
 // are we using gpu
 #ifdef ENABLE_GPU
   static constexpr bool enable_gpu = true;
-#else 
+#else
   static constexpr bool enable_gpu = false;
 #endif
 
@@ -25,6 +25,12 @@ struct static_config {
   static const bool enable_storage = true;
 #else
   static const bool enable_storage = false;
+#endif
+
+#ifdef ENABLE_IB
+  static const bool enable_ib = true;
+#else
+  static const bool enable_ib = false;
 #endif
 
 };

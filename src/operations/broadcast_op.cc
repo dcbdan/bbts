@@ -67,9 +67,15 @@ void broadcast_op_t::apply() {
       _in = res.create_or_get[0].get().tensor;
 
       // recieve the request and check if there is an error
+#ifdef ENABLE_IB
+      if (!_comm.recv_sync(_in, _num_bytes, get_global_rank(peer), _tag)) {
+        std::cout << "Failed to recieve the tensor for node " << _comm.get_rank() << " \n";
+      }
+#else
       if (!_comm.receive_request_sync(get_global_rank(peer), _tag, _in, _num_bytes)) {
         std::cout << "Failed to recieve the tensor for node " << _comm.get_rank() << " \n";
       }
+#endif
     }
     else {
 
@@ -89,6 +95,9 @@ void broadcast_op_t::apply() {
         // figure out where we need to send it
         peer = peer % size;
 
+#ifdef ENABLE_IB
+        requests.push_back(_comm.send_async(_in, _num_bytes, get_global_rank(peer), _tag));
+#else
         // send the tensor async
         requests.emplace_back(_comm.send_async(_in, _num_bytes, get_global_rank(peer), _tag));
 
@@ -97,6 +106,7 @@ void broadcast_op_t::apply() {
           std::cout << "Failed to forward a tensor\n";
           exit(-1);
         }
+#endif
       }
     }
 
@@ -106,9 +116,15 @@ void broadcast_op_t::apply() {
       for(auto &r : requests) {
 
         // wait for request to finish
+#ifdef ENABLE_IB
+        if(!r.get()) {
+          success = false;
+        }
+#else
         if(!_comm.wait_async(r)) {
           success = false;
         }
+#endif
       }
     }
   });

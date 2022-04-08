@@ -303,11 +303,10 @@ void repl(::bbts::node_t& node, generate_commands_t& g) {
 
 int main(int argc, char **argv)
 {
-  partition_options_t options = get_options(argc, argv);
-
   // make the configuration
-  auto config = std::make_shared<bbts::node_config_t>(
-          bbts::node_config_t{.argc=argc, .argv = argv});
+  auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t(argc, argv));
+
+  partition_options_t options = get_options(config->argc, config->argv);
 
   // create the node
   bbts::node_t node(config);
@@ -350,12 +349,11 @@ int main(int argc, char **argv)
         std::cout << table << std::endl;
       }
 
-      int num_nodes = 1; // TODO fix this
       generate_commands_t g(
         options.get_dag(),
         partition_info,
         [&uds](int which){ return uds[which]; },
-        num_nodes);
+        node.get_num_nodes());
 
       auto [input_cmds, run_cmds] = g.extract();
 

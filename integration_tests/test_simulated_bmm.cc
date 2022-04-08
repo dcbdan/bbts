@@ -301,7 +301,8 @@ std::vector<bbts::command_ptr_t> generate_commands(size_t split, bbts::node_t &n
 int main(int argc, char **argv) {
 
   // make the configuration
-  auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t{.argc=argc, .argv = argv, .num_threads = 8});
+  auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t(argc, argv));
+  config->num_threads = 8;
 
   // create the node
   bbts::node_t node(config);

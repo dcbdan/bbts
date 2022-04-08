@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <memory>
 
+#include "../server/node_config.h"
+#include "../communication/parse_args.h"
+
 namespace bbts {
 
 // the type that identifies a node
@@ -10,6 +13,21 @@ using node_id_t = int32_t;
 
 // this structure information on how the node is configured
 struct node_config_t {
+
+  node_config_t(int argc_, char** argv_) {
+    // the first portions of the args pertain to things the communicator
+    // cares about.
+    char* title = argv_[0];
+
+    auto [num_used, connection_info] = parse_connection_args(argc_, argv_);
+    argc_ -= num_used;
+    argv_ += num_used;
+    argv_[0] = title;
+
+    argc = argc_;
+    argv = argv_;
+    extra_connection_info = connection_info;
+  }
 
   // the number of arguments passed to the node
   int argc;
@@ -31,7 +49,8 @@ struct node_config_t {
 
   // the cost to send bytes per byte
   float send_cost_per_byte = 1.16415322E-9;
-  
+
+  connection_info_t extra_connection_info;
 };
 
 // a nice way to reference the configuration ptr
