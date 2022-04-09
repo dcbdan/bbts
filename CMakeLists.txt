@@ -80,6 +80,11 @@ if(${ENABLE_STORAGE})
     add_compile_definitions(ENABLE_STORAGE)
 endif()
 
+# forward the definitions ENABLE_IB=ON/OFF
+if(${ENABLE_IB})
+    add_compile_definitions(ENABLE_IB)
+endif()
+
 # try to find mkl
 set(BLA_VENDOR Intel10_64lp_seq)
 find_package(BLAS)

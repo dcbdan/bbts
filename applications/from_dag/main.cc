@@ -13,6 +13,8 @@
 
 #include "print_table.h"
 
+#include "../../src/commands/command.h"
+
 //https://stackoverflow.com/questions/3682773/pass-an-absolute-path-as-preprocessor-directive-on-compiler-command-line
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
@@ -36,7 +38,11 @@ class PartitionOptions : public Gecode::BaseOptions {
   Driver::UnsignedIntOption _search_compute_threads;
   Driver::UnsignedIntOption _search_restart_scale;
   Driver::UnsignedIntOption _search_time_per_cover;
+
+  bool _called_help;
 public:
+  void help() { _called_help = true; Gecode::BaseOptions::help(); }
+  bool called_help() const { return _called_help; }
 
   // Initialize options
   PartitionOptions(const char* n):
@@ -54,7 +60,8 @@ public:
     _max_units("max-units", "...", 1000),
     _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
     _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
-    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000)
+    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
+    _called_help(false)
   {
     add(_ipl);
     add(_seed);
@@ -76,11 +83,14 @@ public:
   }
 
   // Parse options from arguments
-  partition_options_t parse(int& argc, char* argv[])
+  void parse(int& argc, char* argv[])
   {
     BaseOptions::parse(argc,argv);
+  }
 
-    return partition_options_t(
+  std::shared_ptr<partition_options_t>
+  get_options() {
+    return std::make_shared<partition_options_t>(
       parse_dag(_dag_file.value()),
       _ipl.value(),
       static_cast<int>(_restart_scale.value()),
@@ -99,9 +109,16 @@ public:
   }
 };
 
-partition_options_t get_options(int argc, char** argv) {
+std::shared_ptr<partition_options_t> get_options(int argc, char** argv) {
   PartitionOptions opt("from_dag");
-  return opt.parse(argc, argv);
+  opt.parse(argc, argv);
+  // here, the parse is unsuccessful if and only if help was called,
+  // which is not great.
+  if(opt.called_help()) {
+    return nullptr;
+  } else {
+    return opt.get_options();
+  }
 }
 
 vector<::bbts::ud_impl_id_t> load_cutensor_lib(
@@ -301,12 +318,40 @@ void repl(::bbts::node_t& node, generate_commands_t& g) {
   }
 }
 
+void cmd_to_table(table_t& table, bbts::command_t const& cmd)
+{
+  table << cmd.id;
+
+  if(cmd.is_apply()) {
+    table << "APPLY";
+  } else if(cmd.is_move()) {
+    table << "MOVE";
+  } else {
+    table << table.blank;
+  }
+
+  std::vector<bbts::tid_t> inn_tids;
+  std::vector<bbts::node_id_t> inn_locs;
+  for(int i = 0; i != cmd.get_num_inputs(); ++i) {
+    auto [tid,loc] = cmd.get_input(i);
+    inn_tids.push_back(tid);
+    inn_locs.push_back(loc);
+  }
+  std::vector<bbts::tid_t> out_tids;
+  std::vector<bbts::node_id_t> out_locs;
+  for(int i = 0; i != cmd.get_num_outputs(); ++i) {
+    auto [tid,loc] = cmd.get_output(i);
+    out_tids.push_back(tid);
+    out_locs.push_back(loc);
+  }
+
+  table << inn_tids << out_tids << inn_locs << out_locs << table.endl;
+}
+
 int main(int argc, char **argv)
 {
   // make the configuration
   auto config = std::make_shared<bbts::node_config_t>(bbts::node_config_t(argc, argv));
-
-  partition_options_t options = get_options(config->argc, config->argv);
 
   // create the node
   bbts::node_t node(config);
@@ -323,6 +368,12 @@ int main(int argc, char **argv)
     t = std::thread([&]()
     {
       //verbose(std::cout, node, true);
+
+      auto options_ptr = get_options(config->argc, config->argv);
+      if(!options_ptr) {
+        return;
+      }
+      partition_options_t const& options = *options_ptr;
 
       auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
 
@@ -356,6 +407,24 @@ int main(int argc, char **argv)
         node.get_num_nodes());
 
       auto [input_cmds, run_cmds] = g.extract();
+
+      //{
+      //  table_t table(4);
+      //  table << "" << "id" << "type" << "inn" << "out" << "inn locs" << "out locs" << table.endl;
+      //  for(auto& cmd_ptr: input_cmds) {
+      //    table << "inn";
+      //    cmd_to_table(table, *cmd_ptr);
+      //    //std::stringstream ss;
+      //    //cmd->print(ss);
+      //    //std::cout << ss.str();
+      //  }
+      //  for(auto& cmd: run_cmds) {
+      //    table << "out";
+      //    cmd_to_table(table, *cmd);
+      //  }
+
+      //  std::cout << table << std::endl;
+      //}
 
       run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
       run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");

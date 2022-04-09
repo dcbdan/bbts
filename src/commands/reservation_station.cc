@@ -736,19 +736,21 @@ bool bbts::reservation_station_t::_retire_remote_command(bbts::command_ptr_t _co
     auto tid = out.tid;
     auto &s = _tensors[tid];
 
-    // make sure that it was not created before
-    assert(s.num_to_write > 0);
-
-    // we have written to the tensor once
+    if(s.is_created()) {
+      std::stringstream ss;
+      _command->print(ss);
+      std::cout << ss.str();
+      std::cout << s.num_to_read << ", " << s.num_to_write << std::endl;
+    }
+    assert(!s.is_created());
     s.num_to_write--;
 
-    // if the tensor is waiting for more writes, there is nothing else to do
     if(s.num_to_write != 0) {
       continue;
     }
 
     // remove the tensor if it is not needed
-    if (s.num_to_write == 0 && s.num_to_read == 0 && s.scheduled_for_delition) {
+    if (s.num_to_read == 0 && s.scheduled_for_delition) {
 
       // remove the tensor immediately
       _remove_tensor(out.tid);

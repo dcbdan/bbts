@@ -109,9 +109,16 @@ void generate_commands_t::add_node(nid_t nid) {
     // could be better, and determined how it could be better,
     // change it.
     vector<int> num_from_node(num_nodes, 0);
-    for(auto const& [_1, loc]: inputs) {
+    // ^ for each location, count the number of tensors that
+    //   already exist at that location
+    for(auto const& [tid, loc]: inputs) {
       num_from_node[loc]++;
+      for(auto const& moved_to_loc: moved_to_locs[tid]) {
+        num_from_node[moved_to_loc]++;
+      }
     }
+    // pick one of the locations that has the most number of tensors
+    // already available
     int compute_location = selector.select_score(num_from_node);
 
     // Now we have all the inputs, figure out what the node is and use that
@@ -150,15 +157,11 @@ void generate_commands_t::add_node(nid_t nid) {
       vector<tid_loc_t> apply_inputs;
       apply_inputs.reserve(inputs.size());
       for(auto const& [tid,loc]: inputs) {
-        if(loc == compute_location) {
-          apply_inputs.push_back({tid, compute_location});
-        } else {
-          commands.emplace_back(command_t::create_move(
-            next_command_id(),
-            {tid, loc},
-            {tid, compute_location}));
-          apply_inputs.push_back({tid, compute_location});
+        if(loc != compute_location) {
+          // move it if it hasn't yet been moved
+          assure_moved_to(commands, tid, loc, compute_location);
         }
+        apply_inputs.push_back({tid, compute_location});
       }
 
       tid_loc_t cur{ next_tid(), compute_location };
@@ -226,10 +229,7 @@ void generate_commands_t::add_node(nid_t nid) {
         //if(loc != compute_location) {
         //  if(expand.is_compact_inn()) {
         //    // if it is already compact, just send it
-        //    commands.emplace_back(command_t::create_move(
-        //      next_command_id(),
-        //      {tid, loc},
-        //      {tid, compute_location}));
+        //    assure_moved_to(commands, tid, loc, compute_location);
         //  } else {
         //    // if it can be compacted, compact it
         //    tid_t compact_tid = next_tid();
@@ -246,10 +246,7 @@ void generate_commands_t::add_node(nid_t nid) {
         //      {compact_tid, loc}));
 
         //    // move the compacted tensor to the compute location
-        //    commands.emplace_back(command_t::create_move(
-        //      next_command_id(),
-        //      {compact_tid, loc},
-        //      {compact_tid, compute_location}));
+        //    assure_moved_to(commands, compact_tid, loc, compute_location);
 
         //    // now delete the compacted tensor
         //    cleanup_touching_tid = true;
@@ -317,11 +314,7 @@ void generate_commands_t::add_node(nid_t nid) {
         }
         // if the compact input needs to be moved, move it
         if(loc != compute_location) {
-          commands.emplace_back(command_t::create_move(
-            next_command_id(),
-            {compact_tid, loc},
-            {compact_tid, compute_location}));
-          (commands.back())->priority = info[nid].start * -1;
+          assure_moved_to(commands, compact_tid, loc, compute_location);
           if(compact_is_new) {
             commands.emplace_back(command_t::create_delete(
               next_command_id(),
@@ -541,6 +534,29 @@ bool generate_commands_t::relation_t::_is_no_op() {
   }
   throw std::runtime_error("should not reach");
   return true;
+}
+
+bool generate_commands_t::was_moved_to(tid_t tid, loc_t loc) {
+  for(auto const& other_loc: moved_to_locs[tid]) {
+    if(other_loc == loc) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void generate_commands_t::assure_moved_to(
+  vector<command_ptr_t>& cmds,
+  tid_t tid, loc_t from, loc_t to)
+{
+  if(was_moved_to(tid, to)) {
+    return;
+  }
+  cmds.emplace_back(command_t::create_move(
+    next_command_id(),
+    {tid, from},
+    {tid, to}));
+  moved_to_locs[tid].push_back(to);
 }
 
 }}

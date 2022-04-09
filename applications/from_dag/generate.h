@@ -93,6 +93,12 @@ private:
   vector<command_ptr_t> input_commands;
   vector<command_ptr_t> commands;
 
+  std::unordered_map<tid_t, std::vector<loc_t>> moved_to_locs;
+  bool was_moved_to(tid_t tid, loc_t loc);
+  void assure_moved_to(
+    vector<command_ptr_t>& cmds,
+    tid_t tid, loc_t from, loc_t to);
+
   dag_t const dag;
   vector<partition_info_t> const info;
 
