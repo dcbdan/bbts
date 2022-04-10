@@ -58,7 +58,8 @@ generate_commands_t::generate_commands_t(
     num_nodes(num_nodes),
     selector(num_nodes),
     _command_id(0),
-    _tid(0)
+    _tid(0),
+    _priority(std::numeric_limits<int32_t>::max())
 {
   relations.reserve(dag.size());
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
@@ -67,11 +68,22 @@ generate_commands_t::generate_commands_t(
 
   vector<nid_t> idxs = priority_dag_order();
 
+  // recursing at the ouptut nodes, add the priorities
+  for(nid_t which: idxs) {
+    if(dag[which].ups.size() == 0) {
+      add_priority(which);
+    }
+  }
+
   // Starting with nodes of the lowest priorty, add them to
   // the relation dag
   for(nid_t which: idxs) {
     add_node(which);
   }
+}
+
+bool priority_was_set(int32_t p) {
+  return p != std::numeric_limits<int32_t>::min();
 }
 
 void generate_commands_t::add_node(nid_t nid) {
@@ -101,6 +113,9 @@ void generate_commands_t::add_node(nid_t nid) {
   indexer_t indexer(relations[nid].partition);
   do {
     auto const& bid = indexer.idx;
+
+    int priority = 0; // relations[nid].priority(bid);
+    assert(priority_was_set(priority));
 
     vector<tid_loc_t> inputs = relations[nid].get_inputs(bid);
 
@@ -148,6 +163,7 @@ void generate_commands_t::add_node(nid_t nid) {
         params,
         {},
         {cur}));
+      input_commands.back()->priority = priority;
 
       relations[nid][bid] = cur;
     }
@@ -173,7 +189,7 @@ void generate_commands_t::add_node(nid_t nid) {
         node.get_bbts_params(),
         apply_inputs,
         {cur}));
-      (commands.back())->priority = info[nid].start * -1;
+      commands.back()->priority = priority;
 
       relations[nid][bid] = cur;
     }
@@ -189,7 +205,7 @@ void generate_commands_t::add_node(nid_t nid) {
         node.get_bbts_params(),
         inputs,
         cur));
-      (commands.back())->priority = info[nid].start * -1;
+      commands.back()->priority = priority;
 
       relations[nid][bid] = cur;
     }
@@ -244,6 +260,7 @@ void generate_commands_t::add_node(nid_t nid) {
         //      reblock_params,
         //      {tid, loc},
         //      {compact_tid, loc}));
+        //    commands.back()->priority = priority;
 
         //    // move the compacted tensor to the compute location
         //    assure_moved_to(commands, compact_tid, loc, compute_location);
@@ -253,6 +270,7 @@ void generate_commands_t::add_node(nid_t nid) {
         //    commands.emplace_back(command_t::create_delete(
         //      next_command_id(),
         //      {tid_loc_t{compact_tid, loc}}));
+
         //  }
         //}
 
@@ -266,7 +284,7 @@ void generate_commands_t::add_node(nid_t nid) {
         //  reblock_params,
         //  {tid_loc_t{touching_tid, compute_location}},
         //  cur));
-        //(commands.back())->priority = info[nid].start * -1;
+        //    commands.back()->priority = priority;
 
         //// if we eneded up moving this guy, delete it
         //if(cleanup_touching_tid) {
@@ -310,7 +328,7 @@ void generate_commands_t::add_node(nid_t nid) {
             reblock_params,
             {tid, loc},
             {compact_tid, loc}));
-          (commands.back())->priority = info[nid].start * -1;
+          commands.back()->priority = priority;
         }
         // if the compact input needs to be moved, move it
         if(loc != compute_location) {
@@ -332,7 +350,7 @@ void generate_commands_t::add_node(nid_t nid) {
           reblock_params,
           {tid_loc_t{compact_tid, compute_location}},
           cur));
-        (commands.back())->priority = info[nid].start * -1;
+        commands.back()->priority = priority;
         if(compact_is_new) {
           commands.emplace_back(command_t::create_delete(
             next_command_id(),
@@ -345,6 +363,15 @@ void generate_commands_t::add_node(nid_t nid) {
       throw std::runtime_error("should not reach");
     }
 
+  } while (indexer.increment());
+}
+
+void generate_commands_t::add_priority(nid_t nid) {
+  // For each block, recursively add priorities
+  indexer_t indexer(relations[nid].partition);
+  do {
+    auto const& bid = indexer.idx;
+    relations[nid].add_priority(bid);
   } while (indexer.increment());
 }
 
@@ -365,9 +392,89 @@ generate_commands_t::relation_t::relation_t(generate_commands_t* self_, nid_t ni
   partition(self_->info[nid_].blocking),
   is_no_op(_is_no_op())
 {
-  tid_locs = vector<tid_loc_t>(
-    is_no_op ? 0 : product(partition),
-    {-1, -1});
+  int n = is_no_op ? 0 : product(partition);
+  tid_locs = vector<tid_loc_t>(n, {-1,-1});
+  priorities = vector<int32_t>(n, std::numeric_limits<int32_t>::min());
+}
+
+vector<tuple<nid_t, vector<int>>>
+generate_commands_t::relation_t::get_bid_inputs(vector<int> const& bid) const
+{
+  assert(bid.size() == partition.size());
+
+  node_t const& node = self->dag[nid];
+
+  if(node.type == node_t::node_type::agg) {
+    vector<tuple<nid_t, vector<int>>> ret;
+
+    // basically, cartesian product over the agg dimensions.
+    nid_t join_nid = node.downs[0];
+    node_t const& join_node = self->dag[join_nid];
+    auto const& aggs = join_node.aggs;
+    auto const& join_blocking = self->info[join_nid].blocking;
+
+    vector<int> agg_szs;
+    agg_szs.reserve(aggs.size());
+    for(int which: aggs) {
+      agg_szs.push_back(join_blocking[which]);
+    }
+
+    indexer_t indexer(agg_szs);
+
+    ret.reserve(product(agg_szs));
+    do {
+      auto inc_bid = dag_t::combine_out_agg(aggs, bid, indexer.idx);
+      ret.emplace_back(join_nid, inc_bid);
+    } while(indexer.increment());
+
+    return ret;
+  }
+
+  if(node.type == node_t::node_type::reblock) {
+
+    nid_t input_nid = node.downs[0];
+
+    if(is_no_op) {
+      return {{input_nid, bid}};
+    } else {
+      vector<tuple<nid_t, vector<int>>> ret;
+      // the expander can figure out which inputs touch
+      // this output.
+      expand_indexer_t e_indexer(
+        // this is the input partitioning
+        self->relations[input_nid].partition,
+        // this is the output partitioning
+        partition);
+
+      // get all those inputs
+      auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
+
+      ret.reserve(inputs.size());
+      for(auto const& input_bid: inputs) {
+        ret.emplace_back(input_nid, input_bid);
+      }
+      return ret;
+    }
+  }
+
+  if(node.type == node_t::node_type::join) {
+    vector<tuple<nid_t, vector<int>>> ret;
+    ret.reserve(node.downs.size());
+
+    for(auto const& reblock_nid: node.downs) {
+      vector<int> reblock_bid = self->dag.get_reblock_out(bid, reblock_nid);
+      ret.emplace_back(reblock_nid, reblock_bid);
+    }
+
+    return ret;
+  }
+
+  if(node.type == node_t::node_type::input) {
+    return {};
+  }
+
+  assert(false);
+  return {};
 }
 
 // Go into the input relations and get the input tid_locs
@@ -487,7 +594,11 @@ tid_loc_t& generate_commands_t::relation_t::operator[](vector<int> const& bid) {
   }
 
   // otherwise, we find the tid, column major ordering and all that
-  // TODO: put this in a function somewhere...
+  return tid_locs[bid_to_idx(bid)];
+}
+
+// column major ordering
+int generate_commands_t::relation_t::bid_to_idx(vector<int> const& bid) const {
   vector<int> const& parts = self->info[nid].blocking;
   int idx = 0;
   int p = 1;
@@ -495,7 +606,12 @@ tid_loc_t& generate_commands_t::relation_t::operator[](vector<int> const& bid) {
     idx += p * bid[r];
     p   *= parts[r];
   }
-  return tid_locs[idx];
+  return idx;
+}
+
+int32_t generate_commands_t::relation_t::priority(vector<int> const& bid) const {
+  assert(!is_no_op);
+  return priorities[bid_to_idx(bid)];
 }
 
 void generate_commands_t::relation_t::print(std::ostream& os) const {
@@ -534,6 +650,24 @@ bool generate_commands_t::relation_t::_is_no_op() {
   }
   throw std::runtime_error("should not reach");
   return true;
+}
+
+void generate_commands_t::relation_t::add_priority(vector<int> const& bid)
+{
+  // Was this already set? then don't recurse and exit.
+  // Otherwise set the priority if this is an op and recurse.
+
+  if(!is_no_op) {
+    auto& p = priorities[bid_to_idx(bid)];
+    if(priority_was_set(p)) {
+      return;
+    } else {
+      p = self->next_priority();
+    }
+  }
+  for(auto const& [child_nid, input_bid]: get_bid_inputs(bid)) {
+    self->relations[child_nid].add_priority(input_bid);
+  }
 }
 
 bool generate_commands_t::was_moved_to(tid_t tid, loc_t loc) {

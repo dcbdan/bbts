@@ -60,18 +60,27 @@ struct generate_commands_t {
   struct relation_t {
     relation_t(generate_commands_t* self_, nid_t nid_);
 
+    vector<tuple<nid_t, vector<int>>>
+    get_bid_inputs(vector<int> const& bid) const;
+
     vector<tid_loc_t> get_inputs(vector<int> const& bid);
 
     tid_loc_t& operator[](vector<int> const& bid);
 
+    int32_t priority(vector<int> const& bid) const;
+
+    void add_priority(vector<int> const& bid);
+
     void print(std::ostream& os) const;
 
+    int bid_to_idx(vector<int> const& bid) const;
   private:
     bool _is_no_op();
 
     generate_commands_t* self;
     nid_t const nid;
     vector<tid_loc_t> tid_locs;
+    vector<int32_t> priorities;
   public:
     std::vector<int> const& partition;
     bool const is_no_op;
@@ -83,9 +92,11 @@ struct generate_commands_t {
 
 private:
   void add_node(nid_t nid);
+  void add_priority(nid_t nid);
 
   int next_command_id() { return _command_id++; }
-  int next_tid() { return _tid++; }
+  int next_tid()        { return _tid++;        }
+  int next_priority()   { return _priority--;   }
 
 private:
   vector<relation_t> relations;
@@ -109,6 +120,7 @@ private:
 
   int _command_id;
   int _tid;
+  int32_t _priority;
 };
 
 }}

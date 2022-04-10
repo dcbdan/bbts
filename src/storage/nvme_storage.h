@@ -348,6 +348,8 @@ struct nvme_storage_t {
   // extract the meta
   std::vector<std::tuple<bbts::tid_t, bbts::tensor_meta_t>> extract_meta();
 
+  tid_t get_new_tid() { return _current_anon--; }
+
 private:
 
   // we use this to identify the transasction
