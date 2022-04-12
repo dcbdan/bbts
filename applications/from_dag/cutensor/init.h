@@ -9,6 +9,8 @@
 
 #include "../../../src/utils/expand.h"
 
+#include <mkl/mkl.h>
+
 using namespace bbts;
 
 namespace _register_init {
@@ -151,13 +153,18 @@ struct op {
     cu_t& out = _out.get<0>().as<cu_t>();
     float* data = (float*)out.data();
     if(p.which == 0) {
-      // the random device should be somewhere else and thread
-      // independent, but this is ok since there is (currently)
-      // no need for high quality random numbers TODO
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_real_distribution<float> dis(p.t.random.low, p.t.random.high);
-      std::generate(data, data + n, [&](){ return dis(gen); });
+      VSLStreamStatePtr stream;
+      vslNewStream(&stream, VSL_BRNG_MCG31, time(nullptr));
+
+      vsRngUniform(
+        VSL_RNG_METHOD_UNIFORM_STD,
+        stream,
+        (int32_t) (n),
+        data,
+        p.t.random.low,
+        p.t.random.high);
+
+      vslDeleteStream(&stream);
     } else if(p.which == 1) {
       std::fill(data, data + n, p.t.constant.val);
     } else {
