@@ -91,6 +91,8 @@ struct generate_commands_t {
   }
 
 private:
+  void add_input_node_everywhere(nid_t nid);
+
   void add_node(nid_t nid);
   void add_priority(nid_t nid);
 

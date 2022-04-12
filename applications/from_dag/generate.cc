@@ -75,15 +75,74 @@ generate_commands_t::generate_commands_t(
     }
   }
 
-  // Starting with nodes of the lowest priorty, add them to
-  // the relation dag
   for(nid_t which: idxs) {
     add_node(which);
   }
+  //// Add the input nodes everywhere
+  //for(nid_t which: idxs) {
+  //  if(dag[which].downs.size() == 0) {
+  //    add_input_node_everywhere(which);
+  //  }
+  //}
+
+  //// For the rest of the nodes, add the items in the relations
+  //// wherever they end up
+  //for(nid_t which: idxs) {
+  //  if(dag[which].downs.size() > 0) {
+  //    add_node(which);
+  //  }
+  //}
 }
 
 bool priority_was_set(int32_t p) {
   return p != std::numeric_limits<int32_t>::min();
+}
+
+void generate_commands_t::add_input_node_everywhere(nid_t nid) {
+  node_t const& node = dag[nid];
+  assert(node.type == node_t::node_type::input);
+
+  vector<loc_t> all_other_locs(num_nodes-1);
+  std::iota(all_other_locs.begin(), all_other_locs.end(), 1);
+
+  // for each bid, add the command and get the output
+  indexer_t indexer(relations[nid].partition);
+  do {
+    auto const& bid = indexer.idx;
+
+    tid_t tid = next_tid();
+    for(int which_node = 0; which_node != num_nodes; ++which_node) {
+      tid_loc_t cur{ tid, which_node };
+
+      auto params = node.get_bbts_params();
+      // input kernels in libbarb_cutensor require
+      // appending for each rank
+      //   (which blk, local dim size, output dim size)
+      // as parameters
+      using uint_type = decltype(bbts::command_param_t().u);
+      auto const& ps = relations[nid].partition;
+      for(int r = 0; r != bid.size(); ++r) {
+        params.push_back({ .u = static_cast<uint_type>(bid[r])               });
+        params.push_back({ .u = static_cast<uint_type>(node.dims[r] / ps[r]) });
+        params.push_back({ .u = static_cast<uint_type>(node.dims[r])         });
+      }
+
+      input_commands.emplace_back(command_t::create_apply(
+        next_command_id(),
+        get_ud(node.kernel),
+        false,
+        params,
+        {},
+        {cur}));
+      input_commands.back()->priority = relations[nid].priority(bid);
+    }
+
+    relations[nid][bid] = {tid, 0};
+    if(num_nodes > 1) {
+      // they aren't really being moved, but that is ok
+      moved_to_locs[tid] = all_other_locs;
+    }
+  } while (indexer.increment());
 }
 
 void generate_commands_t::add_node(nid_t nid) {
@@ -231,88 +290,17 @@ void generate_commands_t::add_node(nid_t nid) {
       tid_loc_t cur{ next_tid(), compute_location };
 
       for(int which_input = 0; which_input != inputs.size(); ++which_input) {
-        auto const& [tid,loc] = inputs[which_input];
+        auto [tid,loc] = inputs[which_input];
+
+        if(was_moved_to(tid, compute_location)) {
+          loc = compute_location;
+        }
 
         column_major_expand_t expand(expand_indexer.get_expand_dim(
           node.dims,
           expand_indexer.get_which_input(bid, which_input),
           bid));
 
-        ///////////////////////////////////////////////////////////////////////
-
-        //bool cleanup_touching_tid = false;
-        //tid_t touching_tid = tid;
-        //if(loc != compute_location) {
-        //  if(expand.is_compact_inn()) {
-        //    // if it is already compact, just send it
-        //    assure_moved_to(commands, tid, loc, compute_location);
-        //  } else {
-        //    // if it can be compacted, compact it
-        //    tid_t compact_tid = next_tid();
-        //    touching_tid = compact_tid;
-
-        //    // do the compact into compact_tid
-        //    commands.emplace_back(command_t::create_compact(
-        //      next_command_id(),
-        //      get_ud(node.kernel),
-        //      false,
-        //      which_input,
-        //      reblock_params,
-        //      {tid, loc},
-        //      {compact_tid, loc}));
-        //    commands.back()->priority = priority;
-
-        //    // move the compacted tensor to the compute location
-        //    assure_moved_to(commands, compact_tid, loc, compute_location);
-
-        //    // now delete the compacted tensor
-        //    cleanup_touching_tid = true;
-        //    commands.emplace_back(command_t::create_delete(
-        //      next_command_id(),
-        //      {tid_loc_t{compact_tid, loc}}));
-
-        //  }
-        //}
-
-        //// do the touch
-        //commands.emplace_back(command_t::create_touch(
-        //  next_command_id(),
-        //  get_ud(node.kernel),
-        //  false,
-        //  which_input,
-        //  inputs.size(),
-        //  reblock_params,
-        //  {tid_loc_t{touching_tid, compute_location}},
-        //  cur));
-        //    commands.back()->priority = priority;
-
-        //// if we eneded up moving this guy, delete it
-        //if(cleanup_touching_tid) {
-        //  commands.emplace_back(command_t::create_delete(
-        //    next_command_id(),
-        //    {tid_loc_t{touching_tid, compute_location}}));
-        //}
-
-        ///////////////////////////////////////////////////////////////////////
-
-        // The expand kernel has two parts:
-        //   compact and uncompact.
-        // Compact compresses the input into a contiguous region.
-        // Uncompact takes that contiguous region and writes to the output.
-        //
-        // If the input is already contiguous, no compact is needed to happen
-        // and the write can happen directly to the output.
-        //
-        // But if the expand kernel is called and a compact does need to happen,
-        // it has to allocate memory to hold the compact value.
-        //
-        // Here, we split the compact and uncompact into separate kernel calls so
-        // that the tos can have its memory. And we always delete the
-        // compact temporaries with the tos too.
-
-        // If the input needs to be compacted, compact it.
-        // Anywhere a new compact tensor created, make sure it
-        // gets deleted.
         bool compact_is_new = false;
         tid_t compact_tid = tid;
         if(!expand.is_compact_inn()) {

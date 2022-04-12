@@ -444,6 +444,10 @@ void Partition::pode_t::set_base_constraint() {
   rel(*self, (unit == 0) >> (worker == 0));
   rel(*self, (unit == 0) == (kernel_duration == 0));
 
+  if(self->opt.min_units() > 0) {
+    rel(*self, (unit > 0) >> (unit >= (self->opt.min_units())));
+  }
+
   // this should be held by the initial domain, but just in case
   rel(*self, unit <= self->opt.max_units());
 }
@@ -938,6 +942,17 @@ void Partition::preblock_t::when_partition_info_set() {
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
+}
+
+void Partition::preblock_t::disallow_barrier_reblock() {
+  // All this means is that no blocking along any dimension
+  // can decrease. That guarantees that the reblock does not perform
+  // as a barrier.
+  IntVarArgs args_above = local_partition_above();
+  IntVarArgs args_below = local_partition_below();
+  for(int i = 0; i != args_above.size(); ++i) {
+    rel(*self, args_above[i] >= args_below[i]);
+  }
 }
 
 void Partition::_set_branching() {

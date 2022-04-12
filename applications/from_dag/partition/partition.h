@@ -38,6 +38,8 @@ struct partition_options_t : public dag_t {
   int _output_bytes_multiplier;
   int _flops_multiplier;
   int _max_units;
+  int _min_units;
+  bool _disallow_barrier_reblock;
   int _search_compute_threads;
   int _search_restart_scale;
   int _search_time_per_cover;
@@ -56,6 +58,8 @@ public:
     int output_bytes_multiplier,
     int flops_multiplier,
     int max_units,
+    int min_units,
+    bool disallow_barrier_reblock,
     int search_compute_threads,
     int search_restart_scale,
     int search_time_per_cover):
@@ -71,6 +75,8 @@ public:
       _output_bytes_multiplier(output_bytes_multiplier),
       _flops_multiplier(flops_multiplier),
       _max_units(max_units),
+      _min_units(min_units),
+      _disallow_barrier_reblock(disallow_barrier_reblock),
       _search_compute_threads(search_compute_threads),
       _search_restart_scale(search_restart_scale),
       _search_time_per_cover(search_time_per_cover),
@@ -88,6 +94,8 @@ public:
   int                      output_bytes_multiplier()  const { return _output_bytes_multiplier  ; }
   int                      flops_multiplier()         const { return _flops_multiplier         ; }
   int                      max_units()                const { return _max_units                ; }
+  int                      min_units()                const { return _min_units                ; }
+  bool                     disallow_barrier_reblock() const { return _disallow_barrier_reblock ; }
   int                      search_compute_threads()   const { return _search_compute_threads   ; }
   int                      search_restart_scale()     const { return _search_restart_scale     ; }
   int                      search_time_per_cover()    const { return _search_time_per_cover    ; }
@@ -259,9 +267,13 @@ private:
     Gecode::BoolVar is_no_op;
     void propagate_is_no_op();
     void when_partition_info_set();
+    void disallow_barrier_reblock();
     void set_constraints() override {
       propagate_is_no_op();
       when_partition_info_set();
+      if(self->opt.disallow_barrier_reblock()) {
+        disallow_barrier_reblock();
+      }
     }
 
     Gecode::IntVarArgs local_partition_above();
