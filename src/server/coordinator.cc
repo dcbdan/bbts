@@ -657,6 +657,8 @@ bool bbts::coordinator_t::_register_from_bytes(char* file_bytes, size_t file_siz
   // check if we have actually loaded something
   if(!had_something) {
     ss << bbts::red << "Shared library object did not have a valid \"register_tensors\" or \"register_udfs\"!\n" << std::endl;
+  } else {
+    ss << "Loaded shared library object";
   }
 
   // keep track of the stuff here so the system can clean it up later
