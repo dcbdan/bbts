@@ -195,81 +195,6 @@ vector<nid_t> dag_t::_set_depth_dag_order() {
   return ret;
 }
 
-vector<nid_t> dag_t::_set_super_breadth_dag_order() {
-  std::map<nid_t, int> counts;
-  vector<nid_t> pending;
-  for(nid_t nid: get_compute_nids()) {
-    // the number of compute/super children equals the number of children for compute
-    // nodes.
-    int num_down = dag[nid].downs.size();
-    if(num_down > 0) {
-      counts[nid] = num_down;
-    }
-    if(num_down == 0) {
-      pending.push_back(nid);
-    }
-  }
-
-  vector<nid_t> ret;
-  auto add_to_ret = [&](nid_t nid) {
-    ret.push_back(nid);
-    for(nid_t const& up: get_compute_ups(nid)) {
-      counts.at(up)--; // do bounds checking just in case
-      if(counts[up] == 0) {
-        pending.push_back(up);
-      }
-    }
-  };
-
-  for(int idx = 0; idx != pending.size(); ++idx) {
-    add_to_ret(pending[idx]);
-  }
-
-  return ret;
-}
-
-vector<nid_t> dag_t::_set_super_depth_dag_order() {
-  std::map<nid_t, int> counts;
-  vector<nid_t> inputs;
-  for(nid_t nid: get_compute_nids()) {
-    // the number of compute/super children equals the number of children for compute
-    // nodes.
-    int num_down = dag[nid].downs.size();
-    if(num_down > 0) {
-      counts[nid] = num_down;
-    }
-    if(num_down == 0) {
-      inputs.push_back(nid);
-    }
-  }
-  vector<nid_t> ret;
-  for(nid_t const& input: inputs) {
-    _super_depth_dag_order_add_to_ret(counts, ret, input);
-  }
-
-  return ret;
-}
-
-void dag_t::_super_depth_dag_order_add_to_ret(
-  std::map<nid_t, int>& counts,
-  vector<nid_t>& ret,
-  nid_t id) const
-{
-  node_t const& node = dag[id];
-
-  ret.push_back(id);
-
-  // get the compute ups
-  vector<nid_t> ups = get_compute_ups(id);
-
-  for(nid_t const& up: ups) {
-    counts.at(up)--; // do bounds checking, just in case.
-    if(counts[up] == 0) {
-      _super_depth_dag_order_add_to_ret(counts, ret, up);
-    }
-  }
-}
-
 void dag_t::_depth_dag_order_add_to_ret(
   vector<nid_t>& counts,
   vector<nid_t>& ret,
@@ -282,21 +207,6 @@ void dag_t::_depth_dag_order_add_to_ret(
       _depth_dag_order_add_to_ret(counts, ret, up);
     }
   }
-}
-
-vector<nid_t> dag_t::super(nid_t nid) const {
-  if(dag[nid].type == node_t::node_type::input) {
-    return {nid};
-  }
-
-  nid_t join_nid = get_compute_nid(nid);
-  node_t const& join_node = dag[join_nid];
-
-  vector<nid_t> ret = join_node.downs;    // the reblocks
-  ret.push_back(join_nid);                // the join
-  ret.push_back(join_node.ups[0]);        // the agg
-
-  return ret;
 }
 
 struct priority_compare_t {
@@ -346,54 +256,39 @@ vector<nid_t> dag_t::priority_dag_order(
   return ret;
 }
 
-vector<nid_t> dag_t::get_compute_nids() const {
+vector<nid_t> dag_t::get_part_owners() const {
   vector<nid_t> ret;
+  ret.reserve(dag.size());
   for(node_t const& node: dag) {
-    if(node.type == node_t::node_type::join ||
-       node.type == node_t::node_type::input)
-    {
+    if(node.is_part_owner()) {
       ret.push_back(node.id);
     }
   }
   return ret;
 }
 
-vector<nid_t> dag_t::get_compute_ups(nid_t nid) const {
-  // make sure we have a compute nid
-  nid = get_compute_nid(nid);
+nid_t dag_t::get_part_owner(nid_t nid) const {
   node_t const& node = dag[nid];
-
-  // get the compute ups
-  vector<nid_t> ups;
-  if(node.type == node_t::node_type::input) {
-    for(nid_t direct_up: node.ups) {
-      ups.push_back(get_compute_nid(direct_up));
-    }
-  } else {
-    // we have a join, so reach past the agg
-    for(nid_t direct_up: dag[node.ups[0]].ups) {
-      ups.push_back(get_compute_nid(direct_up));
-    }
-  }
-
-  return ups;
-}
-
-nid_t dag_t::get_compute_nid(nid_t nid) const {
-  node_t const& node = dag[nid];
-  if(node.type == node_t::node_type::join ||
-     node.type == node_t::node_type::input)
-  {
+  if(node.is_part_owner()) {
     return nid;
   }
+
   if(node.type == node_t::node_type::reblock) {
-    return node.ups[0];
+    assert(node.ups.size() == 1);
+    node_t const& join_node = dag[node.ups[0]];
+    assert(join_node.type == node_t::node_type::join);
+    return join_node.id;
   }
+
   if(node.type == node_t::node_type::agg) {
-    return node.downs[0];
+    assert(node.downs.size() == 1);
+    node_t const& join_node = dag[node.downs[0]];
+    assert(join_node.type == node_t::node_type::join);
+    return join_node.id;
   }
-  throw std::runtime_error("get_compute_nid: invalid node type");
-  return -1;
+
+  assert(false);
+  return 0;
 }
 
 vector<int> dag_t::get_out(vector<int> const& xs, nid_t nid) const {
@@ -457,7 +352,7 @@ vector<int> dag_t::get_reblock_out(
   return ret;
 }
 
-vector<int> dag_t::get_out_from_compute(
+vector<int> dag_t::get_out_from_part_owner(
   vector<int> const& inc,
   nid_t nid) const
 {
@@ -474,13 +369,13 @@ vector<int> dag_t::get_out_from_compute(
   if(node.type == node_t::node_type::input) {
     return inc;
   }
-  throw std::runtime_error("get_out_from_compute: invalid node type");
+  throw std::runtime_error("get_out_from_part_owner: invalid node type");
   return {};
 }
 
 vector<int> dag_t::get_node_incident(vector<int> const& inc, nid_t nid) const {
-  nid_t compute_nid = get_compute_nid(nid);
-  if(compute_nid == nid) {
+  nid_t owner_nid = get_part_owner(nid);
+  if(owner_nid == nid) {
     return inc;
   }
 
@@ -491,7 +386,7 @@ vector<int> dag_t::get_node_incident(vector<int> const& inc, nid_t nid) const {
   }
 
   if(node.type == node_t::node_type::agg) {
-    return get_out(inc, compute_nid);
+    return get_out(inc, owner_nid);
   }
 
   throw std::runtime_error("should not reach");

@@ -54,6 +54,15 @@ using nid_t  = int;
 using dim_t  = int;
 using rank_t = int;
 
+// Dag assumptions:
+// - Every aggs down node is a join
+// - Every reblocks up node is a join
+// This means you may have
+// - multiple join nodes in a row
+// You may not have
+// - multiple aggs in a row
+// - multiple reblocks in a row
+
 struct node_t {
   enum node_type {
     input,
@@ -81,6 +90,11 @@ struct node_t {
   vector<std::vector<rank_t>> ordering;
   vector<rank_t> aggs;
 
+  // Does this node "own" a partitioning
+  bool is_part_owner() const {
+    return type == node_type::input || type == node_type::join;
+  }
+
 private:
   friend std::ostream& operator<<(std::ostream& os, node_t const& self) {
     return self.print(os);
@@ -94,9 +108,7 @@ struct dag_t {
     dag(dag),
     _inputs(std::bind(&dag_t::_set_inputs, this)),
     _depth_dag_order(std::bind(&dag_t::_set_depth_dag_order, this)),
-    _breadth_dag_order(std::bind(&dag_t::_set_breadth_dag_order, this)),
-    _super_depth_dag_order(std::bind(&dag_t::_set_super_depth_dag_order, this)),
-    _super_breadth_dag_order(std::bind(&dag_t::_set_super_breadth_dag_order, this))
+    _breadth_dag_order(std::bind(&dag_t::_set_breadth_dag_order, this))
   {}
 
   vector<node_t> const dag;
@@ -123,23 +135,12 @@ struct dag_t {
     return _breadth_dag_order();
   }
 
-  // A super node is either an input node or {[reblocks],join,agg} nodes
-  vector<nid_t> const& super_depth_dag_order() const {
-    return _super_depth_dag_order();
-  }
-  vector<nid_t> const& super_breadth_dag_order() const {
-    return _super_breadth_dag_order();
-  }
-  vector<nid_t> super(nid_t nid) const;
-
   // get just joins and inputs
-  vector<nid_t> get_compute_nids() const;
-  vector<nid_t> get_compute_ups(nid_t) const;
+  vector<nid_t> get_part_owners() const;
 
-  // each node has an associated compute node.
-  // reblocks and aggs are attached to a join,
-  // inputs are inputs.
-  nid_t get_compute_nid(nid_t nid) const;
+  // each node has an associated partition owner.
+  // Get that nid.
+  nid_t get_part_owner(nid_t nid) const;
 
   // filter out aggs from xs (if there are even any aggs)
   vector<int> get_out(vector<int> const& xs, nid_t nid) const;
@@ -150,7 +151,7 @@ struct dag_t {
   // given the join-incident dims, get the output of the reblock
   vector<int> get_reblock_out(vector<int> const& join_inc, nid_t reblock_id) const;
 
-  vector<int> get_out_from_compute(vector<int> const& inc, nid_t nid) const;
+  vector<int> get_out_from_part_owner(vector<int> const& inc, nid_t nid) const;
 
   // given the incdident dims for the comptue node of nid, get the corresponding
   // incident dims of the give nid
@@ -167,23 +168,15 @@ private:
   // Everytime after, it isn't computed again.
   cache_holder_t<vector<nid_t>> _breadth_dag_order;
   cache_holder_t<vector<nid_t>> _depth_dag_order;
-  cache_holder_t<vector<nid_t>> _super_breadth_dag_order;
-  cache_holder_t<vector<nid_t>> _super_depth_dag_order;
   cache_holder_t<vector<nid_t>> _inputs;
 
   vector<nid_t> _set_breadth_dag_order();
   vector<nid_t> _set_depth_dag_order();
-  vector<nid_t> _set_super_breadth_dag_order();
-  vector<nid_t> _set_super_depth_dag_order();
   vector<nid_t> _set_inputs();
 
   // some helper functions
   void _depth_dag_order_add_to_ret(
     vector<nid_t>& counts,
-    vector<nid_t>& ret,
-    nid_t id) const;
-  void _super_depth_dag_order_add_to_ret(
-    std::map<nid_t, int>& counts,
     vector<nid_t>& ret,
     nid_t id) const;
 };

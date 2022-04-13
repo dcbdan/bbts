@@ -274,7 +274,7 @@ partition_options_t::get_agg_kernel_cost(
   vector<int> const& inc_part,
   nid_t agg_nid) const
 {
-  nid_t compute_nid = get_compute_nid(agg_nid);
+  nid_t owner_nid = get_part_owner(agg_nid);
 
   vector<vector<int>> inputs_bs;
   vector<int> output_bs, flop_bs;
@@ -282,14 +282,14 @@ partition_options_t::get_agg_kernel_cost(
   node_t const& node = dag[agg_nid];
   assert(node.type == node_t::node_type::agg);
 
-  auto inc_local = get_local_dims(inc_part, compute_nid);
+  auto inc_local = get_local_dims(inc_part, owner_nid);
 
-  int num_to_agg = product(get_agg(inc_part, compute_nid));
+  int num_to_agg = product(get_agg(inc_part, owner_nid));
   if(num_to_agg == 1) {
     return partition_options_t::cost_t(true);
   }
 
-  output_bs = get_out(inc_local, compute_nid);
+  output_bs = get_out(inc_local, owner_nid);
 
   inputs_bs.push_back(output_bs);
   inputs_bs[0].push_back(num_to_agg);
@@ -326,14 +326,14 @@ partition_options_t::get_kernel_cost(
       nid);
   } else
   if(node.type == node_t::node_type::reblock) {
-    nid_t compute_nid   = get_compute_nid(nid);
-    nid_t compute_below = get_compute_nid(node.downs[0]);
+    nid_t owner_nid   = get_part_owner(nid);
+    nid_t owner_below = get_part_owner(node.downs[0]);
 
-    auto above_part_inc = get_inc_part(compute_nid);
-    auto below_part_inc = get_inc_part(compute_below);
+    auto above_part_inc = get_inc_part(owner_nid);
+    auto below_part_inc = get_inc_part(owner_below);
 
     auto out_part = get_reblock_out(above_part_inc, nid);
-    auto inn_part = get_out(below_part_inc, compute_below);
+    auto inn_part = get_out(below_part_inc, owner_below);
 
     return get_reblock_kernel_cost(out_part, inn_part, nid);
   } else {
@@ -362,8 +362,8 @@ vector<int> partition_options_t::get_local_dims(
 int partition_options_t::upper_bound_time() const {
   std::unordered_map<int, vector<int>> parts;
 
-  // This will get called for only for compute nodes..
-  // And in this case, for all compute nodes.
+  // This will get called for only for part_owner nodes..
+  // And in this case, for all part owner nodes.
   function<vector<int>(nid_t)> get_inc_part = [&](nid_t nid) {
     if(parts.count(nid) == 0) {
       parts[nid] = max_partition(nid, num_workers());
@@ -398,7 +398,7 @@ int partition_options_t::get_num_units(
   nid_t nid) const
 {
   return product(
-    get_node_incident(get_inc_part(get_compute_nid(nid)), nid));
+    get_node_incident(get_inc_part(get_part_owner(nid)), nid));
 }
 
 Partition::pode_t::pode_t(
@@ -711,7 +711,7 @@ Partition::preblock_t::local_partition_below()
 
   node_t const& node = opt[nid];
 
-  nid_t const& below_nid = opt.get_compute_nid(node.downs[0]);
+  nid_t const& below_nid = opt.get_part_owner(node.downs[0]);
 
   int n_inc_below = opt[below_nid].dims.size();
 
@@ -1000,25 +1000,25 @@ void Partition::_set_branching() {
 
 vector<int> Partition::get_partition(nid_t nid) const {
   DCB_ACCESS_VAR("partition");
-  nid_t compute_nid = opt.get_compute_nid(nid);
-  node_t const& compute_node = opt[compute_nid];
+  nid_t owner_nid = opt.get_part_owner(nid);
+  node_t const& owner_node = opt[owner_nid];
 
   vector<int> inc_part;
-  inc_part.reserve(compute_node.dims.size());
+  inc_part.reserve(owner_node.dims.size());
 
   IntVarArgs partition;
-  if(compute_node.type == node_t::node_type::input) {
+  if(owner_node.type == node_t::node_type::input) {
     DCB_BEFORE_DYNAMIC("GET PART");
-    partition = dynamic_cast<pinput_t&>(*(vars[compute_nid])).partition;
+    partition = dynamic_cast<pinput_t&>(*(vars[owner_nid])).partition;
   } else
-  if(compute_node.type == node_t::node_type::join) {
+  if(owner_node.type == node_t::node_type::join) {
     DCB_BEFORE_DYNAMIC("GET PART");
-    partition = dynamic_cast<pjoin_t&>(*(vars[compute_nid])).partition;
+    partition = dynamic_cast<pjoin_t&>(*(vars[owner_nid])).partition;
   } else {
     assert(false);
   }
 
-  for(int i = 0; i != compute_node.dims.size(); ++i) {
+  for(int i = 0; i != owner_node.dims.size(); ++i) {
     inc_part.push_back(partition[i].val());
   }
 

@@ -282,7 +282,9 @@ private:
   struct pjoin_t: pode_t {
     pjoin_t(Partition* self, nid_t nid, int upper_limit);
     pjoin_t(Partition* new_self, pjoin_t& other);
+
     Gecode::IntVarArray partition;
+
     void when_partition_info_set();
     void set_constraints() override {
       when_partition_info_set();
@@ -291,7 +293,9 @@ private:
   struct pinput_t : pode_t {
     pinput_t(Partition* self, nid_t nid, int upper_limit);
     pinput_t(Partition* new_self, pinput_t& other);
+
     Gecode::IntVarArray partition;
+
     void propagate_prefer_no_reblock();
     void propagate_no_cost_input();
     void when_partition_info_set();
