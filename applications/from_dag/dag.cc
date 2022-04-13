@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <queue>
 
+#define DCB01(x)          // std::cout << "dag.cc " << __LINE__ << " " << x << std::endl;
+
 namespace bbts { namespace dag {
 
 using std::function;
@@ -327,24 +329,46 @@ vector<int> dag_t::get_agg(vector<int> const& xs, nid_t nid) const {
   }
 }
 
-vector<int> dag_t::get_reblock_out(
-  vector<int> const& join_inc,
-  nid_t reblock_id) const
+vector<int> dag_t::get_out_for_input(
+  vector<int> const& up_inc,
+  nid_t upp_id,
+  nid_t dwn_id) const
 {
-  node_t const& reblock_node = dag[reblock_id];
-  node_t const& join_node = dag[reblock_node.ups[0]];
+  node_t const& upp = dag[upp_id];
+  node_t const& dwn = dag[dwn_id];
+
+  // agg and reblock nodes have the same input shapes as outputs
+  if(upp.type == node_t::node_type::agg) {
+    return up_inc;
+  } else
+  if(upp.type == node_t::node_type::reblock) {
+    return up_inc;
+  } else
+  if(upp.type == node_t::node_type::join) {
+    // continue on
+  } else {
+    assert(false);
+    return {};
+  }
+
+  node_t const& join_node = upp;
+  vector<int> const& join_inc = up_inc;
 
   int which_input = 0;
   for(; which_input != join_node.downs.size(); ++which_input) {
-    if(join_node.downs[which_input] == reblock_id) {
+    if(join_node.downs[which_input] == dwn_id) {
       break;
     }
   }
   if(which_input == join_node.downs.size()) {
-    throw std::runtime_error("up join node doesn't have down reblock");
+    throw std::runtime_error("up join node doesn't have correct down");
   }
 
+  assert(join_node.ordering.size() == join_node.downs.size());
   auto const& ordering = join_node.ordering[which_input];
+
+  assert(ordering.size() == dwn.dims.size());
+
   vector<dim_t> ret;
   for(auto which_inc: ordering) {
     ret.push_back(join_inc[which_inc]);
@@ -352,13 +376,13 @@ vector<int> dag_t::get_reblock_out(
   return ret;
 }
 
-vector<int> dag_t::get_out_from_part_owner(
+vector<int> dag_t::get_out_from_owner_incident(
   vector<int> const& inc,
   nid_t nid) const
 {
   node_t const& node = dag[nid];
   if(node.type == node_t::node_type::reblock) {
-    return get_reblock_out(inc, nid);
+    return get_out_for_input(inc, node.ups[0], nid);
   }
   if(node.type == node_t::node_type::agg) {
     return get_out(inc, node.downs[0]);
@@ -369,7 +393,7 @@ vector<int> dag_t::get_out_from_part_owner(
   if(node.type == node_t::node_type::input) {
     return inc;
   }
-  throw std::runtime_error("get_out_from_part_owner: invalid node type");
+  throw std::runtime_error("get_out_from_owner_incident: invalid node type");
   return {};
 }
 
@@ -382,7 +406,7 @@ vector<int> dag_t::get_node_incident(vector<int> const& inc, nid_t nid) const {
   node_t const& node = dag[nid];
 
   if(node.type == node_t::node_type::reblock) {
-    return get_reblock_out(inc, nid);
+    return get_out_for_input(inc, node.ups[0], nid);
   }
 
   if(node.type == node_t::node_type::agg) {

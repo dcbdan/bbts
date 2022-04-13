@@ -393,7 +393,7 @@ int main(int argc, char **argv)
 
       {
         table_t table(2);
-        table << "nid" << "node" << "partition" << "start"
+        table << "nid" << "node" << "inputs" << "partition" << "start"
               << "unit" << "# workers" << "d" << "d:init" << "d:in" << "d:out" << "d:compute"
               << table.endl;
         for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
@@ -414,6 +414,7 @@ int main(int argc, char **argv)
           } else {
             table << "A";
           }
+          table << node.downs;
           table << pp.blocking <<
             (d == 0 ? (-1) : pp.start) << pp.unit << pp.worker << d << cc.init << cc.input << cc.output <<
             cc.compute << table.endl;

@@ -263,7 +263,7 @@ partition_options_t::get_join_kernel_cost(
   flop_bs = get_local_dims(inc_part, join_nid);
   output_bs = get_out(flop_bs, join_nid);
   for(nid_t child: node.downs) {
-    inputs_bs.push_back(get_reblock_out(flop_bs, child));
+    inputs_bs.push_back(get_out_for_input(flop_bs, join_nid, child));
   }
 
   return _cost(inputs_bs, output_bs, flop_bs);
@@ -315,24 +315,28 @@ partition_options_t::get_kernel_cost(
   node_t const& node         = dag[nid];
 
   if(node.type == node_t::node_type::input) {
+    DCB01("input");
     return get_input_kernel_cost(get_inc_part(nid), nid);
   } else
   if(node.type == node_t::node_type::join) {
+    DCB01("join");
     return get_join_kernel_cost(get_inc_part(nid), nid);
   } else
   if(node.type == node_t::node_type::agg) {
+    DCB01("agg");
     return get_agg_kernel_cost(
       get_inc_part(node.downs[0]),
       nid);
   } else
   if(node.type == node_t::node_type::reblock) {
+    DCB01("reblock");
     nid_t owner_nid   = get_part_owner(nid);
     nid_t owner_below = get_part_owner(node.downs[0]);
 
     auto above_part_inc = get_inc_part(owner_nid);
     auto below_part_inc = get_inc_part(owner_below);
 
-    auto out_part = get_reblock_out(above_part_inc, nid);
+    auto out_part = get_out_for_input(above_part_inc, owner_nid, nid);
     auto inn_part = get_out(below_part_inc, owner_below);
 
     return get_reblock_kernel_cost(out_part, inn_part, nid);
@@ -444,8 +448,10 @@ void Partition::pode_t::set_base_constraint() {
   rel(*self, (unit == 0) >> (worker == 0));
   rel(*self, (unit == 0) == (kernel_duration == 0));
 
+
   if(self->opt.min_units() > 0) {
     rel(*self, (unit > 0) >> (unit >= (self->opt.min_units())));
+    //rel(*self, (unit > 0) >> (worker >= self->opt.min_units()));
   }
 
   // this should be held by the initial domain, but just in case
@@ -684,6 +690,7 @@ Partition::preblock_t::local_partition_above()
 
   node_t const& node = opt[nid];
 
+  // above_nid is guaranteed to be a join node
   nid_t const& above_nid = node.ups[0];
 
   int n_inc_above = opt[above_nid].dims.size();
@@ -692,7 +699,7 @@ Partition::preblock_t::local_partition_above()
 
   std::iota(inc_above.begin(), inc_above.end(), 0);
 
-  vector<int> idxs_above = opt.get_reblock_out(inc_above, nid);
+  vector<int> idxs_above = opt.get_out_for_input(inc_above, above_nid, nid);
 
   DCB_BEFORE_DYNAMIC("PREBLOCK LOCAL PART");
   Partition::pjoin_t& pabove = dynamic_cast<Partition::pjoin_t&>(*self->vars[above_nid]);
@@ -745,6 +752,7 @@ Partition::pagg_t::local_partition()
 
   node_t const& node = opt[nid];
 
+  // the down node is guaraneeed to be a join node
   nid_t join_nid = node.downs[0];
 
   int n_inc = opt[join_nid].dims.size();
@@ -810,15 +818,27 @@ void Partition::pode_t::_set_unit_and_kernel_duration(int _unit, int _kernel_dur
   }
 }
 
-// guarantee that atleast one up reblock node is indeed a no op
+// guarantee that atleast one up node has the same blocking as this input node
 void Partition::pinput_t::propagate_prefer_no_reblock() {
   node_t const& node = self->opt[nid];
 
   BoolVarArgs args;
-  for(nid_t reblock_up: node.ups) {
-    DCB_BEFORE_DYNAMIC("PROP INPUT PREFER");
-    Partition::preblock_t& p_up = dynamic_cast<Partition::preblock_t&>(*self->vars[reblock_up]);
-    args << p_up.is_no_op;
+  for(nid_t up: node.ups) {
+    node_t const& node_up = self->opt[up];
+    if(node_up.type == node_t::node_type::reblock) {
+      DCB_BEFORE_DYNAMIC("PROP INPUT PREFER REBLOCK");
+      Partition::preblock_t& p_up =
+        dynamic_cast<Partition::preblock_t&>(*self->vars[up]);
+      args << p_up.is_no_op;
+    } else
+    if(node_up.type == node_t::node_type::join) {
+      // It is guaranteed that all consecutive part owner nodes
+      // have the same blocking. This happens via join's match_down_part_owners constraint.
+      // This means the constraint on args does not need to be set.
+      return;
+    } else {
+      assert(false);
+    }
   }
 
   // atleast one of the up nodes must have a no op reblock
@@ -854,6 +874,7 @@ void Partition::pinput_t::when_partition_info_set() {
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
 }
+
 void Partition::pjoin_t::when_partition_info_set() {
   nid_t _nid = nid;
   wait(*self, partition, [_nid](Space& home)
@@ -876,6 +897,54 @@ void Partition::pjoin_t::when_partition_info_set() {
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
 }
+
+// For each input that is also a partition owner, make sure we match indices
+// with that guy
+void Partition::pjoin_t::match_downs() {
+  node_t const& node = self->opt[nid];
+
+  for(int which = 0; which != node.downs.size(); ++which) {
+
+    auto const& ordering = node.ordering[which];
+    nid_t const& down_nid = node.downs[which];
+    node_t const& down_node = self->opt[down_nid];
+
+    IntVarArgs down_out;
+    if(down_node.type == node_t::node_type::input) {
+      down_out = static_cast<Partition::pinput_t&>(*self->vars[down_nid]).partition;
+    } else
+    if(down_node.type == node_t::node_type::join) {
+      Partition::pjoin_t& down_p = static_cast<Partition::pjoin_t&>(*self->vars[down_nid]);
+
+      std::vector<int> inc_idx(down_node.dims.size());
+      std::iota(inc_idx.begin(), inc_idx.end(), 0);
+      std::vector<int> idxs = self->opt.get_out(inc_idx, down_nid);
+
+      for(int const& idx: idxs) {
+        down_out << down_p.partition[idx];
+      }
+    } else
+    if(down_node.type == node_t::node_type::agg) {
+      // It is necessary this guys is the same shape as the input agg...
+      Partition::pagg_t& down_p = static_cast<Partition::pagg_t&>(*self->vars[down_nid]);
+      down_out = down_p.local_partition();
+    } else
+    if(down_node.type == node_t::node_type::reblock) {
+      // There is nothing to do here since the reblock deduces it's partition
+      // from this join.
+      continue;
+    } else {
+      assert(false);
+    }
+
+    assert(down_out.size() == ordering.size());
+    for(int i = 0; i != ordering.size(); ++i) {
+      rel(*self, down_out[i] == partition[ordering[i]]);
+    }
+  }
+
+}
+
 void Partition::pagg_t::when_partition_info_set() {
   node_t const& node = self->opt[nid];
 

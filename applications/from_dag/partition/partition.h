@@ -223,10 +223,10 @@ private:
     pode_t(Partition* self, nid_t nid, int upper_limit);
     pode_t(Partition* new_self, pode_t& other);
 
-    // virtual void means no one else can override this function
+    // virtual final means no one else can override this function
     virtual void set_base_constraint() final;
 
-    // each child class must implement this
+    // each child class must implement these
     virtual void set_constraints() = 0;
 
     // Is this a no op? then that implies a bunch of things are zero
@@ -286,8 +286,10 @@ private:
     Gecode::IntVarArray partition;
 
     void when_partition_info_set();
+    void match_downs();
     void set_constraints() override {
       when_partition_info_set();
+      match_downs();
     }
   };
   struct pinput_t : pode_t {

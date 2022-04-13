@@ -149,9 +149,9 @@ struct dag_t {
   vector<int> get_agg(vector<int> const& xs, nid_t nid) const;
 
   // given the join-incident dims, get the output of the reblock
-  vector<int> get_reblock_out(vector<int> const& join_inc, nid_t reblock_id) const;
+  vector<int> get_out_for_input(vector<int> const& up_inc, nid_t up_id, nid_t down_id) const;
 
-  vector<int> get_out_from_part_owner(vector<int> const& inc, nid_t nid) const;
+  vector<int> get_out_from_owner_incident(vector<int> const& inc, nid_t nid) const;
 
   // given the incdident dims for the comptue node of nid, get the corresponding
   // incident dims of the give nid

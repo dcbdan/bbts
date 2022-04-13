@@ -449,9 +449,9 @@ generate_commands_t::relation_t::get_bid_inputs(vector<int> const& bid) const
     vector<tuple<nid_t, vector<int>>> ret;
     ret.reserve(node.downs.size());
 
-    for(auto const& reblock_nid: node.downs) {
-      vector<int> reblock_bid = self->dag.get_reblock_out(bid, reblock_nid);
-      ret.emplace_back(reblock_nid, reblock_bid);
+    for(auto const& input_nid: node.downs) {
+      vector<int> input_bid = self->dag.get_out_for_input(bid, nid, input_nid);
+      ret.emplace_back(input_nid, input_bid);
     }
 
     return ret;
@@ -524,9 +524,9 @@ generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
   if(node.type == node_t::node_type::join) {
     ret.reserve(node.downs.size());
 
-    for(auto const& reblock_nid: node.downs) {
-      vector<int> reblock_bid = self->dag.get_reblock_out(bid, reblock_nid);
-      ret.push_back(self->relations[reblock_nid][reblock_bid]);
+    for(auto const& input_nid: node.downs) {
+      vector<int> input_bid = self->dag.get_out_for_input(bid, nid, input_nid);
+      ret.push_back(self->relations[input_nid][input_bid]);
     }
   }
 
