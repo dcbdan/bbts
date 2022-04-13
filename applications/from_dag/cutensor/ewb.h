@@ -218,6 +218,9 @@ struct cpu_op {
 
     params_t p = parse(params);
 
+    auto const num_lhs = _in.get<0>().as<cu_meta_t>().num_elem();
+    auto const num_rhs = _in.get<1>().as<cu_meta_t>().num_elem();
+
     cu_shape_t const& meta_lhs =  _in.get<0>().as<cu_meta_t>().m();
     cu_shape_t const& meta_rhs =  _in.get<1>().as<cu_meta_t>().m();
     cu_shape_t      & meta_out = _out.get<0>().as<cu_meta_t>().m();
@@ -264,6 +267,15 @@ struct cpu_op {
         meta_out.dims[0],
         data_lhs, inc_lhs,
         data_rhs, inc_rhs,
+        data_out, 1);
+    } else if(num_lhs == num_rhs) {
+      // if they have the same number of elements,
+      // copy it all in one go, please.
+      // It one of em had to have been transposed, that has happened.
+      vec_op(
+        num_lhs,
+        data_lhs, 1,
+        data_rhs, 1,
         data_out, 1);
     } else {
       // All dimensions except the last one is handled by the strider.
