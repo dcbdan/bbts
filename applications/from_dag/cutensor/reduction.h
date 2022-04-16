@@ -129,6 +129,7 @@ struct cpu_op {
 
     set_out_meta(p, meta_inn, meta_out);
 
+#ifndef CU_REDUCTION_OFF
     float* data_inn_ = (float*)(_in.get<0>().as<cu_t>().data());
     float* data_out = (float*)(_out.get<0>().as<cu_t>().data());
 
@@ -174,6 +175,7 @@ struct cpu_op {
 
 #ifdef CU_BARB_REFERENCE
     reference(params, _in, _out);
+#endif
 #endif
   }
 };

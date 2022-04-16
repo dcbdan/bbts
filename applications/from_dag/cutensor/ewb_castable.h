@@ -44,7 +44,9 @@ struct cpu_op {
     float* data_rhs = (float*)(_in.get<1>().as<cu_t>().data());
     float* data_out = (float*)(_out.get<0>().as<cu_t>().data());
 
+#ifndef CU_EWB_CASTABLE_OFF
     op.mkl_op(n, data_lhs, data_rhs, data_out);
+#endif
   }
 };
 

@@ -421,6 +421,7 @@ struct cpu_op {
     float* data_rhs_ = (float*)(ins.get<1>().as<cu_t>().data());
     float* data_out  = (float*)(ous.get<0>().as<cu_t>().data());
 
+#ifndef CU_CONTRACTION_OFF
     plan_t plan = get_plan(info);
 
     permute_t p_lhs(cu_shape_as_vec(meta_lhs), plan.permute_lhs, data_lhs_);
@@ -459,6 +460,7 @@ struct cpu_op {
 
 #ifdef CU_BARB_REFERENCE
     reference(params, ins, ous);
+#endif
 #endif
   }
 };

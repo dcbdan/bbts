@@ -119,6 +119,7 @@ struct expand : public ud_impl_t {
       m_out.dims[r] = out_shape[r];
     }
 
+#ifndef CU_EXPAND_OFF
     if(compact) {
       expander.compact(inn_data, out_data);
     } else {
@@ -128,7 +129,7 @@ struct expand : public ud_impl_t {
         expander.expand(inn_data, out_data);
       }
     }
-
+#endif
   }
 };
 }

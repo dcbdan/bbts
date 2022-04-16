@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <stdexcept>
 
+#define EWB01(x) // std::cout << x << std::endl
+
 namespace _register_ewb {
 
 using namespace _cutensor_utils;
@@ -17,6 +19,24 @@ struct params_t {
   float beta;
   modes_t ordering_lhs, ordering_rhs;
 };
+
+std::ostream& operator<<(std::ostream& out, params_t const& p) {
+  out << "lhs[" << p.ordering_lhs[0];
+  for(int i = 1; i < p.ordering_lhs.size(); ++i) {
+    out << "," << p.ordering_lhs[i];
+  }
+  out << "] ";
+
+  out << "rhs[" << p.ordering_rhs[0];
+  for(int i = 1; i < p.ordering_rhs.size(); ++i) {
+    out << "," << p.ordering_rhs[i];
+  }
+  out << "] ";
+
+  out << " | i " << p.i << " | alpha " << p.alpha << " | beta " << p.beta;
+
+  return out;
+}
 
 params_t parse(const bbts::ud_impl_t::tensor_params_t &params) {
   params_t ret;
@@ -52,69 +72,200 @@ void set_out_meta(
   }
 }
 
-struct stride_increment_t {
-  using stride_op_t = std::function<void(int64_t,int64_t,int64_t)>;
+struct ewb {
+  ewb(vector<int> dims, vector<int> ord_lhs, vector<int> ord_rhs):
+    ord_lhs(ord_lhs), ord_rhs(ord_rhs), dims(dims)
+  {}
 
-  // COLUMN MAJOR
-  stride_increment_t(
-    dims_t const& dims,
-    modes_t const& ordering_lhs,
-    modes_t const& ordering_rhs,
-    int64_t l, // the initial stride sizes
-    int64_t r,
-    int64_t o):
-    dims(dims)
-  {
-    rank = dims.size();
-
-    stride_lhs = dims_t(rank, 0);
-    stride_rhs = dims_t(rank, 0);
-    stride_out = dims_t(rank, 0);
-
-    auto lhs_iter = ordering_lhs.begin();
-    auto rhs_iter = ordering_rhs.begin();
-
-    for(int s = 0; s != rank; ++s) {
-      if(lhs_iter != ordering_lhs.end() && *lhs_iter == s) {
-        stride_lhs[s] = l;
-        l *= dims[s];
-        lhs_iter++;
-      }
-      if(rhs_iter != ordering_rhs.end() && *rhs_iter == s) {
-        stride_rhs[s] = r;
-        r *= dims[s];
-        rhs_iter++;
-      }
-      stride_out[s] = o;
-      o *= dims[s];
+  void operator()(decltype(vsAddI)* vec_op, float* lhs, float* rhs, float* out) {
+    if(dims.size() == 0) {
+      vec_op(1, lhs, 1, rhs, 1, out, 1);
+      return;
     }
-  }
+    if(dims.size() == 1) {
+      vec_op(dims[0],
+        lhs, ord_lhs.size() == 1 ? 1 : 0,
+        rhs, ord_rhs.size() == 1 ? 1 : 0,
+        out, 1);
+      return;
+    }
 
-  void recurse(stride_op_t op, int64_t s, int64_t lhs, int64_t rhs, int64_t out) {
-    if(s == 0) {
-      for(int i = 0; i != dims[0]; ++i) {
-        op(lhs + i*stride_lhs[0], rhs + i*stride_rhs[0], out + i*stride_out[0]);
-      }
-    } else {
-      for(int i = 0; i != dims[s]; ++i) {
-        recurse(op, s-1, lhs + i*stride_lhs[s], rhs + i*stride_rhs[s], out + i*stride_out[s]);
+    // Consider [0,1,2]
+    //          [  1,2]
+    // num_shared_dims = 1
+    // num_to_copy = dims[0],
+    // inc_lhs     = 1,
+    // inc_rhs     = 0
+    //
+    // [0,1,2]
+    // [0,  2]
+    // num_shared_dims = 1
+    // num_to_copy = dims[0],
+    // inc_lhs     = 1
+    // inc_rhs     = 1
+    //
+    // [0,1,2,3,4]
+    // [    3,4,5]
+    // num_shared_dims = 2
+    // num_to_copy = dims[0]*dims[1];
+    // inc_lhs     = 1
+    // inc_rhs     = 0
+    //
+    // [0,1,2,3,4]
+    // [0,1,3,4]
+    // num_shared_dims = 2
+    // num_to_copy = dims[0]*dims[1]
+    // inc_lhs     = 1
+    // inc_rhs     = 1
+
+    // Either they share the leading dimension or they do not.
+
+    // If they share leading dimensions, both inc are 1.
+
+    // Otherwise, one inc is 1 and the other is zero
+
+    int num_to_copy = 1;
+    int num_shared_dims = 0;
+    int inc_lhs = 1;
+    int inc_rhs = 1;
+    for(int i = 0; i != dims.size(); ++i) {
+      if(ord_lhs.size() > i && ord_lhs[i] == i &&
+         ord_rhs.size() > i && ord_rhs[i] == i)
+      {
+        num_to_copy *= dims[i];
+        num_shared_dims++;
+      } else {
+        break;
       }
     }
-  }
 
-  void operator()(stride_op_t op) {
-    if(rank == 0) {
-      op(0, 0, 0);
-    } else {
-      recurse(op, rank-1, 0, 0, 0);
+    if(num_shared_dims == 0) {
+      // They did not share the leading dimension, so one of the increments
+      // will be zoro
+
+      if(ord_lhs.size() > 0 && ord_lhs[0] == 0) {
+        inc_rhs = 0;
+        num_shared_dims = ord_rhs[0];
+      } else
+      if(ord_rhs.size() > 0 && ord_rhs[0] == 0) {
+        inc_lhs = 0;
+        num_shared_dims = ord_lhs[0];
+      } else {
+        assert(false);
+      }
+
+      num_to_copy = 1;
+      for(int i = 0; i != num_shared_dims; ++i) {
+        num_to_copy *= dims[i];
+      }
     }
-  }
 
-  int rank;
-  dims_t dims;
-  dims_t stride_lhs;
-  dims_t stride_rhs;
-  dims_t stride_out;
+    assert(num_shared_dims > 0);
+
+    // At this point num_to_copy, num_shared_dims, inc_lhs and inc_rhs are set.
+    // Now cartesian product over each non shared dimension,
+    //   compute the offsets,
+    //   call the operator
+    int offset_out = 0;
+    indexer_t indexer(this, num_shared_dims);
+    do {
+      int offset_lhs = indexer.lhs();
+      if(inc_lhs) {
+        offset_lhs *= num_to_copy;
+      }
+
+      int offset_rhs = indexer.rhs();
+      if(inc_rhs) {
+        offset_rhs *= num_to_copy;
+      }
+
+      EWB01(offset_lhs << ", " << offset_rhs << ", " << offset_out);
+
+      vec_op(num_to_copy,
+        lhs + offset_lhs, inc_lhs,
+        rhs + offset_rhs, inc_rhs,
+        out, 1);
+
+      out += num_to_copy;
+      offset_out += num_to_copy;
+
+    } while(indexer.increment());
+
+  };
+
+  // idx stores which index we are currently on.
+  // lhs and rhs gets the offset sans leading dimensions
+  struct indexer_t {
+    indexer_t(ewb* self_, int num_shared_):
+      num_shared(num_shared_),
+      self(self_),
+      idx(self_->dims.size() - num_shared_, 0),
+      lhs_beg(self_->ord_lhs.begin()),
+      rhs_beg(self_->ord_rhs.begin())
+    {
+      while(lhs_beg != self->ord_lhs.end() && *lhs_beg < num_shared) {
+        lhs_beg++;
+      }
+      while(rhs_beg != self->ord_rhs.end() && *rhs_beg < num_shared) {
+        rhs_beg++;
+      }
+    }
+
+    int lhs() const {
+      return get(lhs_beg, self->ord_lhs.end());
+    }
+
+    int rhs() const {
+      return get(rhs_beg, self->ord_rhs.end());
+    }
+
+    bool increment() {
+      for(int i = num_shared; i != self->dims.size(); ++i) {
+        if(idx[i - num_shared] + 1 == self->dims[i]) {
+          idx[i - num_shared] = 0;
+        } else {
+          idx[i - num_shared] += 1;
+          return true;
+        }
+      }
+      return false;
+    }
+
+  private:
+    ewb* self;
+    int num_shared;
+    vector<int> idx;
+    vector<int>::iterator lhs_beg;
+    vector<int>::iterator rhs_beg;
+
+    int get(vector<int>::iterator iter, vector<int>::iterator end) const {
+      auto const& dims = self->dims;
+
+      int p = 1;
+      int total = 0;
+
+      for(; iter != end; ++iter) {
+        auto const& i = *iter;
+        assert(i >= num_shared);
+
+        total += p*idx[i - num_shared];
+        p *= dims[i];
+      }
+
+      return total;
+    }
+
+  };
+
+private:
+  // Assumption: these are increasing and
+  //             taken together, they include each index 0,...,dims.size()-1.
+  vector<int> ord_lhs;
+  vector<int> ord_rhs;
+
+  // the dimensions of the output
+  vector<int> dims;
+
 };
 
 // Run the same computation
@@ -215,8 +366,11 @@ struct cpu_op {
     tensor_args_t &_out) const
   {
     cu_debug_write_t("ewb");
+    EWB01("ENTERED EWB");
 
     params_t p = parse(params);
+
+    EWB01(p);
 
     auto const num_lhs = _in.get<0>().as<cu_meta_t>().num_elem();
     auto const num_rhs = _in.get<1>().as<cu_meta_t>().num_elem();
@@ -227,6 +381,7 @@ struct cpu_op {
 
     set_out_meta(p, meta_lhs, meta_rhs, meta_out);
 
+#ifndef CU_EWB_OFF
     float* _data_lhs = (float*)(_in.get<0>().as<cu_t>().data());
     float* _data_rhs = (float*)(_in.get<1>().as<cu_t>().data());
     float*  data_out = (float*)(_out.get<0>().as<cu_t>().data());
@@ -236,10 +391,6 @@ struct cpu_op {
 
     permute_t v_rhs(cu_shape_as_vec(meta_rhs), p.ordering_rhs, _data_rhs);
     v_rhs.scale(p.beta);
-
-    // if mode 0 is in the tensor, increment is 1 else 0
-    int inc_lhs = v_lhs.ordering.size() > 0 && v_lhs.ordering[0] == 0 ? 1 : 0;
-    int inc_rhs = v_rhs.ordering.size() > 0 && v_rhs.ordering[0] == 0 ? 1 : 0;
 
     // get the transposed input data; it'll be deleted on exit if it did an
     // out-of-place transform.
@@ -256,92 +407,17 @@ struct cpu_op {
       case 5: vec_op = vsDivI;  break;
     }
 
-    if(meta_out.rank == 0) {
-      vec_op(
-        1,
-        data_lhs, 1,
-        data_rhs, 1,
-        data_out, 1);
-    } else if(meta_out.rank == 1) {
-      vec_op(
-        meta_out.dims[0],
-        data_lhs, inc_lhs,
-        data_rhs, inc_rhs,
-        data_out, 1);
-    } else if(num_lhs == num_rhs) {
-      // if they have the same number of elements,
-      // copy it all in one go, please.
-      // It one of em had to have been transposed, that has happened.
-      vec_op(
-        num_lhs,
-        data_lhs, 1,
-        data_rhs, 1,
-        data_out, 1);
-    } else {
-      // All dimensions except the last one is handled by the strider.
-      // The last dimension is done by mkl.
+    vector<int> ds(meta_out.rank);
+    std::copy(meta_out.dims, meta_out.dims+meta_out.rank, ds.begin());
 
-      dims_t ds(meta_out.rank-1);
-      std::copy(meta_out.dims+1, meta_out.dims+meta_out.rank, ds.begin());
+    ewb e(ds, v_lhs.ordering, v_rhs.ordering);
+    e(vec_op, data_lhs, data_rhs, data_out);
 
-      auto get_stride_ordering = [](modes_t const& xs) {
-        // Example: xs = [0,1,2,3]
-        //   Then 0 is covered by do_it,
-        //   so [1,2,3] with respect to all dims.
-        //   But stride is 0 indexed, not 1 indexed, so
-        //      [0,1,2] is the output
-        // Example: xs = [1,3]
-        //   The increment is 0 and that dim isn't iterated,
-        //   so [1,3] with resepect to all dims.
-        //   Bu stride is 0 indexed, not 1 indexed, so
-        //      [0,2] is the output.
-        modes_t ys;
-        if(xs[0] == 0) {
-          ys.resize(xs.size()-1);
-          std::copy(xs.begin()+1, xs.end(), ys.begin());
-        } else {
-          ys = xs;
-        }
-        for(auto& y: ys) {
-          y -= 1;
-        }
-        return ys;
-      };
-
-      modes_t olhs = get_stride_ordering(v_lhs.ordering);
-      modes_t orhs = get_stride_ordering(v_rhs.ordering);
-
-      auto size_lhs = product(cu_shape_as_vec(meta_lhs));
-      auto size_rhs = product(cu_shape_as_vec(meta_rhs));
-      auto size_out = product(cu_shape_as_vec(meta_out));
-
-      auto do_it = [&](int64_t lhs, int64_t rhs, int64_t out) {
-        //if(lhs + inc_lhs*meta_out.dims[0] > size_lhs) {
-        //  throw std::invalid_argument("LHS");
-        //}
-        //if(rhs + inc_rhs*meta_out.dims[0] > size_rhs) {
-        //  throw std::invalid_argument("RHS");
-        //}
-        //if(out + 1*meta_out.dims[0] > size_out) {
-        //  throw std::invalid_argument("OUT");
-        //}
-        vec_op(
-          meta_out.dims[0],
-          data_lhs + lhs, inc_lhs,
-          data_rhs + rhs, inc_rhs,
-          data_out + out, 1);
-      };
-
-      stride_increment_t strider = stride_increment_t(
-        ds, olhs, orhs,
-        inc_lhs == 0 ? 1 : meta_out.dims[0],
-        inc_rhs == 0 ? 1 : meta_out.dims[0],
-                           meta_out.dims[0]);
-      strider(do_it);
-    }
 #ifdef CU_BARB_REFERENCE
     reference(params, _in, _out);
 #endif
+#endif
+    EWB01("EXITING EWB");
   }
 };
 
@@ -385,6 +461,9 @@ struct f : public ud_impl_t {
     auto const& meta_lhs =  _in.get<0>().as<cu_meta_t>().m();
     auto const& meta_rhs =  _in.get<1>().as<cu_meta_t>().m();
     auto      & meta_out = _out.get<0>().as<cu_meta_t>().m();
+
+    assert(p.ordering_lhs.size() == meta_lhs.rank);
+    assert(p.ordering_rhs.size() == meta_rhs.rank);
 
     set_out_meta(p, meta_lhs, meta_rhs, meta_out);
   }

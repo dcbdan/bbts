@@ -335,9 +335,19 @@ void cmd_to_table(table_t& table, bbts::command_t const& cmd)
     table << "APPLY";
   } else if(cmd.is_move()) {
     table << "MOVE";
+  } else if(cmd.is_delete()) {
+    table << "DELETE";
+  } else if(cmd.is_broadcast()) {
+    table << "BROADCAST";
+  } else if(cmd.is_reduce()) {
+    table << "REDUCE";
+  } else if(cmd.is_touch()) {
+    table << "TOUCH";
   } else {
-    table << table.blank;
+    table << "?????";
   }
+
+  table << (cmd.fun_id.ud_id);
 
   std::vector<bbts::tid_t> inn_tids;
   std::vector<bbts::node_id_t> inn_locs;
@@ -376,7 +386,7 @@ int main(int argc, char **argv)
   if (node.get_rank() == 0) {
     t = std::thread([&]()
     {
-      //verbose(std::cout, node, true);
+      verbose(std::cout, node, true);
 
       auto options_ptr = get_options(config->argc, config->argv);
       if(!options_ptr) {
@@ -431,23 +441,20 @@ int main(int argc, char **argv)
 
       auto [input_cmds, run_cmds] = g.extract();
 
-      //{
-      //  table_t table(4);
-      //  table << "" << "id" << "type" << "inn" << "out" << "inn locs" << "out locs" << table.endl;
-      //  for(auto& cmd_ptr: input_cmds) {
-      //    table << "inn";
-      //    cmd_to_table(table, *cmd_ptr);
-      //    //std::stringstream ss;
-      //    //cmd->print(ss);
-      //    //std::cout << ss.str();
-      //  }
-      //  for(auto& cmd: run_cmds) {
-      //    table << "out";
-      //    cmd_to_table(table, *cmd);
-      //  }
+      {
+        table_t table(4);
+        table << "" << "id" << "type" << "kernel" << "inn" << "out" << "inn locs" << "out locs" << table.endl;
+        for(auto& cmd_ptr: input_cmds) {
+          table << "inn";
+          cmd_to_table(table, *cmd_ptr);
+        }
+        for(auto& cmd: run_cmds) {
+          table << "out";
+          cmd_to_table(table, *cmd);
+        }
 
-      //  std::cout << table << std::endl;
-      //}
+        std::cout << table << std::endl;
+      }
 
       run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
       run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");

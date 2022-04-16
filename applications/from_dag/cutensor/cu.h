@@ -12,6 +12,18 @@ using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params
                                             const tensor_args_t &_in,
                                             tensor_args_t &_out)>;
 
+// For debugging, you can turn off kernels entirely...
+// Useful if trying to figure out where something breaks.
+
+#define CU_CONTRACTION_OFF
+#define CU_EWB_CASTABLE_OFF
+#define CU_EWB_OFF
+#define CU_EW_OFF
+#define CU_EXPAND_OFF
+#define CU_REDUCTION_OFF
+
+//#define CU_BARB_REFERENCE
+
 #define DCB01(x) //std::cout << __FILE__ << x << std::endl
 #define PRINTLINE //std::cout << __FILE__ << ": " << __LINE__ << std::endl
 
@@ -64,8 +76,6 @@ struct cu_debug_write_t_ {
 #else
 #define cu_debug_write_t(name)
 #endif
-
-//#define CU_BARB_REFERENCE
 
 // just assume we're using CUDA_R_32F everywhere
 #define SIZEOFFLOAT 4
