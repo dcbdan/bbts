@@ -1,18 +1,13 @@
-#include "cu.h"
-#include "utils.h"
+#include "types.h"
 
 #include "../../../src/utils/expand.h"
 #include "../../../src/utils/expand_indexer.h"
 
-#include <tuple>
-#include <vector>
-
 using namespace utils::expand;
-using _cutensor_utils::product;
-using std::vector;
-using std::tuple;
 
 namespace _register_expand {
+
+// TODO: will need to use int64_ts.
 
 // return the expander and whether or not this is a compress op
 tuple<
@@ -66,7 +61,7 @@ struct expand : public ud_impl_t {
   {
     auto [expander, _1] = _register_expand::get_expander(params);
     auto compact_shape = expander.compact_inn_shape();
-    return product(compact_shape);
+    return product_ints(compact_shape);
   }
 
   // return the meta of the output
@@ -132,6 +127,7 @@ struct expand : public ud_impl_t {
 #endif
   }
 };
+
 }
 
 void register_expand(

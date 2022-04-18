@@ -1,23 +1,12 @@
-#include "cu.h"
-#include "utils.h"
-
-#include <random>
-#include <algorithm>
-
-#include <fstream>
-#include <stdexcept>
+#include "types.h"
 
 #include "../../../src/utils/expand.h"
-
-#include <mkl/mkl.h>
 
 using namespace bbts;
 
 namespace _register_init {
 
-using namespace _cutensor_utils;
-
-struct params_t {
+struct info_t {
   int which;
   union {
     struct {
@@ -31,52 +20,13 @@ struct params_t {
       int which;
     } file;
   } t;
-  dims_t bid;        // which block this is in the relation
-  dims_t dims;       // the dimensions of this block
-  dims_t total_dims; // the dimensions of the entire relation
+  vector<int64_t> bid;        // which block this is in the relation
+  vector<int64_t> dims;       // the dimensions of this block
+  vector<int64_t> total_dims; // the dimensions of the entire relation
 };
 
-struct indexer_t {
-  indexer_t(dims_t const& bid, dims_t const& dims, dims_t const& total_dims):
-    total_dims(total_dims), idx(total_dims.size(), 0)
-  {
-    for(int i = 0; i != total_dims.size(); ++i) {
-      start_dims.push_back(bid[i]*dims[i]);
-      end_dims.push_back((bid[i]+1)*dims[i]);
-    }
-  }
-
-  bool in_range() const {
-    for(int i = 0; i != total_dims.size(); ++i) {
-      if(idx[i] >= start_dims[i] && idx[i] < end_dims[i]) {
-        // this index is in range
-      } else {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool increment() {
-    // COLUMN MAJOR
-    bool could_increment = false;
-    for(int i = 0; i != total_dims.size(); ++i) {
-      if(idx[i] + 1 == total_dims[i]) {
-        idx[i] = 0;
-      } else {
-        idx[i] += 1;
-        could_increment = true;
-        break;
-      }
-    }
-    return could_increment;
-  }
-
-  dims_t total_dims, idx, start_dims, end_dims;
-};
-
-void load_block(float* data, params_t const& params) {
-  std::string const& file = _cutensor_utils::_input_files[params.t.file.which];
+void load_block(float* data, info_t const& params) {
+  std::string const& file = ""; // _input_files[params.t.file.which];
   std::ifstream f(file);
   if(!f.is_open()) {
     throw std::runtime_error("couldn't open: " + file);
@@ -104,8 +54,8 @@ void load_block(float* data, params_t const& params) {
     });
 }
 
-params_t parse(const bbts::ud_impl_t::tensor_params_t &params) {
-  params_t ret;
+info_t parse(const bbts::ud_impl_t::tensor_params_t &params) {
+  info_t ret;
   ret.which = params.get_int<0>();
   int i;
   if(ret.which == 0) {
@@ -129,10 +79,7 @@ params_t parse(const bbts::ud_impl_t::tensor_params_t &params) {
   return ret;
 }
 
-template <typename M>
-void set_out_meta(
-  params_t const& p,
-  M& out) {
+void set_out_meta(info_t const& p, cu_shape_t& out) {
   out.rank = p.dims.size();
   for(int r = 0; r != out.rank; ++r) {
     out.dims[r] = p.dims[r];
@@ -147,9 +94,9 @@ struct op {
   {
     cu_debug_write_t("init");
 
-    params_t p = parse(params);
+    info_t p = parse(params);
     set_out_meta(p, _out.get<0>().as<cu_meta_t>().m());
-    size_t n = product(p.dims);
+    size_t n = product_dims(p.dims);
     cu_t& out = _out.get<0>().as<cu_t>();
     float* data = (float*)out.data();
     if(p.which == 0) {
@@ -168,7 +115,8 @@ struct op {
     } else if(p.which == 1) {
       std::fill(data, data + n, p.t.constant.val);
     } else {
-      load_block(data, p);
+      throw std::runtime_error("read from file: not implemented");
+      //load_block(data, p);
     }
   }
 };
@@ -187,7 +135,7 @@ struct f : public ud_impl_t {
   // returns an estimate of the complexity
   size_t get_complexity_hint(const bbts::ud_impl_t::tensor_params_t &params,
                              const meta_args_t &_in) override {
-    return product(parse(params).dims);
+    return product_dims(parse(params).dims);
   }
 
   // return the meta of the output

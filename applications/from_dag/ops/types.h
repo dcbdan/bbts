@@ -1,10 +1,20 @@
 #pragma once
 
 #include "../../../src/tensor/tensor.h"
+#include "../../../src/tensor/tensor_factory.h"
 #include "../../../src/ud_functions/ud_function.h"
+#include "../../../src/ud_functions/udf_manager.h"
 
 #include <stdexcept>
 #include <sstream>
+#include <chrono>
+#include <stdexcept>
+#include <algorithm>
+#include <mutex>
+#include <thread>
+#include <tuple>
+
+#include <mkl.h>
 
 using namespace bbts;
 using tensor_args_t = ud_impl_t::tensor_args_t;
@@ -12,22 +22,26 @@ using ud_impl_callable = std::function<void(const bbts::ud_impl_t::tensor_params
                                             const tensor_args_t &_in,
                                             tensor_args_t &_out)>;
 
+using std::vector;
+using std::tuple;
+
 // For debugging, you can turn off kernels entirely...
 // Useful if trying to figure out where something breaks.
 
-#define CU_CONTRACTION_OFF
-#define CU_EWB_CASTABLE_OFF
-#define CU_EWB_OFF
-#define CU_EW_OFF
-#define CU_EXPAND_OFF
-#define CU_REDUCTION_OFF
+//#define CU_PERMUTE_OFF
+//#define CU_UNARY_EW_OFF
+//#define CU_BINARY_EW_OFF
+//#define CU_CASTABLE_EW_OFF
+//#define CU_BATCH_MATMUL_OFF
+//#define CU_REDUCTION_OFF
+//#define CU_EXPAND_OFF
 
-//#define CU_BARB_REFERENCE
+#define CU_BARB_REFERENCE
 
 #define DCB01(x) //std::cout << __FILE__ << x << std::endl
 #define PRINTLINE //std::cout << __FILE__ << ": " << __LINE__ << std::endl
 
-#define MAXRANK   4
+#define MAXRANK 8
 
 #define CU_DEBUG
 
@@ -77,11 +91,8 @@ struct cu_debug_write_t_ {
 #define cu_debug_write_t(name)
 #endif
 
-// just assume we're using CUDA_R_32F everywhere
-#define SIZEOFFLOAT 4
-
 struct cu_shape_t {
-  uint32_t rank;
+  int64_t rank;
   int64_t dims[MAXRANK];
 };
 
@@ -96,7 +107,7 @@ struct cu_meta_t : public tensor_meta_t {
   cu_meta_t(tfid_t _id) : tensor_meta_t{.fmt_id = _id} {}
 
   // init the tensor meta
-  cu_meta_t(tfid_t _id, std::vector<int32_t> dims) : tensor_meta_t{.fmt_id = _id} {
+  cu_meta_t(tfid_t _id, std::vector<int64_t> dims) : tensor_meta_t{.fmt_id = _id} {
     auto& meta = this->m();
     meta.rank = dims.size();
     for(int r = 0; r != meta.rank; ++r) {
@@ -104,15 +115,15 @@ struct cu_meta_t : public tensor_meta_t {
     }
   }
 
-  size_t get_data_size() const {
-    size_t num = this->num_elem();
-    return SIZEOFFLOAT * num;
+  uint64_t get_data_size() const {
+    uint64_t num = this->num_elem();
+    return sizeof(float) * num;
   }
 
-  size_t num_elem() const {
+  uint64_t num_elem() const {
     auto const& meta = this->m();
 
-    size_t num = 1;
+    uint64_t num = 1;
     for(int r = 0; r != meta.rank; ++r) {
       num *= meta.dims[r];
     }
@@ -190,3 +201,101 @@ struct cu_t : public tensor_t {
     return tensor_creation_fs_t{.get_size = size, .init_tensor = init, .print = pnt};
   }
 };
+
+inline float scalarAdd(float lhs, float rhs) { return lhs + rhs; }
+inline float scalarMax(float lhs, float rhs) { return lhs > rhs ? lhs : rhs; }
+inline float scalarMin(float lhs, float rhs) { return lhs < rhs ? lhs : rhs; }
+inline float scalarMul(float lhs, float rhs) { return lhs * rhs; }
+
+inline float aggAdd(float* data, int64_t n) {
+  float ret;
+  cblas_saxpy(n, 1.0, data, 1, &ret, 0);
+  return ret;
+};
+
+inline float aggMax(float* data, int64_t n) { return data[cblas_isamax(n, data, 1)]; }
+
+inline float aggMin(float* data, int64_t n) { return data[cblas_isamin(n, data, 1)]; }
+
+inline float aggMul(float* data, int64_t n) {
+  float ret = data[0];
+  for(int64_t i = 1; i < n; ++i) {
+    ret *= data[i];
+  }
+  return ret;
+}
+
+struct castable_op_t {
+  castable_op_t(int i): i(i) {
+    if( i == 0) {
+      mkl_op = vsAdd;
+      scalar_op = scalarAdd;
+      agg_op = aggAdd;
+    } else if (i == 1) {
+      mkl_op = vsFmax;
+      scalar_op = scalarMax;
+      agg_op = aggMax;
+    } else if (i == 2) {
+      mkl_op = vsFmin;
+      scalar_op = scalarMin;
+      agg_op = aggMin;
+    } else if (i == 3) {
+      mkl_op = vsMul;
+      scalar_op = scalarMul;
+      agg_op = aggMul;
+    } else {
+      throw std::invalid_argument("is not a castable operator");
+    }
+  }
+  castable_op_t(castable_op_t const& other): castable_op_t(other.i) {}
+
+  castable_op_t(): castable_op_t(0) {}
+
+  decltype(vsAdd)* mkl_op;
+  decltype(scalarAdd)* scalar_op;
+  decltype(aggAdd)* agg_op;
+  int i;
+};
+
+struct unary_op_t {
+  int i;
+  float f; // this scales the output
+};
+
+void parse_uop(
+  const bbts::ud_impl_t::tensor_params_t &params,
+  unary_op_t& op,
+  int& which) {
+
+  op.i = params.get_raw(which++).i;
+  if(op.i < 0 || op.i > 6) {
+    throw std::invalid_argument("is not a valid unary op");
+  }
+  if(op.i == 6 || op.i == 7) {
+    op.f = params.get_raw(which++).f;
+  }
+}
+
+vector<int64_t> cu_shape_as_vec(cu_shape_t s) {
+  vector<int64_t> ret(s.rank);
+  std::copy(s.dims, s.dims + s.rank, ret.begin());
+  return ret;
+}
+
+int64_t product_dims(vector<int64_t> const& ds) {
+  int64_t ret = 1;
+  for(auto const& d: ds) {
+    ret *= d;
+  }
+  return ret;
+}
+
+int64_t product_ints(vector<int> const& ds) {
+  int64_t ret = 1;
+  for(auto const& d: ds) {
+    ret *= d;
+  }
+  return ret;
+}
+
+

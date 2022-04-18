@@ -25,11 +25,12 @@ target_link_libraries(from_dag
   -lgecodekernel
   -lgecodesearch
   -lgecodesupport)
-target_link_libraries(node_cli ${CMAKE_THREAD_LIBS_INIT})
 target_link_libraries(from_dag ${MPI_LIBRARIES})
 
-add_library(barb_cutensor SHARED ${app_dir}/cutensor.cc)
-target_link_libraries(barb_cutensor bbts-common)
+add_library(from_dag_ops SHARED ${app_dir}/ops/ops.cc)
+target_link_libraries(from_dag_ops bbts-common)
 
 target_compile_definitions(from_dag
-  PRIVATE BARB_CUTENSOR_LIB=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libbarb_cutensor.so)
+  PRIVATE BARB_CUTENSOR_LIB=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libfrom_dag_ops.so)
+
+
