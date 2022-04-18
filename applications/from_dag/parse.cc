@@ -201,15 +201,24 @@ void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
     node_t n;
     n.type = tk.n;
 
-    // copy the kernel id and the params over
+    // copy the kernel id (if join node) and the params (all nodes) over
     tk.expect(t_params);
 
-    // The first item of the ps better be an int!
-    n.kernel = tk.ps[0].get_int();
+    int start_ps, end_ps;
+    if(n.type == node_t::node_type::join) {
+      // The first param of a join node better be an int
+      n.join_kernel = static_cast<node_t::join_kernel_type>(tk.ps[0].get_int());
 
-    // the rest will be params to the kernel
-    n.params.reserve(tk.ps.size()-1);
-    for(int i = 1; i < tk.ps.size(); ++i) {
+      start_ps = 1;
+      end_ps = tk.ps.size();
+    } else {
+      start_ps = 0;
+      end_ps = tk.ps.size();
+    }
+
+    // add the params
+    n.params.reserve(end_ps - start_ps);
+    for(int i = start_ps; i != end_ps; ++i) {
       n.params.push_back(tk.ps[i]);
     }
 

@@ -130,7 +130,7 @@ std::shared_ptr<partition_options_t> get_options(int argc, char** argv) {
   }
 }
 
-vector<::bbts::ud_impl_id_t> load_cutensor_lib(
+ud_info_t load_kernel_lib(
   ::bbts::node_t &node,
   const std::string &file_path)
 {
@@ -154,9 +154,7 @@ vector<::bbts::ud_impl_id_t> load_cutensor_lib(
     throw std::runtime_error(message);
   }
 
-  vector<::bbts::ud_impl_id_t> ret;
-  ret.reserve(8);
-  auto insert = [&](std::string name, int inn, int out) {
+  auto get = [&](std::string name, int inn, int out) {
     auto matcher = node._udf_manager->get_matcher_for(name);
     auto ud = matcher->findMatch(
       vector<std::string>(inn, "cutensor"),
@@ -165,25 +163,19 @@ vector<::bbts::ud_impl_id_t> load_cutensor_lib(
     if(!ud) {
       throw std::runtime_error("could not get the ud");
     }
-    ret.push_back(ud->impl_id);
+    return ud->impl_id;
   };
 
-  // 0  init
-  // 1  expand
-  // 2  contraction
-  // 3  reduction
-  // 4  ew
-  // 5  ewb
-  // 6  dropout
-  // 7  ewb_castable
-  insert("init",         0, 1);
-  insert("expand",       1, 1);
-  insert("contraction",  2, 1);
-  insert("reduction",    1, 1);
-  insert("ew",           1, 1);
-  insert("ewb",          2, 1);
-  insert("dropout",      1, 1);
-  insert("ewb_castable", 2, 1);
+  ud_info_t ret{
+    .init                 = get("init",        0, 1),
+    .expand               = get("expand",      1, 1),
+    .castable_elementwise = get("castable_ew", 2, 1),
+    .permute              = get("permute",     1, 1),
+    .contraction          = get("contraction", 2, 1),
+    .reduction            = get("reduction",   1, 1),
+    .unary_elementwise    = get("unary_ew",    1, 1),
+    .binary_elementwise   = get("binary_ew",   2, 1)
+  };
 
   return ret;
 }
@@ -394,7 +386,7 @@ int main(int argc, char **argv)
       }
       partition_options_t const& options = *options_ptr;
 
-      auto uds = load_cutensor_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
+      ud_info_t ud_info = load_kernel_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
 
       auto partition_info = run_partition(options);
       auto get_inc_part = [&](nid_t nid) {
@@ -436,7 +428,7 @@ int main(int argc, char **argv)
       generate_commands_t g(
         options.get_dag(),
         partition_info,
-        [&uds](int which){ return uds[which]; },
+        ud_info,
         node.get_num_nodes());
 
       auto [input_cmds, run_cmds] = g.extract();

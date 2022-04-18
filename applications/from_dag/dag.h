@@ -71,6 +71,13 @@ struct node_t {
     agg
   };
 
+  enum join_kernel_type {
+    contraction,
+    reduction,
+    unary_elementwise,
+    binary_elementwise
+  };
+
   node_type type;
 
   nid_t id; // this node itself
@@ -82,13 +89,16 @@ struct node_t {
   vector<nid_t> downs;
   vector<nid_t> ups;
 
-  int kernel;
-  vector<bbts::command_param_t> get_bbts_params() const;
   vector<param_t> params;
+
+  // A param_t can be converted intoa bbts::command_param_t.
+  // Do that for each item in params and return the result.
+  vector<bbts::command_param_t> get_bbts_params() const;
 
   // only valid if type == join
   vector<std::vector<rank_t>> ordering;
   vector<rank_t> aggs;
+  join_kernel_type join_kernel;
 
   // Does this node "own" a partitioning
   bool is_part_owner() const {

@@ -50,11 +50,11 @@ int select_node_t::select_from(vector<int> const& select_from_)
 generate_commands_t::generate_commands_t(
   dag_t const& dag,
   vector<partition_info_t> const& info,
-  std::function<ud_impl_id_t(int)> get_ud,
+  ud_info_t ud_info,
   int num_nodes):
     dag(dag),
     info(info),
-    get_ud(get_ud),
+    ud_info(ud_info),
     num_nodes(num_nodes),
     selector(num_nodes),
     _command_id(0),
@@ -129,7 +129,7 @@ void generate_commands_t::add_input_node_everywhere(nid_t nid) {
 
       input_commands.emplace_back(command_t::create_apply(
         next_command_id(),
-        get_ud(node.kernel),
+        ud_info.get_join_ud(node.join_kernel),
         false,
         params,
         {},
@@ -217,7 +217,7 @@ void generate_commands_t::add_node(nid_t nid) {
 
       input_commands.emplace_back(command_t::create_apply(
         next_command_id(),
-        get_ud(node.kernel),
+        ud_info.init,
         false,
         params,
         {},
@@ -243,7 +243,7 @@ void generate_commands_t::add_node(nid_t nid) {
 
       commands.emplace_back(command_t::create_apply(
         next_command_id(),
-        get_ud(node.kernel),
+        ud_info.get_join_ud(node.join_kernel),
         false,
         node.get_bbts_params(),
         apply_inputs,
@@ -259,7 +259,7 @@ void generate_commands_t::add_node(nid_t nid) {
 
       commands.emplace_back(command_t::create_reduce(
         next_command_id(),
-        get_ud(node.kernel),
+        ud_info.castable_elementwise,
         false,
         node.get_bbts_params(),
         inputs,
@@ -310,7 +310,7 @@ void generate_commands_t::add_node(nid_t nid) {
           // do the compact into compact_tid
           commands.emplace_back(command_t::create_compact(
             next_command_id(),
-            get_ud(node.kernel),
+            ud_info.expand,
             false,
             which_input,
             reblock_params,
@@ -331,7 +331,7 @@ void generate_commands_t::add_node(nid_t nid) {
         // so do the touch
         commands.emplace_back(command_t::create_touch(
           next_command_id(),
-          get_ud(node.kernel),
+          ud_info.expand,
           false,
           which_input,
           inputs.size(),
@@ -495,8 +495,7 @@ generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
       auto inc_bid = dag_t::combine_out_agg(aggs, bid, indexer.idx);
       ret.push_back(self->relations[join_nid][inc_bid]);
     } while(indexer.increment());
-  }
-
+  } else
   if(node.type == node_t::node_type::reblock) {
     nid_t input_nid = node.downs[0];
 
@@ -519,8 +518,7 @@ generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
         ret.push_back(self->relations[input_nid][input_bid]);
       }
     }
-  }
-
+  } else
   if(node.type == node_t::node_type::join) {
     ret.reserve(node.downs.size());
 
@@ -528,15 +526,15 @@ generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
       vector<int> input_bid = self->dag.get_out_for_input(bid, nid, input_nid);
       ret.push_back(self->relations[input_nid][input_bid]);
     }
-  }
-
+  } else
   if(node.type == node_t::node_type::input) {
     ret = {};
+  } else {
+    assert(false);
   }
 
-  // Uninitialized tids are negative.. Make sure
-  // no uninitialized tids were retrieved.
-  // Same with locations.
+  // Uninitialized tids and locs are negative.. Make sure
+  // no uninitialized tid or locs were retrieved.
   for(auto const& [t,l]: ret) {
     assert(t >= 0);
     assert(l >= 0);

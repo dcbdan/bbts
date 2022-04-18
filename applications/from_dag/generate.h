@@ -39,11 +39,40 @@ private:
 using tid_loc_t = command_t::tid_node_id_t;
 using loc_t = ::bbts::node_id_t;
 
+struct ud_info_t {
+  ud_impl_id_t init;
+  ud_impl_id_t expand;
+  ud_impl_id_t castable_elementwise;
+  ud_impl_id_t permute;
+  ud_impl_id_t contraction;
+  ud_impl_id_t reduction;
+  ud_impl_id_t unary_elementwise;
+  ud_impl_id_t binary_elementwise;
+
+  ud_impl_id_t get_join_ud(node_t::join_kernel_type j) const {
+    if(j == node_t::join_kernel_type::contraction) {
+      return contraction;
+    }
+    if(j == node_t::join_kernel_type::reduction) {
+      return reduction;
+    }
+    if(j == node_t::join_kernel_type::unary_elementwise) {
+      return unary_elementwise;
+    }
+    if(j == node_t::join_kernel_type::binary_elementwise) {
+      return binary_elementwise;
+    }
+
+    assert(false);
+    return init;
+  }
+};
+
 struct generate_commands_t {
   generate_commands_t(
     dag_t const& dag,
     vector<partition_info_t> const& info,
-    std::function<ud_impl_id_t(int)> get_ud,
+    ud_info_t ud_info,
     int num_nodes);
 
   tuple<vector<command_ptr_t>, vector<command_ptr_t>> extract();
@@ -94,6 +123,7 @@ private:
   void add_input_node_everywhere(nid_t nid);
 
   void add_node(nid_t nid);
+
   void add_priority(nid_t nid);
 
   int next_command_id() { return _command_id++; }
@@ -115,7 +145,7 @@ private:
   dag_t const dag;
   vector<partition_info_t> const info;
 
-  function<ud_impl_id_t(int)> get_ud;
+  ud_info_t ud_info;
 
   int num_nodes;
   select_node_t selector;
