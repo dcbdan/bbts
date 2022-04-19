@@ -98,6 +98,559 @@ bool priority_was_set(int32_t p) {
   return p != std::numeric_limits<int32_t>::min();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+template <typename T>
+vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
+  vector<T> ret(ps.size());
+  for(int i = 0; i != ps.size(); ++i) {
+    ret[i] = xs[ps[i]];
+  }
+  return ret;
+}
+
+vector<int> inverse(vector<int> const& ps) {
+  vector<int> ret(ps.size());
+  for(int i = 0; i != ps.size(); ++i) {
+    ret[ps[i]] = i;
+  }
+  return ret;
+}
+
+vector<int> from_to(vector<int> const& inn, vector<int> const& out) {
+  vector<tuple<int,int>> ps;
+  ps.reserve(inn.size());
+  for(int i = 0; i != inn.size(); ++i) {
+    ps.emplace_back(inn[i], out[i]);
+  }
+  std::sort(ps.begin(), ps.end());
+
+  vector<int> ret;
+  ret.reserve(inn.size());
+  for(auto const& [_,v]: ps) {
+    ret.push_back(v);
+  }
+  return ret;
+}
+
+//import qualified Data.List as List
+//
+//data Perm = Perm [Int] deriving (Show, Eq)
+//
+//permute :: Ord a => Perm -> [a] -> [a]
+//permute (Perm ps) xs = map (xs!!) ps
+//
+//permute_also (Perm ps) xs = out
+//  where out = map snd $ List.sort $ zip ps xs
+//
+//inverse :: Perm -> Perm
+//inverse (Perm ps) = Perm inv
+//  where inv = map snd $ List.sort $ zip ps [0..]
+//
+//from_to :: Perm -> Perm -> Perm
+//from_to (Perm inns) (Perm outs) = Perm ret
+//  where ret = map snd $ List.sort $ zip inns outs
+//
+//main :: IO ()
+//main = do
+//  print $ (permute (Perm [2,3,0,1]) [0,1,2,3]    == [2,3,0,1])
+//  print $ (inverse (Perm [2,3,0,1])              == Perm [2,3,0,1])
+//  print $ (inverse (Perm [2,0,1,3])              == Perm [1,2,0,3])
+//  print $ (from_to (Perm [0,1,2]) (Perm [2,1,0]) == Perm [2,1,0])
+//  print $ (from_to (Perm [2,0,1]) (Perm [0,1,2]) == inverse (Perm [2,0,1]))
+//
+//int main() {
+//  {
+//    vector<int> p = {2,3,0,1};
+//    vector<int> x = {0,1,2,3};
+//    std::cout << std::boolalpha << (permute(p, x) == p) << std::endl;
+//  }
+//  {
+//    vector<int> p = {2,3,0,1};
+//    std::cout << std::boolalpha << (inverse(p) == p) << std::endl;
+//  }
+//  {
+//    vector<int> x = {2,0,1,3};
+//    vector<int> y = {1,2,0,3};
+//    std::cout << std::boolalpha << (inverse(x) == y) << std::endl;
+//  }
+//  {
+//    vector<int> x = {0,1,2};
+//    vector<int> y = {2,1,0};
+//    std::cout << std::boolalpha << (from_to(x,y) == y) << std::endl;
+//  }
+//  {
+//    vector<int> x = {2,0,1};
+//    vector<int> y = {0,1,2};
+//    std::cout << std::boolalpha << (from_to(x,y) == inverse(x)) << std::endl;
+//  }
+//  {
+//    vector<int> x = {0,3,1,4,2};
+//    vector<int> y = {9,10,11,12,13};
+//    std::cout << std::boolalpha
+//      << (permute(inverse(x), permute(x, y)) == y)
+//      << std::endl;
+//  }
+//}
+////////////////////////////////////////////////////////////////////////////////
+
+// A join node may request a contraction, elementwise, elementwise binary
+// or a reduction. In general, the join node allows arbitrary permutations
+// of the outputs. But the corresponding operations that actually do the
+// implementations have various ordering constraints on the ranks. To
+// remedy this, permutations may have to be  applied to the inputs of the
+// join op or to the output.
+//
+// This handler computes all of those requirements and figures out that
+// the necessary params will be. Then generate_commands_t::add_node uses
+// that info to generate the necessary commands.
+
+class join_handler_t {
+  vector<tuple<int, vector<bbts::command_param_t>>> _input_permutes;
+  vector<bbts::command_param_t> _op_params;
+
+  bool _post_permute;
+  vector<bbts::command_param_t> _post_permute_params;
+
+  struct einsum_order_t {
+    einsum_order_t(
+      vector<int> const& modes_lhs,
+      vector<int> const& modes_rhs,
+      vector<int> const& modes_out)
+    {
+      for(auto const& m: modes_out) {
+        bool in_lhs = std::find(modes_lhs.begin(), modes_lhs.end(), m) != modes_lhs.end();
+        bool in_rhs = std::find(modes_rhs.begin(), modes_rhs.end(), m) != modes_rhs.end();
+        if(in_lhs && in_rhs) {
+          bs.push_back(m);
+        }  else
+        if(in_lhs) {
+          is.push_back(m);
+        } else
+        if(in_rhs) {
+          ks.push_back(m);
+        } else {
+          assert(false);
+        }
+      }
+      for(auto const& m: modes_lhs) {
+        bool in_rhs = std::find(modes_rhs.begin(), modes_rhs.end(), m) != modes_rhs.end();
+        bool in_out = std::find(modes_out.begin(), modes_out.end(), m) != modes_out.end();
+        if(in_rhs && !in_out) {
+          js.push_back(m);
+        }
+      }
+    }
+
+    bool is_ijb(vector<int> const& modes) const {
+      return is_(modes, is, js, bs);
+    }
+    bool is_jib(vector<int> const& modes) const {
+      return is_(modes, js, is, bs);
+    }
+    bool is_jkb(vector<int> const& modes) const {
+      return is_(modes, js, ks, bs);
+    }
+    bool is_kjb(vector<int> const& modes) const {
+      return is_(modes, ks, js, bs);
+    }
+    bool is_ikb(vector<int> const& modes) const {
+      return is_(modes, is, ks, bs);
+    }
+
+    vector<int> permute_to_ijb(vector<int> const& modes) const {
+      return permute_(modes, is, js, bs);
+    }
+    vector<int> permute_to_jkb(vector<int> const& modes) const {
+      return permute_(modes, js, ks, bs);
+    }
+    vector<int> permute_to_ikb(vector<int> const& modes) const {
+      return permute_(modes, is, ks, bs);
+    }
+
+    int ni() const { return static_cast<int>(is.size()); }
+    int nj() const { return static_cast<int>(js.size()); }
+    int nk() const { return static_cast<int>(ks.size()); }
+    int nb() const { return static_cast<int>(bs.size()); }
+
+  private:
+    vector<int> is, js, ks, bs;
+
+    bool is_(
+      vector<int> const& modes,
+      vector<int> const& as,
+      vector<int> const& bs,
+      vector<int> const& cs) const
+    {
+      assert(modes.size() == (as.size() + bs.size() + cs.size()));
+
+      int i = 0;
+      for(int const& a: as) { if(modes[i++] != a) { return false; } }
+      for(int const& b: bs) { if(modes[i++] != b) { return false; } }
+      for(int const& c: cs) { if(modes[i++] != c) { return false; } }
+
+      return true;
+    }
+
+    vector<int> permute_(
+      vector<int> const& modes_inn,
+      vector<int> const& as,
+      vector<int> const& bs,
+      vector<int> const& cs) const
+    {
+      vector<int> modes_out;
+
+      modes_out.reserve(as.size() + bs.size() + cs.size());
+      for(int const& a: as) { modes_out.push_back(a); }
+      for(int const& b: bs) { modes_out.push_back(b); }
+      for(int const& c: cs) { modes_out.push_back(c); }
+
+      assert(modes_inn.size() == modes_out.size());
+
+      return from_to(modes_inn, modes_out);
+    }
+  };
+
+public:
+  join_handler_t(node_t::join_kernel_type kernel, vector<param_t> const& params) {
+    if(kernel == node_t::join_kernel_type::contraction) {
+      // From BuildDag:
+      //   (nl,nr,no), left_modes, right_modes, out_modes, alpha
+      // For Kernel Library
+      //   t_lhs, t_rhs ni, nj, nk, nb
+      //                ^ here, n = number of ranks, not dimensions size
+      //
+      // Turn an arbitrary einsum into
+      //   ijb,jkb->ikb
+      //   jib,jkb->ikb
+      //   ijb,kjb->ikb
+      //   jib,kjb->ikb
+
+      int num_lhs = params[0].get_int();
+      int num_rhs = params[1].get_int();
+      int num_out = params[2].get_int();
+
+      int beg_lhs = 3;
+      int end_lhs = beg_lhs + num_lhs;
+
+      int beg_rhs = end_lhs;
+      int end_rhs = beg_rhs + num_rhs;
+
+      int beg_out = end_rhs;
+      int end_out = beg_out + num_out;
+
+      vector<int> modes_lhs; modes_lhs.reserve(num_lhs);
+      vector<int> modes_rhs; modes_rhs.reserve(num_rhs);
+      vector<int> modes_out; modes_out.reserve(num_out);
+
+      for(int i = beg_lhs; i != end_lhs; ++i) { modes_lhs.push_back(params[i].get_int()); }
+      for(int i = beg_rhs; i != end_rhs; ++i) { modes_rhs.push_back(params[i].get_int()); }
+      for(int i = beg_out; i != end_out; ++i) { modes_out.push_back(params[i].get_int()); }
+
+      einsum_order_t info(modes_lhs, modes_rhs, modes_out);
+
+      // Is the lhs already in jib or ijb form? If not, convert it to ijb.
+      // Is the rhs already in jkb or kjb form? If not, convert it to jkb.
+
+      bool t_lhs;
+      if(info.is_ijb(modes_lhs)) {
+        t_lhs = false;
+      } else if(info.is_jib(modes_lhs)) {
+        t_lhs = true;
+      } else {
+        t_lhs = false;
+
+        vector<bbts::command_param_t> perm;
+        for(auto const& a: info.permute_to_ijb(modes_lhs)) {
+          perm.push_back(bbts::command_param_t { .i = a });
+        }
+
+        _input_permutes.emplace_back(0, perm);
+      }
+
+      bool t_rhs;
+      if(info.is_jkb(modes_rhs)) {
+        t_rhs = false;
+      } else if(info.is_kjb(modes_rhs)) {
+        t_rhs = true;
+      } else {
+        t_rhs = false;
+
+        vector<bbts::command_param_t> perm;
+        for(auto const& a: info.permute_to_jkb(modes_rhs)) {
+          perm.push_back(bbts::command_param_t { .i = a });
+        }
+
+        _input_permutes.emplace_back(1, perm);
+      }
+
+      // Add the params
+
+      _op_params.push_back(bbts::command_param_t { .i = t_lhs });
+      _op_params.push_back(bbts::command_param_t { .i = t_rhs });
+
+      _op_params.push_back(bbts::command_param_t { .i = info.ni() });
+      _op_params.push_back(bbts::command_param_t { .i = info.nj() });
+      _op_params.push_back(bbts::command_param_t { .i = info.nk() });
+      _op_params.push_back(bbts::command_param_t { .i = info.nb() });
+
+      // Are the output modes already in ikb form? If not, permute it.
+
+      if(!info.is_ikb(modes_out)) {
+        for(auto const& a: info.permute_to_ikb(modes_out)) {
+          _post_permute_params.push_back(bbts::command_param_t { .i = a });
+        }
+        _post_permute = true;
+      }
+
+    } else
+    if(kernel == node_t::join_kernel_type::reduction) {
+      // ij->j
+      //
+      // From BuildDag:
+      //   binary op, alpha, num input rank, out modes
+      // For Kernel Library
+      //   binary op, alpha, num modes i, num modes j
+
+      int input_rank = params[2].get_int();
+      vector<int> out_modes;
+      out_modes.reserve(input_rank);
+      for(int i = 2; i < params.size(); ++i) {
+        out_modes.push_back(params[i].get_int());
+      }
+
+      vector<int> agg_modes;
+      agg_modes.reserve(input_rank);
+      for(int i = 0; i != input_rank; ++i) {
+        if(std::find(out_modes.begin(), out_modes.end(), i) == out_modes.end()) {
+          agg_modes.push_back(i);
+        }
+      }
+
+      int num_agg = static_cast<int>(agg_modes.size());
+      int num_out = static_cast<int>(out_modes.size());
+
+      _op_params.push_back(bbts::command_param_t {
+        .i = params[0].get_int()
+      });
+      _op_params.push_back(bbts::command_param_t {
+        .f = params[1].get_float()
+      });
+      _op_params.push_back(bbts::command_param_t {
+        .i = num_agg
+      });
+      _op_params.push_back(bbts::command_param_t {
+        .i = num_out
+      });
+
+      vector<int> out_modes_after;
+      if(   (out_modes.size() == 0)
+          ||
+            (std::min_element(out_modes.begin(), out_modes.end()) >
+             std::max_element(agg_modes.begin(), agg_modes.end())))
+      {
+        // In this case, do not permute the input since all the aggs already
+        // come first.
+
+        // But do the output modes have to be permuted?
+        // If the out modes are sorted, then the agg, out modes was of the form
+        // (say [0,1,2], [3,4,5]) and already in the normal form.
+        if(std::is_sorted(out_modes.begin(), out_modes.end())) {
+          _post_permute = false;
+        } else {
+          _post_permute = true;
+
+          // Example: agg_modes = [0,1,2], out_modes = [3,5,4]
+          // The output modes aren't ascending and contigous, and so need to be
+          // fixed..First, subtract 3 -> [0,2,1] and that is the permutation
+
+          _post_permute_params.reserve(out_modes.size());
+          for(auto const& o: out_modes) {
+            _post_permute_params.push_back(bbts::command_param_t {
+              .i = o - num_agg
+            });
+          }
+        }
+      } else {
+        // In this case, permute it so that the aggs come first and then the out
+        // modes in the order requested.
+        vector<bbts::command_param_t> perm;
+        for(auto const& a: agg_modes) {
+          perm.push_back(bbts::command_param_t { .i = a });
+        }
+        for(auto const& o: out_modes) {
+          perm.push_back(bbts::command_param_t { .i = o });
+        }
+
+        _input_permutes.emplace_back(0, perm);
+
+        _post_permute = false;
+      }
+
+      // 1. Are t? If so, don't permute anything
+      //    and reduce. Otherwise, permute so that i,j,b.
+      // 2. Afterwards, check if the output ordering is correct. If so,
+      //    we are done.
+    } else
+    if(kernel == node_t::join_kernel_type::unary_elementwise) {
+      // From BuildDag:
+      //   uop (which may be one or two params), alpha, out modes
+      // For Kernel Library:
+      //   uop (one or two params), alpha
+      //
+      // If the permutation specified in out modes is not the
+      // identitiy permutation, permute the input. (One could
+      // also permute the output, it doesn't matter)
+      int i = 0;
+      _op_params.push_back(bbts::command_param_t {
+          .i = params[i++].get_int()
+      });
+      if(_op_params.back().i == 6 || _op_params.back().i == 7) {
+        _op_params.push_back(bbts::command_param_t {
+          .f = params[i++].get_float()
+        });
+      }
+      _op_params.push_back(bbts::command_param_t {
+        .f = params[i++].get_float()
+      });
+
+      vector<bbts::command_param_t> out_perm;
+      out_perm.reserve(params.size());
+      while(i != params.size()) {
+        out_perm.push_back(bbts::command_param_t {
+          .i = params[i++].get_int()
+        });
+      }
+
+      bool has_input_permute = false;
+      for(int x = 0; x != out_perm.size(); ++x) {
+        if(x != out_perm[x].i) {
+          has_input_permute = true;
+          break;
+        }
+      }
+
+      if(has_input_permute) {
+        _input_permutes.push_back({ 0, out_perm });
+      }
+
+      _post_permute = false;
+    } else
+    if(kernel == node_t::join_kernel_type::binary_elementwise) {
+      // FromDag
+      //   bop alpha (nLhs, lhsOrd) (nRhs, rhsOrd)
+      // For Kernel Library
+      //   bop alpha (lhsOrd sorted) (rhsOrd sorted)
+
+      int n_lhs = params[2].get_int();  // 3.. 3,4,5.. start at 6.
+      int beg_lhs = 3;
+      int end_lhs = beg_lhs + n_lhs;
+
+      int n_rhs = params[end_lhs].get_int();
+      int beg_rhs = end_lhs + 1;
+      int end_rhs = beg_rhs + n_rhs;
+
+      assert(end_rhs == params.size());
+
+      vector<int> lhs_ord;
+      lhs_ord.resize(n_lhs);
+      for(int i = beg_lhs; i != end_lhs; ++i) {
+        lhs_ord.push_back(params[i].get_int());
+      }
+
+      vector<int> rhs_ord;
+      rhs_ord.resize(n_rhs);
+      for(int i = beg_rhs; i != end_rhs; ++i) {
+        rhs_ord.push_back(params[i].get_int());
+      }
+
+      // From dag might give something like this:
+      //   [0,1],   [0,1,2] -> [0,1,2]
+      //   ^lhsOrd  ^rhsOrd
+      // In this case, there is nothign to do.
+      // But:
+      //   [0,1],[2,0,1] -> [0,1,2]
+      // requires permuting the second input.
+      // It needs to permuted to [2,0,1]->[0,1,2].
+      // The permute params are in the form of
+      //                         [0,1,2]->[x,y,z]
+      // where x,y,z cover 0,1,2 in some order.
+      //
+      // In other words:
+      //   If lhsOrd or rhsOrd are not sorted, a permutation needs to happen.
+      //   The permutation params are the inverse of the provided ord.
+
+      if(!std::is_sorted(lhs_ord.begin(), lhs_ord.end())) {
+        // add a permutation to the lhs
+
+        vector<bbts::command_param_t> perm;
+        perm.reserve(lhs_ord.size());
+        for(auto which: inverse(lhs_ord)) {
+          perm.push_back(bbts::command_param_t {
+            .i = which
+          });
+        }
+
+        _input_permutes.emplace_back(0, perm);
+
+        std::sort(lhs_ord.begin(), lhs_ord.end());
+      }
+
+      if(!std::is_sorted(rhs_ord.begin(), rhs_ord.end())) {
+        // add a permutation to the rhs
+
+        vector<bbts::command_param_t> perm;
+        perm.reserve(lhs_ord.size());
+        for(auto which: inverse(rhs_ord)) {
+          perm.push_back(bbts::command_param_t {
+            .i = which
+          });
+        }
+
+        _input_permutes.emplace_back(1, perm);
+
+        std::sort(rhs_ord.begin(), rhs_ord.end());
+      }
+
+      _op_params.push_back(bbts::command_param_t {
+        .i = params[0].get_int()
+      });
+      _op_params.push_back(bbts::command_param_t {
+        .f = params[1].get_float()
+      });
+      for(auto const& x: lhs_ord) {
+        _op_params.push_back(bbts::command_param_t {
+          .i = x
+        });
+      }
+      for(auto const& x: rhs_ord) {
+        _op_params.push_back(bbts::command_param_t {
+          .i = x
+        });
+      }
+
+      _post_permute = false;
+
+    } else {
+      assert(false);
+    }
+  }
+
+  vector<tuple<int, vector<bbts::command_param_t>>> const&
+  input_permutes() const { return _input_permutes; }
+
+  vector<bbts::command_param_t> const&
+  op_params() const { return _op_params; }
+
+  bool has_post_permute() const { return _post_permute; }
+
+  vector<bbts::command_param_t> const&
+  post_permute_params() const
+  {
+    assert(has_post_permute());
+    return _post_permute_params;
+  }
+};
+
 void generate_commands_t::add_input_node_everywhere(nid_t nid) {
   node_t const& node = dag[nid];
   assert(node.type == node_t::node_type::input);
@@ -155,7 +708,7 @@ void generate_commands_t::add_node(nid_t nid) {
   node_t const& node = dag[nid];
 
   // Here are some things specific to reblocking, but don't need to be
-  // cereated over and over for every block
+  // created over and over for every block
   std::unique_ptr<expand_indexer_t> expand_indexer_ptr(nullptr);
   if(node.type == node_t::node_type::reblock) {
     auto const& partition_here = relations[nid].partition;
@@ -165,10 +718,17 @@ void generate_commands_t::add_node(nid_t nid) {
       new expand_indexer_t(
         partition_here,
         partition_down));
-
   }
 
-  // for each bid, add the command and get the output
+  // Here are somet hings specific to join, but don't need to be
+  // created over and over for every block
+  std::unique_ptr<join_handler_t> join_handler(nullptr);
+  if(node.type == node_t::node_type::join) {
+    join_handler = std::unique_ptr<join_handler_t>(
+      new join_handler_t(node.join_kernel, node.params));
+  }
+
+  // for each bid, add the command(s) to get the output
   indexer_t indexer(relations[nid].partition);
   do {
     auto const& bid = indexer.idx;
@@ -229,26 +789,73 @@ void generate_commands_t::add_node(nid_t nid) {
     else if(node.type == node_t::node_type::join)
     {
       // for each input, move it to the location if necessary
-      vector<tid_loc_t> apply_inputs;
-      apply_inputs.reserve(inputs.size());
+      vector<tid_loc_t> join_inputs;
+      join_inputs.reserve(inputs.size());
       for(auto const& [tid,loc]: inputs) {
         if(loc != compute_location) {
           // move it if it hasn't yet been moved
           assure_moved_to(commands, tid, loc, compute_location);
         }
-        apply_inputs.push_back({tid, compute_location});
+        join_inputs.push_back({tid, compute_location});
       }
 
-      tid_loc_t cur{ next_tid(), compute_location };
+      // Now we must
+      //   (a) optionally permute the inputs
+      //   (b) do the relevant join computation
+      //   (c) optionally permute the ouptut
+      //   (d) delete anything that was permuted
+      // But the join handler will tell us all that info
 
+      for(auto [which_input, permute_params]: join_handler->input_permutes()) {
+        tid_loc_t previous = join_inputs[which_input];
+
+        join_inputs[which_input] = tid_loc_t{ next_tid(), compute_location };
+        tid_loc_t const& now = join_inputs[which_input];
+
+        commands.emplace_back(command_t::create_apply(
+          next_command_id(),
+          ud_info.permute,
+          false,
+          permute_params,
+          {previous},
+          {now}));
+      }
+
+      tid_loc_t after_op{ next_tid(), compute_location };
       commands.emplace_back(command_t::create_apply(
         next_command_id(),
         ud_info.get_join_ud(node.join_kernel),
         false,
-        node.get_bbts_params(),
-        apply_inputs,
-        {cur}));
-      commands.back()->priority = priority;
+        join_handler->op_params(),
+        join_inputs,
+        {after_op}));
+
+      tid_loc_t cur;
+      if(join_handler->has_post_permute()) {
+        cur = tid_loc_t{ next_tid(), compute_location };
+
+        commands.emplace_back(command_t::create_apply(
+          next_command_id(),
+          ud_info.permute,
+          false,
+          join_handler->post_permute_params(),
+          {after_op},
+          {cur}));
+      } else {
+        cur = after_op;
+      }
+
+      // now do the clean up
+      for(auto [which_input, permute_params]: join_handler->input_permutes()) {
+        commands.emplace_back(command_t::create_delete(
+          next_command_id(),
+          {join_inputs[which_input]}));
+      }
+      if(join_handler->has_post_permute()) {
+        commands.emplace_back(command_t::create_delete(
+          next_command_id(),
+          {after_op}));
+      }
 
       relations[nid][bid] = cur;
     }

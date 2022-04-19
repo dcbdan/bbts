@@ -44,14 +44,14 @@ struct ud_info_t {
   ud_impl_id_t expand;
   ud_impl_id_t castable_elementwise;
   ud_impl_id_t permute;
-  ud_impl_id_t contraction;
+  ud_impl_id_t batch_matmul;
   ud_impl_id_t reduction;
   ud_impl_id_t unary_elementwise;
   ud_impl_id_t binary_elementwise;
 
   ud_impl_id_t get_join_ud(node_t::join_kernel_type j) const {
     if(j == node_t::join_kernel_type::contraction) {
-      return contraction;
+      return batch_matmul;
     }
     if(j == node_t::join_kernel_type::reduction) {
       return reduction;

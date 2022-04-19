@@ -167,14 +167,14 @@ ud_info_t load_kernel_lib(
   };
 
   ud_info_t ret{
-    .init                 = get("init",        0, 1),
-    .expand               = get("expand",      1, 1),
-    .castable_elementwise = get("castable_ew", 2, 1),
-    .permute              = get("permute",     1, 1),
-    .contraction          = get("contraction", 2, 1),
-    .reduction            = get("reduction",   1, 1),
-    .unary_elementwise    = get("unary_ew",    1, 1),
-    .binary_elementwise   = get("binary_ew",   2, 1)
+    .init                 = get("init",         0, 1),
+    .expand               = get("expand",       1, 1),
+    .castable_elementwise = get("castable_ew",  2, 1),
+    .permute              = get("permute",      1, 1),
+    .batch_matmul         = get("batch_matmul", 2, 1),
+    .reduction            = get("reduction",    1, 1),
+    .unary_elementwise    = get("unary_ew",     1, 1),
+    .binary_elementwise   = get("binary_ew",    2, 1)
   };
 
   return ret;

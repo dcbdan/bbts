@@ -3,29 +3,21 @@
 namespace _register_reduction {
 
 // This computation covers
-//   ijb->jb
+//   ij->j
 
 struct info_t {
   castable_op_t op;
   float alpha;
 
-  vector<int64_t> b;
   vector<int64_t> i;
   vector<int64_t> j;
 
-  vector<int64_t> dims() const {
-    vector<int64_t> ret;
-    ret.reserve(b.size() + j.size());
-
-    for(auto& d: j) { ret.push_back(d); }
-    for(auto& d: b) { ret.push_back(d); }
-
-    return ret;
+  vector<int64_t> const& dims() const {
+    return j;
   }
 
   int64_t ni() const { return product_dims(i); }
   int64_t nj() const { return product_dims(j); }
-  int64_t nb() const { return product_dims(b); }
 };
 
 info_t parse(
@@ -33,27 +25,25 @@ info_t parse(
   cu_shape_t const& meta_inn)
 {
   // The params contains
-  //   which op, alpha, ni, nj, nb
+  //   which op, alpha, ni, nj
 
   info_t ret;
+
+  assert(params.get_num_parameters() == 4);
 
   ret.op = castable_op_t(params.get_int<0>());
   ret.alpha = params.get_int<1>();
 
   int ni = params.get_int<2>(); ret.i.reserve(ni);
   int nj = params.get_int<3>(); ret.j.reserve(nj);
-  int nb = params.get_int<4>(); ret.b.reserve(nb);
 
-  assert(ni + nj + nb == meta_inn.rank);
+  assert(ni + nj == meta_inn.rank);
 
   for(int x = 0; x != ni; ++x) {
     ret.i.push_back(meta_inn.dims[x]);
   }
   for(int x = ni; x != ni + nj; ++x) {
     ret.j.push_back(meta_inn.dims[x]);
-  }
-  for(int x = ni + nj; x != ni + nj + nb; ++x) {
-    ret.b.push_back(meta_inn.dims[x]);
   }
 
   return ret;
@@ -86,38 +76,25 @@ void reference(
 
   int di = info.i.size();
   int dj = info.j.size();
-  int db = info.b.size();
   for(int x = 0; x != dj; ++x) {
     assert(meta_inn.dims[x + di] == meta_out.dims[x]);
   }
-  for(int x = 0; x != db; ++x) {
-    assert(meta_out.dims[x + di + dj] == meta_out.dims[x + dj]);
-  }
 
-  int64_t nb = info.nb();
   int64_t ni = info.ni();
   int64_t nj = info.nj();
 
-  int64_t si_inn = 1;
-  int64_t sj_inn = ni;
-  int64_t sb_inn = ni*nj;
-
-  int64_t sj_out = 1;
-  int64_t sb_out = nj;
-
-  for(int64_t b = 0; b != nb; ++b) {
   for(int64_t j = 0; j != nj; ++j) {
-    float v = data_inn[0*si_inn + j*sj_inn + b*sb_inn];
+    float v = data_inn[j*ni];
     for(int64_t i = 1; i < ni; ++i) {
-      v = info.op.scalar_op(v, data_inn[i*si_inn + j*sj_inn + b*sb_inn]);
+      v = info.op.scalar_op(v, data_inn[i + j*ni]);
     }
     v *= info.alpha;
 
-    float err = std::abs(v - data_out[j*sj_out + b*sb_out]);
+    float err = std::abs(v - data_out[j]);
     if(err > 0.00001) {
       throw std::runtime_error(errmsg);
     };
-  }}
+  }
 }
 
 struct op_t {
@@ -142,10 +119,9 @@ struct op_t {
     int64_t nj = info.nj();
     int64_t nb = info.nb();
 
-    for(int64_t b = 0; b != nb; ++b) {
     for(int64_t j = 0; j != nj; ++j) {
-      data_out[j + nj*b] = info.op.agg_op(data_inn + (ni*j + nj*b), ni);
-    }}
+      data_out[j] = info.op.agg_op(data_inn + ni*j, ni);
+    }
 #ifdef CU_BARB_REFERENCE
     reference(params, ins, ous);
 #endif
@@ -172,11 +148,10 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_inn);
 
-    int64_t nb = info.nb();
     int64_t ni = info.ni();
     int64_t nj = info.nj();
 
-    return nb*ni*nj;
+    return ni*nj;
   }
 
   void get_out_meta(

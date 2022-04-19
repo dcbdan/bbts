@@ -21,6 +21,8 @@ info_t parse(
     ret.dims.push_back(meta_lhs.dims[i]);
   }
 
+  assert(params.num_parameters() == 1);
+
   ret.op = castable_op_t(params.get_int<0>());
 
   return ret;

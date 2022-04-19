@@ -268,7 +268,7 @@ void parse_uop(
   int& which) {
 
   op.i = params.get_raw(which++).i;
-  if(op.i < 0 || op.i > 6) {
+  if(op.i < 0 || op.i > 7) {
     throw std::invalid_argument("is not a valid unary op");
   }
   if(op.i == 6 || op.i == 7) {
