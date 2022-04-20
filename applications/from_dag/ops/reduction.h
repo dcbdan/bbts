@@ -29,7 +29,7 @@ info_t parse(
 
   info_t ret;
 
-  assert(params.get_num_parameters() == 4);
+  assert(params.num_parameters() == 4);
 
   ret.op = castable_op_t(params.get_int<0>());
   ret.alpha = params.get_int<1>();
@@ -117,7 +117,6 @@ struct op_t {
 #ifndef CU_REDUCTION_OFF
     int64_t ni = info.ni();
     int64_t nj = info.nj();
-    int64_t nb = info.nb();
 
     for(int64_t j = 0; j != nj; ++j) {
       data_out[j] = info.op.agg_op(data_inn + ni*j, ni);
@@ -164,6 +163,8 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_inn);
     set_out_meta(info, meta_out);
+
+    DCB01("inn,out: " << meta_inn << ", " << meta_out);
   }
 };
 

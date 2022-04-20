@@ -4,12 +4,12 @@
 #include <cstdint>
 #include <memory>
 
-#include "../../third_party/cuda/gpu.h"
 #include "../commands/command_utils.h"
 #include "../server/static_config.h"
 #include "../tensor/tensor.h"
 
 #ifdef ENABLE_GPU
+#include "../../third_party/cuda/gpu.h"
 #include <cublas_v2.h>
 #include <cuda.h>
 #include <cuda_runtime.h>

@@ -63,6 +63,7 @@ void parse_dims_which(
   for(; i != rest; ++i) {
     which_rhs.push_back(params.get_raw(i).i);
   }
+  assert(i == params.num_parameters());
 
   int rank_out = 0;
   for(auto const& w: which_lhs) {
@@ -158,7 +159,7 @@ struct reference_indexer_t {
     return false;
   }
 
-private:
+//private:
   int64_t get(vector<int> which) const {
     int64_t ret = 0;
     int64_t p = 1;
@@ -224,6 +225,9 @@ void reference(
     float err = std::abs(v - data_out[indexer.out()]);
 
     if(err > 0.00001) {
+      std::cout << indexer.idx << std::endl;
+      std::cout << dims << ", " << lhs_which << ", " << rhs_which << std::endl;
+      std::cout << v << ", " << err << std::endl;
       throw std::runtime_error(errmsg);
     };
   } while(indexer.increment());
@@ -363,6 +367,8 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_lhs, meta_rhs);
     set_out_meta(info, meta_out);
+
+    DCB01("lhs,rhs,out: " << meta_lhs << "," << meta_rhs << ", " << meta_out);
   }
 };
 

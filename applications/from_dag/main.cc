@@ -378,7 +378,7 @@ int main(int argc, char **argv)
   if (node.get_rank() == 0) {
     t = std::thread([&]()
     {
-      verbose(std::cout, node, true);
+      //verbose(std::cout, node, true);
 
       auto options_ptr = get_options(config->argc, config->argv);
       if(!options_ptr) {
@@ -386,7 +386,7 @@ int main(int argc, char **argv)
       }
       partition_options_t const& options = *options_ptr;
 
-      ud_info_t ud_info = load_kernel_lib(node, STRINGIZE(BARB_CUTENSOR_LIB));
+      ud_info_t ud_info = load_kernel_lib(node, STRINGIZE(FROM_DAG_KERNEL_LIB));
 
       auto partition_info = run_partition(options);
       auto get_inc_part = [&](nid_t nid) {

@@ -45,6 +45,8 @@ info_t parse(
 
   info_t ret;
 
+  assert(params.num_parameters() == 7);
+
   ret.t_lhs = params.get_int<0>();
   ret.t_rhs = params.get_int<1>();
   ret.alpha = params.get_int<2>();
@@ -162,6 +164,7 @@ void reference(
 
     float err = std::abs(data_out[si_out*i + sk_out*k + sb_out*b] - v);
     if(err > 0.00001) {
+      std::cout << v << ", " << data_out[si_out*i + sk_out*k + sb_out*b] << std::endl;
       throw std::runtime_error(errmsg);
     };
   }}}
@@ -207,7 +210,7 @@ struct op_t {
       nb);
 
 #ifdef CU_BARB_REFERENCE
-    reference(params, ins, ous);
+//    reference(params, ins, ous);
 #endif
 
 #endif
@@ -252,6 +255,8 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_lhs, meta_rhs);
     set_out_meta(info, meta_out);
+
+    DCB01("lhs,rhs,out: " << meta_lhs << "," << meta_rhs << ", " << meta_out);
   }
 };
 

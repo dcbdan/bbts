@@ -95,10 +95,14 @@ struct op {
     cu_debug_write_t("init");
 
     info_t p = parse(params);
+
+    DCB01("init dims size of " << p.dims.size());
+
     set_out_meta(p, _out.get<0>().as<cu_meta_t>().m());
     size_t n = product_dims(p.dims);
     cu_t& out = _out.get<0>().as<cu_t>();
     float* data = (float*)out.data();
+#ifdef CU_INIT_OFF
     if(p.which == 0) {
       VSLStreamStatePtr stream;
       vslNewStream(&stream, VSL_BRNG_MCG31, time(nullptr));
@@ -118,6 +122,7 @@ struct op {
       throw std::runtime_error("read from file: not implemented");
       //load_block(data, p);
     }
+#endif
   }
 };
 

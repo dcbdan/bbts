@@ -68,6 +68,8 @@ struct expand : public ud_impl_t {
   void get_out_meta(const bbts::ud_impl_t::tensor_params_t &params,
                     const meta_args_t &_inn, meta_args_t &_out) const override
   {
+    DCB01("");
+
     auto &m = _out.get<0>().as<cu_meta_t>().m();
 
     auto [expander, compact] = _register_expand::get_expander(params);

@@ -6,6 +6,7 @@
 #include <numeric>
 
 #define DCB01(x) // std::cout << x << std::endl;
+#define HAS_PERMUTE(x) std::cout << "HAS PERMUTE " << x << std::endl
 
 namespace bbts { namespace dag {
 
@@ -222,7 +223,7 @@ class join_handler_t {
         bool in_rhs = std::find(modes_rhs.begin(), modes_rhs.end(), m) != modes_rhs.end();
         if(in_lhs && in_rhs) {
           bs.push_back(m);
-        }  else
+        } else
         if(in_lhs) {
           is.push_back(m);
         } else
@@ -311,13 +312,16 @@ class join_handler_t {
   };
 
 public:
-  join_handler_t(node_t::join_kernel_type kernel, vector<param_t> const& params) {
+  join_handler_t(
+    node_t::join_kernel_type kernel,
+    vector<param_t> const& params)
+  {
     if(kernel == node_t::join_kernel_type::contraction) {
       // From BuildDag:
       //   (nl,nr,no), left_modes, right_modes, out_modes, alpha
       // For Kernel Library
-      //   t_lhs, t_rhs ni, nj, nk, nb
-      //                ^ here, n = number of ranks, not dimensions size
+      //   t_lhs, t_rhs alpha ni, nj, nk, nb
+      //                      ^ here, n = number of ranks, not dimensions size
       //
       // Turn an arbitrary einsum into
       //   ijb,jkb->ikb
@@ -328,6 +332,8 @@ public:
       int num_lhs = params[0].get_int();
       int num_rhs = params[1].get_int();
       int num_out = params[2].get_int();
+
+      assert(params.size() == 4 + num_lhs + num_rhs + num_out);
 
       int beg_lhs = 3;
       int end_lhs = beg_lhs + num_lhs;
@@ -345,6 +351,8 @@ public:
       for(int i = beg_lhs; i != end_lhs; ++i) { modes_lhs.push_back(params[i].get_int()); }
       for(int i = beg_rhs; i != end_rhs; ++i) { modes_rhs.push_back(params[i].get_int()); }
       for(int i = beg_out; i != end_out; ++i) { modes_out.push_back(params[i].get_int()); }
+
+      float alpha = params[end_out].get_float();
 
       einsum_order_t info(modes_lhs, modes_rhs, modes_out);
 
@@ -364,6 +372,7 @@ public:
           perm.push_back(bbts::command_param_t { .i = a });
         }
 
+        HAS_PERMUTE("contraction input left rank " << perm.size());
         _input_permutes.emplace_back(0, perm);
       }
 
@@ -380,6 +389,7 @@ public:
           perm.push_back(bbts::command_param_t { .i = a });
         }
 
+        HAS_PERMUTE("contraction input right rank " << perm.size());
         _input_permutes.emplace_back(1, perm);
       }
 
@@ -387,6 +397,8 @@ public:
 
       _op_params.push_back(bbts::command_param_t { .i = t_lhs });
       _op_params.push_back(bbts::command_param_t { .i = t_rhs });
+
+      _op_params.push_back(bbts::command_param_t { .f = alpha });
 
       _op_params.push_back(bbts::command_param_t { .i = info.ni() });
       _op_params.push_back(bbts::command_param_t { .i = info.nj() });
@@ -399,7 +411,10 @@ public:
         for(auto const& a: info.permute_to_ikb(modes_out)) {
           _post_permute_params.push_back(bbts::command_param_t { .i = a });
         }
+        HAS_PERMUTE("contraction post rank " << _post_permute_params.size());
         _post_permute = true;
+      } else {
+        _post_permute = false;
       }
 
     } else
@@ -414,7 +429,7 @@ public:
       int input_rank = params[2].get_int();
       vector<int> out_modes;
       out_modes.reserve(input_rank);
-      for(int i = 2; i < params.size(); ++i) {
+      for(int i = 3; i < params.size(); ++i) {
         out_modes.push_back(params[i].get_int());
       }
 
@@ -425,9 +440,10 @@ public:
           agg_modes.push_back(i);
         }
       }
-
       int num_agg = static_cast<int>(agg_modes.size());
       int num_out = static_cast<int>(out_modes.size());
+
+      assert(num_agg + num_out == input_rank);
 
       _op_params.push_back(bbts::command_param_t {
         .i = params[0].get_int()
@@ -442,11 +458,17 @@ public:
         .i = num_out
       });
 
+      bool agg_then_out;
+      if(out_modes.size() == 0) {
+        agg_then_out = true;
+      } else {
+        int min_out = *std::min_element(out_modes.begin(), out_modes.end());
+        int max_agg = *std::max_element(agg_modes.begin(), agg_modes.end());
+        agg_then_out = min_out > max_agg;
+      }
+
       vector<int> out_modes_after;
-      if(   (out_modes.size() == 0)
-          ||
-            (std::min_element(out_modes.begin(), out_modes.end()) >
-             std::max_element(agg_modes.begin(), agg_modes.end())))
+      if(agg_then_out)
       {
         // In this case, do not permute the input since all the aggs already
         // come first.
@@ -469,11 +491,13 @@ public:
               .i = o - num_agg
             });
           }
+          HAS_PERMUTE("reduction post rank " << _post_permute_params.size());
         }
       } else {
         // In this case, permute it so that the aggs come first and then the out
         // modes in the order requested.
         vector<bbts::command_param_t> perm;
+        perm.reserve(agg_modes.size() + out_modes.size());
         for(auto const& a: agg_modes) {
           perm.push_back(bbts::command_param_t { .i = a });
         }
@@ -481,6 +505,7 @@ public:
           perm.push_back(bbts::command_param_t { .i = o });
         }
 
+        HAS_PERMUTE("reduction input rank " << perm.size());
         _input_permutes.emplace_back(0, perm);
 
         _post_permute = false;
@@ -530,6 +555,7 @@ public:
       }
 
       if(has_input_permute) {
+        HAS_PERMUTE("unary input rank " << out_perm.size());
         _input_permutes.push_back({ 0, out_perm });
       }
 
@@ -552,13 +578,13 @@ public:
       assert(end_rhs == params.size());
 
       vector<int> lhs_ord;
-      lhs_ord.resize(n_lhs);
+      lhs_ord.reserve(n_lhs);
       for(int i = beg_lhs; i != end_lhs; ++i) {
         lhs_ord.push_back(params[i].get_int());
       }
 
       vector<int> rhs_ord;
-      rhs_ord.resize(n_rhs);
+      rhs_ord.reserve(n_rhs);
       for(int i = beg_rhs; i != end_rhs; ++i) {
         rhs_ord.push_back(params[i].get_int());
       }
@@ -590,6 +616,7 @@ public:
           });
         }
 
+        HAS_PERMUTE("binary input left " << perm.size());
         _input_permutes.emplace_back(0, perm);
 
         std::sort(lhs_ord.begin(), lhs_ord.end());
@@ -606,6 +633,7 @@ public:
           });
         }
 
+        HAS_PERMUTE("binary input right " << perm.size());
         _input_permutes.emplace_back(1, perm);
 
         std::sort(rhs_ord.begin(), rhs_ord.end());
@@ -617,6 +645,7 @@ public:
       _op_params.push_back(bbts::command_param_t {
         .f = params[1].get_float()
       });
+
       for(auto const& x: lhs_ord) {
         _op_params.push_back(bbts::command_param_t {
           .i = x
@@ -720,7 +749,7 @@ void generate_commands_t::add_node(nid_t nid) {
         partition_down));
   }
 
-  // Here are somet hings specific to join, but don't need to be
+  // Here are somet things specific to join, but don't need to be
   // created over and over for every block
   std::unique_ptr<join_handler_t> join_handler(nullptr);
   if(node.type == node_t::node_type::join) {
@@ -858,6 +887,7 @@ void generate_commands_t::add_node(nid_t nid) {
       }
 
       relations[nid][bid] = cur;
+
     }
     // Create a reduce command
     else if(node.type == node_t::node_type::agg)

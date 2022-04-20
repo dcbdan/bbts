@@ -1,5 +1,7 @@
 #pragma once
 
+#include "types.h"
+
 #include <vector>
 #include <tuple>
 
@@ -17,6 +19,15 @@ struct info_t {
   vector<int64_t> dims, permutation;
 };
 
+}
+
+std::ostream& operator<<(std::ostream& os, _register_permute::info_t const& info) {
+  os << "dims, permutation: " << info.dims << ", " << info.permutation;
+  return os;
+}
+
+namespace _register_permute {
+
 info_t parse(
   bbts::ud_impl_t::tensor_params_t const& params,
   cu_shape_t const& meta_inn)
@@ -24,6 +35,8 @@ info_t parse(
   info_t ret;
 
   ret.dims = cu_shape_as_vec(meta_inn);
+
+  assert(params.num_parameters() == ret.dims.size());
 
   for(int i = 0; i != ret.dims.size(); ++i) {
     ret.permutation.push_back(params.get_raw(i).i);
@@ -446,6 +459,8 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_inn);
     set_out_meta(info, meta_out);
+
+    DCB01("info|inn,out: " << info << "| " << meta_inn << ", " << meta_out);
   }
 };
 

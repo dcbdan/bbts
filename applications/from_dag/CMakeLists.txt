@@ -10,7 +10,7 @@ add_executable(from_dag ${app_dir}/main.cc
                         ${app_dir}/print_table.cc
                         ${app_dir}/partition/partition.cc
                         ${app_dir}/partition/run.cc)
-set_target_properties(from_dag PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+#set_target_properties(from_dag PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 # link the stuff we need
 target_link_libraries(from_dag bbts-common)
@@ -31,6 +31,6 @@ add_library(from_dag_ops SHARED ${app_dir}/ops/ops.cc)
 target_link_libraries(from_dag_ops bbts-common)
 
 target_compile_definitions(from_dag
-  PRIVATE BARB_CUTENSOR_LIB=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libfrom_dag_ops.so)
+  PRIVATE FROM_DAG_KERNEL_LIB=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libfrom_dag_ops.so)
 
 

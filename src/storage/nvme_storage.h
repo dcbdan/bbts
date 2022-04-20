@@ -20,7 +20,10 @@
 #include <mutex>
 #include "../tensor/tensor.h"
 #include "../communication/communicator.h"
+
+#ifdef ENABLE_GPU
 #include "../../third_party/cuda/gpu.h"
+#endif
 
 namespace bbts {
 

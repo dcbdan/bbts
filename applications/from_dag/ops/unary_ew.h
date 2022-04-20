@@ -80,11 +80,11 @@ void reference(
     float r = 1.23456;
     if(p.op.i == 0) {
       // sigmoid
-      r = exp(v);
+      r = std::exp(v);
       r = r / (1 + r);
     } else if(p.op.i == 1 ){
       // exp
-      r = exp(v);
+      r = std::exp(v);
     } else if(p.op.i == 2 ){
       // Square
       r = v*v;
@@ -140,9 +140,9 @@ struct op_t {
       //  and using vsExp is numerically unstable)
       for(int i = 0; i != n; ++i) {
         if(data_inn[i] > 0.0) {
-          data_out[i] = 1.0 / (1.0 + exp(-1.0*data_inn[i]));
+          data_out[i] = 1.0 / (1.0 + std::exp(-1.0*data_inn[i]));
         } else {
-          data_out[i] = exp(data_inn[i]);
+          data_out[i] = std::exp(data_inn[i]);
           data_out[i] = data_out[i] / (1.0 + data_out[i]);
         }
       }
@@ -236,6 +236,8 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_inn);
     set_out_meta(info, meta_out);
+
+    DCB01("inn,out: " << meta_inn << ", " << meta_out);
   }
 };
 

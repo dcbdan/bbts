@@ -63,21 +63,24 @@ void reference(
   castable_op_t cop(params.get_int<0>());
 
   if(meta_out.rank != meta_lhs.rank) {
-    throw std::runtime_error(errmsg + " lhs rank");
+    throw std::runtime_error(errmsg + " @ lhs rank");
   }
 
   if(meta_out.rank != meta_rhs.rank) {
-    throw std::runtime_error(errmsg + " rhs rank");
+    throw std::runtime_error(errmsg + " @ rhs rank");
   }
+
+  assert(meta_out.rank == meta_lhs.rank);
+  assert(meta_out.rank == meta_rhs.rank);
 
   int64_t n = 1;
   for(int i = 0; i != meta_out.rank; ++i) {
     n *= meta_out.dims[i];
     if(meta_out.dims[i] != meta_lhs.dims[i]) {
-      throw std::runtime_error(errmsg + " lhs dim");
+      throw std::runtime_error(errmsg + " @ lhs dim");
     }
     if(meta_out.dims[i] != meta_rhs.dims[i]) {
-      throw std::runtime_error(errmsg + " rhs dim");
+      throw std::runtime_error(errmsg + " @ rhs dim");
     }
   }
 
@@ -86,6 +89,7 @@ void reference(
     float err = std::abs(data_out[i] - v);
 
     if(err > 0.00001) {
+      std::cout << v << ", " << data_out[i] << std::endl;
       throw std::runtime_error(errmsg);
     };
   }
@@ -102,6 +106,9 @@ struct op_t {
     cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
     cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
     cu_shape_t      & meta_out = ous.get<0>().as<cu_meta_t>().m();
+
+    assert(meta_out.rank == meta_lhs.rank);
+    assert(meta_out.rank == meta_rhs.rank);
 
     info_t info = parse(params, meta_lhs, meta_rhs);
     set_out_meta(info, meta_out);
@@ -148,6 +155,8 @@ struct f: public ud_impl_t {
 
     info_t info = parse(params, meta_lhs, meta_rhs);
     set_out_meta(info, meta_out);
+
+    DCB01("lhs,rhs,out: " << meta_lhs << "," << meta_rhs << ", " << meta_out);
   }
 };
 
