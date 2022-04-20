@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <map>
 
 #define DCB01(x) // std::cout << x << std::endl;
 #define HAS_PERMUTE(x) std::cout << "HAS PERMUTE " << x << std::endl
@@ -100,8 +101,29 @@ bool priority_was_set(int32_t p) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+// The type system here is not as explicit as the haskell code below...
+//
+// Here, a permutation of size n is a vector of size n that has values 0,1,...,n-1 in it.
+// permute and inverse `ps` argument is a permutation.
+// inverse and from_to returns a permutation.
+
+bool is_permutation(vector<int> ps) {
+  vector<int> xs;
+  xs.reserve(ps.size());
+  for(int i = 0; i != ps.size(); ++i) {
+    xs.push_back(i);
+  }
+
+  std::sort(ps.begin(), ps.end());
+
+  return ps == xs;
+}
+
 template <typename T>
 vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
+  assert(is_permutation(ps));
+
   vector<T> ret(ps.size());
   for(int i = 0; i != ps.size(); ++i) {
     ret[i] = xs[ps[i]];
@@ -110,6 +132,8 @@ vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
 }
 
 vector<int> inverse(vector<int> const& ps) {
+  assert(is_permutation(ps));
+
   vector<int> ret(ps.size());
   for(int i = 0; i != ps.size(); ++i) {
     ret[ps[i]] = i;
@@ -117,20 +141,22 @@ vector<int> inverse(vector<int> const& ps) {
   return ret;
 }
 
-vector<int> from_to(vector<int> const& inn, vector<int> const& out) {
-  vector<tuple<int,int>> ps;
-  ps.reserve(inn.size());
-  for(int i = 0; i != inn.size(); ++i) {
-    ps.emplace_back(inn[i], out[i]);
-  }
-  std::sort(ps.begin(), ps.end());
+vector<int> from_to(vector<int> const& inn, vector<int> out) {
+  // inn and out need not actually be permutations from
+  // [0,..(n-1)] and can insead be over other domains,
+  // but the output should be a proper permutation
 
-  vector<int> ret;
-  ret.reserve(inn.size());
-  for(auto const& [_,v]: ps) {
-    ret.push_back(v);
+  std::map<int,int> relabel;
+  int w = 0;
+  for(auto const& i: inn) {
+    relabel[i] = w++;
   }
-  return ret;
+  for(int& i: out) {
+    i = relabel[i];
+  }
+
+  assert(is_permutation(out));
+  return out;
 }
 
 //import qualified Data.List as List
@@ -259,13 +285,13 @@ class join_handler_t {
     }
 
     vector<int> permute_to_ijb(vector<int> const& modes) const {
-      return permute_(modes, is, js, bs);
+      return permute_to_(modes, is, js, bs);
     }
     vector<int> permute_to_jkb(vector<int> const& modes) const {
-      return permute_(modes, js, ks, bs);
+      return permute_to_(modes, js, ks, bs);
     }
-    vector<int> permute_to_ikb(vector<int> const& modes) const {
-      return permute_(modes, is, ks, bs);
+    vector<int> permute_from_ikb(vector<int> const& modes) const {
+      return permute_from_(is, ks, bs, modes);
     }
 
     int ni() const { return static_cast<int>(is.size()); }
@@ -292,7 +318,7 @@ class join_handler_t {
       return true;
     }
 
-    vector<int> permute_(
+    vector<int> permute_to_(
       vector<int> const& modes_inn,
       vector<int> const& as,
       vector<int> const& bs,
@@ -309,6 +335,25 @@ class join_handler_t {
 
       return from_to(modes_inn, modes_out);
     }
+
+    vector<int> permute_from_(
+      vector<int> const& as,
+      vector<int> const& bs,
+      vector<int> const& cs,
+      vector<int> const& modes_out) const
+    {
+      vector<int> modes_inn;
+
+      modes_inn.reserve(as.size() + bs.size() + cs.size());
+      for(int const& a: as) { modes_inn.push_back(a); }
+      for(int const& b: bs) { modes_inn.push_back(b); }
+      for(int const& c: cs) { modes_inn.push_back(c); }
+
+      assert(modes_inn.size() == modes_out.size());
+
+      return from_to(modes_inn, modes_out);
+    }
+
   };
 
 public:
@@ -408,7 +453,7 @@ public:
       // Are the output modes already in ikb form? If not, permute it.
 
       if(!info.is_ikb(modes_out)) {
-        for(auto const& a: info.permute_to_ikb(modes_out)) {
+        for(auto const& a: info.permute_from_ikb(modes_out)) {
           _post_permute_params.push_back(bbts::command_param_t { .i = a });
         }
         HAS_PERMUTE("contraction post rank " << _post_permute_params.size());

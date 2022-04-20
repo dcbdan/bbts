@@ -67,12 +67,11 @@ void parse_dims_which(
 
   int rank_out = 0;
   for(auto const& w: which_lhs) {
-    rank_out = std::max(w, rank_out);
+    rank_out = std::max(w + 1, rank_out);
   }
   for(auto const& w: which_rhs) {
-    rank_out = std::max(w, rank_out);
+    rank_out = std::max(w + 1, rank_out);
   }
-  rank_out += 1;
 
   dims = vector<int64_t>(rank_out, 0);
   for(int idx_lhs = 0; idx_lhs != which_lhs.size(); ++idx_lhs) {
