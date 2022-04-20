@@ -32,24 +32,26 @@ using std::tuple;
 // For debugging, you can turn off kernels entirely...
 // Useful if trying to figure out where something breaks.
 
-#define CU_INIT_OFF
-#define CU_PERMUTE_OFF
-#define CU_UNARY_EW_OFF
-#define CU_BINARY_EW_OFF
-#define CU_CASTABLE_EW_OFF
-#define CU_BATCH_MATMUL_OFF
-#define CU_REDUCTION_OFF
-#define CU_EXPAND_OFF
+//#define CU_INIT_OFF
+//#define CU_PERMUTE_OFF
+//#define CU_UNARY_EW_OFF
+//#define CU_BINARY_EW_OFF
+//#define CU_CASTABLE_EW_OFF
+//#define CU_BATCH_MATMUL_OFF
+//#define CU_REDUCTION_OFF
+//#define CU_EXPAND_OFF
 
 //#define CU_BARB_REFERENCE
 
-std::mutex _dcb01_m;
-#define DCB01(x) { \
-  std::lock_guard<std::mutex> lock(_dcb01_m); \
-  std::string s(__FILE__); \
-  std::string ss(s.end() - 15, s.end()); \
-  std::cout << ss << " " << x << std::endl; \
-} char asdadasdasdasdasdasd
+#define DCB01(x)
+
+//std::mutex _dcb01_m;
+//#define DCB01(x) { \
+//  std::lock_guard<std::mutex> lock(_dcb01_m); \
+//  std::string s(__FILE__); \
+//  std::string ss(s.end() - 15, s.end()); \
+//  std::cout << ss << " " << x << std::endl; \
+//} char asdadasdasdasdasdasd
 
 #define PRINTLINE //std::cout << __FILE__ << ": " << __LINE__ << std::endl
 
