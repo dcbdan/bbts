@@ -14,6 +14,18 @@ struct info_t {
   vector<int64_t> str_rhs;
 };
 
+}
+
+std::ostream& operator<<(std::ostream& os, _register_binary_ew::info_t const& info) {
+  os << "ew info[op " << info.which << ". alpha " << info.alpha << ". dims " << info.dims
+    << ". str lhs " << info.str_lhs
+    << ". str rhs " << info.str_rhs << "]";
+  return os;
+}
+
+namespace _register_binary_ew {
+
+
 // Now compute the strides
 vector<int64_t> compute_stride(vector<int64_t> const& dims, vector<int> which)
 {
@@ -252,6 +264,9 @@ struct op_t {
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
 
 #ifndef CU_BINARY_EW_OFF
+    //std::cout << info << " | " << meta_lhs << " | "
+    //                           << meta_rhs << " | "
+    //                           << meta_out << std::endl;
 
     decltype(_add) *binary_op;
     switch(info.which) {
@@ -293,8 +308,8 @@ struct op_t {
       for(int64_t i1 = 0; i1 != dims[1]; ++i1) {
       for(int64_t i0 = 0; i0 != dims[0]; ++i0) {
         data_out[offset++] = binary_op(
-          data_lhs[i0*sl[0] + i1*sl[1] + i2*sl[1]],
-          data_rhs[i0*sr[0] + i1*sr[1] + i2*sr[1]]);
+          data_lhs[i0*sl[0] + i1*sl[1] + i2*sl[2]],
+          data_rhs[i0*sr[0] + i1*sr[1] + i2*sr[2]]);
       }}}
     } else
     if(dims.size() == 4) {
@@ -304,8 +319,8 @@ struct op_t {
       for(int64_t i1 = 0; i1 != dims[1]; ++i1) {
       for(int64_t i0 = 0; i0 != dims[0]; ++i0) {
         data_out[offset++] = binary_op(
-          data_lhs[i0*sl[0] + i1*sl[1] + i2*sl[1] + i3*sl[2]],
-          data_rhs[i0*sr[0] + i1*sr[1] + i2*sr[1] + i3*sr[2]]);
+          data_lhs[i0*sl[0] + i1*sl[1] + i2*sl[2] + i3*sl[3]],
+          data_rhs[i0*sr[0] + i1*sr[1] + i2*sr[2] + i3*sr[3]]);
       }}}}
     } else
     if(dims.size() == 5) {
@@ -316,8 +331,8 @@ struct op_t {
       for(int64_t i1 = 0; i1 != dims[1]; ++i1) {
       for(int64_t i0 = 0; i0 != dims[0]; ++i0) {
         data_out[offset++] = binary_op(
-          data_lhs[i0*sl[0] + i1*sl[1] + i2*sl[1] + i3*sl[2] + i4*sl[3]],
-          data_rhs[i0*sr[0] + i1*sr[1] + i2*sr[1] + i3*sr[2] + i4*sr[3]]);
+          data_lhs[i0*sl[0] + i1*sl[1] + i2*sl[2] + i3*sl[3] + i4*sl[4]],
+          data_rhs[i0*sr[0] + i1*sr[1] + i2*sr[2] + i3*sr[3] + i4*sr[4]]);
       }}}}}
     } else {
       throw std::runtime_error("binary_ew only supports up to 5 dimensions");

@@ -94,6 +94,8 @@ generate_commands_t::generate_commands_t(
   //    add_node(which);
   //  }
   //}
+
+  add_deletes();
 }
 
 bool priority_was_set(int32_t p) {
@@ -1359,6 +1361,36 @@ void generate_commands_t::assure_moved_to(
     {tid, from},
     {tid, to}));
   moved_to_locs[tid].push_back(to);
+}
+
+void generate_commands_t::add_deletes()
+{
+  // For each node that is not an output node or an input node,
+  // and is not a no op, delete the tids
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    node_t const& node = dag[nid];
+    if(node.ups.size() > 0 && node.downs.size() > 0) {
+      relations[nid].add_deletes();
+    }
+  }
+}
+
+void generate_commands_t::relation_t::add_deletes()
+{
+  if(_is_no_op()) {
+    return;
+  }
+
+  for(auto const& [tid, loc]: tid_locs) {
+    self->commands.emplace_back(command_t::create_delete(
+      self->next_command_id(),
+      {tid_loc_t{tid, loc}}));
+    for(auto const& other_loc: self->moved_to_locs[tid]) {
+      self->commands.emplace_back(command_t::create_delete(
+        self->next_command_id(),
+        {tid_loc_t{tid, other_loc}}));
+    }
+  }
 }
 
 }}

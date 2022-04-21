@@ -19,7 +19,7 @@ memory_storage_t::~memory_storage_t() {
 
   // go through each allocated tensor and free it
   for(auto &it : _tensor_nfo) {
-    free_tensor(it.second.address);
+    free_tensor(it.second);
   }
 }
 
@@ -82,14 +82,19 @@ tensor_t *memory_storage_t::_allocate_tensor(size_t num_bytes) {
   }
   else {
 
+    //total += num_bytes;
+    //std::cout << "A " << ((total * 1.0) * 1.073741824e-9) << std::endl;
+
     // we can not do this
     ts = (tensor_t*) malloc(num_bytes);
+
   }
+
 
   return ts;
 }
 
-void memory_storage_t::free_tensor(tensor_t *tensor) {
+void memory_storage_t::free_tensor(memory_storage_t::sto_tensor_nfo_t const& nfo) {
 
   // check if we even support the GPU
   if constexpr(static_config::enable_gpu) {
@@ -100,8 +105,11 @@ void memory_storage_t::free_tensor(tensor_t *tensor) {
   }
   else {
 
+    //total -= nfo.num_bytes;
+    //std::cout << "F " << ((total * 1.0) * 1.073741824e-9) << std::endl;
+
     // free the regular tensor
-    free(tensor);
+    free(nfo.address);
   }
 }
 
@@ -126,7 +134,7 @@ bool memory_storage_t::remove_by_tid(tid_t _id) {
   }
 
   // free the tensor
-  free_tensor(it->second.address);
+  free_tensor(it->second);
 
   // remove the tensor
   _tensor_nfo.erase(it);
@@ -198,7 +206,7 @@ void memory_storage_t::clear() {
   for(auto &it : _tensor_nfo) {
 
     // is it gpu
-    free_tensor(it.second.address);
+    free_tensor(it.second);
   }
   _tensor_nfo.clear();
 }

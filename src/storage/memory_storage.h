@@ -24,7 +24,18 @@ namespace bbts {
 // tensors to disk or moving them to GPU
 struct memory_storage_t {
 
-  memory_storage_t(communicator_ptr_t com) : _com(std::move(com)) {
+  // information about the stored tensor
+  struct sto_tensor_nfo_t {
+
+    // if present the address will be not null if evicted
+    tensor_t *address;
+
+    // the size of the tensor in bytes
+    size_t num_bytes;
+  };
+
+
+  memory_storage_t(communicator_ptr_t com) : _com(std::move(com)), total(0) {
 
     // just empty hooks
     _tensor_create_hook = [](tid_t _) {};
@@ -128,7 +139,7 @@ struct memory_storage_t {
   tensor_t *_allocate_tensor(size_t num_bytes);
 
   // free the allocated tensor
-  void free_tensor(tensor_t *tensor);
+  void free_tensor(sto_tensor_nfo_t const& nfo);
 
   // check if there is a tensor in the storage
   bool has_tensor(tid_t _id);
@@ -172,16 +183,6 @@ struct memory_storage_t {
 
 private:
 
-  // information about the stored tensor
-  struct sto_tensor_nfo_t {
-
-    // if present the address will be not null if evicted
-    tensor_t *address;
-
-    // the size of the tensor in bytes
-    size_t num_bytes;
-  };
-
   // returns a tensor for the tid, the tensor is always not initialized
   tensor_ref_t _create_tensor(tid_t _id, size_t num_bytes);
 
@@ -213,6 +214,7 @@ private:
   // communicator used for remote transactions
   bbts::communicator_ptr_t _com;
 
+  size_t total;
 };
 
 }

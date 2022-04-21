@@ -103,6 +103,8 @@ struct generate_commands_t {
     void print(std::ostream& os) const;
 
     int bid_to_idx(vector<int> const& bid) const;
+
+    void add_deletes();
   private:
     bool _is_no_op();
 
@@ -125,6 +127,8 @@ private:
   void add_node(nid_t nid);
 
   void add_priority(nid_t nid);
+
+  void add_deletes();
 
   int next_command_id() { return _command_id++; }
   int next_tid()        { return _tid++;        }
