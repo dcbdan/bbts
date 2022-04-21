@@ -43,6 +43,7 @@ struct partition_options_t : public dag_t {
   int _search_compute_threads;
   int _search_restart_scale;
   int _search_time_per_cover;
+  int _cover_size;
 
 public:
   partition_options_t(
@@ -62,7 +63,8 @@ public:
     bool disallow_barrier_reblock,
     int search_compute_threads,
     int search_restart_scale,
-    int search_time_per_cover):
+    int search_time_per_cover,
+    int cover_size):
       dag_t(dag),
       _ipl(ipl),
       _restart_scale(restart_scale),
@@ -80,6 +82,7 @@ public:
       _search_compute_threads(search_compute_threads),
       _search_restart_scale(search_restart_scale),
       _search_time_per_cover(search_time_per_cover),
+      _cover_size(cover_size),
       _possible_parts(std::bind(&partition_options_t::_set_possible_parts, this))
   {}
 
@@ -99,6 +102,7 @@ public:
   int                      search_compute_threads()   const { return _search_compute_threads   ; }
   int                      search_restart_scale()     const { return _search_restart_scale     ; }
   int                      search_time_per_cover()    const { return _search_time_per_cover    ; }
+  int                      cover_size()               const { return _cover_size               ; }
 
   vector<int> const& possible_parts() const {
     return _possible_parts();
@@ -208,6 +212,10 @@ private:
 struct Partition : public Gecode::IntMinimizeSpace {
   Partition(partition_options_t const& opt);
 
+  Partition(partition_options_t const& opt, vector<nid_t> must_cover_these);
+
+  Partition(partition_options_t const& opt, Partition const& other);
+
   Partition(Partition &other);
 
   virtual void print(std::ostream& os) const;
@@ -218,6 +226,13 @@ struct Partition : public Gecode::IntMinimizeSpace {
   int         get_worker(nid_t nid)            const;
   int         get_unit(nid_t nid)              const;
 
+  // A node is covered if it's variables are considered in part of the
+  // search space.
+  int num_covered() const { return _covered.size(); }
+
+  // Get all the covered nids
+  vector<nid_t> const& covered() const { return _covered; }
+
 private:
   struct pode_t {
     pode_t(Partition* self, nid_t nid, int upper_limit);
@@ -225,9 +240,12 @@ private:
 
     // virtual final means no one else can override this function
     virtual void set_base_constraint() final;
+    virtual bool is_fixed() final { return fixed; }
 
     // each child class must implement these
     virtual void set_constraints() = 0;
+    virtual void fix(pode_t const& other);
+    // Here a space is fixed to the domain of the other space
 
     // Is this a no op? then that implies a bunch of things are zero
     void _set_no_op(Gecode::BoolVar& is_no_op);
@@ -245,6 +263,7 @@ private:
 
     Partition* self;
     nid_t nid;
+    bool fixed;
 
     int rank() const { return self->opt[nid].dims.size(); }
   };
@@ -258,6 +277,7 @@ private:
       propagate_is_no_op();
       when_partition_info_set();
     }
+    void fix(pode_t const& other) override;
 
     Gecode::IntVarArgs local_partition();
   };
@@ -275,6 +295,7 @@ private:
         disallow_barrier_reblock();
       }
     }
+    void fix(pode_t const& other) override;
 
     Gecode::IntVarArgs local_partition_above();
     Gecode::IntVarArgs local_partition_below();
@@ -291,6 +312,7 @@ private:
       when_partition_info_set();
       match_downs();
     }
+    void fix(pode_t const& other) override;
   };
   struct pinput_t : pode_t {
     pinput_t(Partition* self, nid_t nid, int upper_limit);
@@ -306,6 +328,7 @@ private:
       propagate_no_cost_input();
       when_partition_info_set();
     }
+    void fix(pode_t const& other) override;
   };
 
   using pode_ptr = std::unique_ptr<pode_t>;
@@ -328,6 +351,9 @@ private:
     Gecode::IntPropLevel  ipl = Gecode::IPL_DEF);
 
   void _set_branching();
+
+  void _set_covering(vector<nid_t> const& must_cover_these);
+  vector<nid_t> _covered;
 public:
   virtual Gecode::Space* copy() {
     return new Partition(*this);

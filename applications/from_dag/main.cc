@@ -40,6 +40,7 @@ class PartitionOptions : public Gecode::BaseOptions {
   Driver::UnsignedIntOption _search_compute_threads;
   Driver::UnsignedIntOption _search_restart_scale;
   Driver::UnsignedIntOption _search_time_per_cover;
+  Driver::UnsignedIntOption _cover_size;
 
   bool _called_help;
 public:
@@ -65,6 +66,7 @@ public:
     _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
     _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
     _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
+    _cover_size("cover-size", "...", 20),
     _called_help(false)
   {
     add(_ipl);
@@ -87,6 +89,8 @@ public:
     add(_search_compute_threads);
     add(_search_restart_scale);
     add(_search_time_per_cover);
+
+    add(_cover_size);
   }
 
   // Parse options from arguments
@@ -114,7 +118,8 @@ public:
       _disallow_barrier_reblock.value(),
       static_cast<int>(_search_compute_threads.value()),
       static_cast<int>(_search_restart_scale.value()),
-      static_cast<int>(_search_time_per_cover.value()));
+      static_cast<int>(_search_time_per_cover.value()),
+      static_cast<int>(_cover_size.value()));
   }
 };
 
@@ -433,20 +438,20 @@ int main(int argc, char **argv)
 
       auto [input_cmds, run_cmds] = g.extract();
 
-      {
-        table_t table(4);
-        table << "" << "id" << "type" << "kernel" << "inn" << "out" << "inn locs" << "out locs" << table.endl;
-        for(auto& cmd_ptr: input_cmds) {
-          table << "inn";
-          cmd_to_table(table, *cmd_ptr);
-        }
-        for(auto& cmd: run_cmds) {
-          table << "out";
-          cmd_to_table(table, *cmd);
-        }
+      //{
+      //  table_t table(4);
+      //  table << "" << "id" << "type" << "kernel" << "inn" << "out" << "inn locs" << "out locs" << table.endl;
+      //  for(auto& cmd_ptr: input_cmds) {
+      //    table << "inn";
+      //    cmd_to_table(table, *cmd_ptr);
+      //  }
+      //  for(auto& cmd: run_cmds) {
+      //    table << "out";
+      //    cmd_to_table(table, *cmd);
+      //  }
 
-        std::cout << table << std::endl;
-      }
+      //  std::cout << table << std::endl;
+      //}
 
       run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
       run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");

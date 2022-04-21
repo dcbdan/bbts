@@ -70,10 +70,26 @@ vector<partition_info_t> run_partition(partition_options_t const& opt)
     throw std::runtime_error("Could not find a solution!");
   }
 
+  while(partition->num_covered() != opt.size()) {
+    std::cout << "covered: " << partition->num_covered()
+      << " / " << opt.size() << ".           ";
+
+    Partition* tmp = new Partition(opt, *partition);
+    std::cout << "Covering to " << tmp->num_covered() << "." << std::endl;
+
+    delete partition;
+
+    partition = _run(tmp, opt);
+
+    if(!partition) {
+      throw std::runtime_error("Could not find a solution!");
+    }
+  }
+
   // For each node, get the start time and the partitioning
   vector<partition_info_t> ret;
-  ret.reserve(opt.get_dag().size());
-  for(nid_t nid = 0; nid != opt.get_dag().size(); ++nid) {
+  ret.reserve(opt.size());
+  for(nid_t nid = 0; nid != opt.size(); ++nid) {
     ret.push_back(partition_info_t{
       .blocking = partition->get_partition(nid),
       .start    = partition->get_start(nid),

@@ -7,7 +7,7 @@
 #include <map>
 
 #define DCB01(x) // std::cout << x << std::endl;
-#define HAS_PERMUTE(x) std::cout << "HAS PERMUTE " << x << std::endl
+#define HAS_PERMUTE(x) // std::cout << "HAS PERMUTE " << x << std::endl
 
 namespace bbts { namespace dag {
 
