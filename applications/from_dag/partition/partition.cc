@@ -981,7 +981,6 @@ void Partition::pjoin_t::match_downs() {
       rel(*self, down_out[i] == partition[ordering[i]]);
     }
   }
-
 }
 
 void Partition::pagg_t::when_partition_info_set() {
@@ -1285,7 +1284,7 @@ void _add(
 
 // TODO: What is the best way to set the covering?
 // It is tricky because you can end up with unsolveable
-// solutions, depending on what parameters were chosen
+// problems, depending on what parameters were chosen
 
 void Partition::_set_covering(vector<nid_t> const& must_cover_these) {
   std::set<nid_t> so_far;

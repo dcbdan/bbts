@@ -25,8 +25,14 @@ struct info_t {
   vector<int64_t> total_dims; // the dimensions of the entire relation
 };
 
+std::vector<std::string> _input_files {
+  "",  // nothing at index 0..
+  "/home/ubuntu/data/X_1024.raw",
+  "/home/ubuntu/data/Y_1024.raw"
+};
+
 void load_block(float* data, info_t const& params) {
-  std::string const& file = ""; // _input_files[params.t.file.which];
+  std::string const& file = _input_files[params.t.file.which];
   std::ifstream f(file);
   if(!f.is_open()) {
     throw std::runtime_error("couldn't open: " + file);
