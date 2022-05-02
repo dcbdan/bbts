@@ -10,6 +10,7 @@
 #define DCB_ACCESS_VAR(x)     //std::cout << __LINE__ << " " << x << std::endl;
 #define DCB_P_CONSTRUCTOR(x)  //std::cout << __LINE__ << " " << x << std::endl;
 #define DCB01(x)              //std::cout << __LINE__ << " " << x << std::endl;
+#define DCB_WHEN(x)           //std::cout << __LINE__ << " " << x << std::endl;
 #define DCB02(x)              //std::cout << x << std::endl;
 #define DCB_COVER(x)          //std::cout << __LINE__ << " " << x << std::endl;
 
@@ -518,7 +519,7 @@ Partition::Partition(partition_options_t const& opt0, vector<nid_t> must_cover_t
   _set_covering(must_cover_these);
 
   DCB_P_CONSTRUCTOR("A");
-  int upper_limit = 10*opt.upper_bound_time();
+  int upper_limit = 1000*opt.upper_bound_time();
   DCB_P_CONSTRUCTOR("B");
   DCB02("UPPER LIMIT OF " << upper_limit);
 
@@ -690,6 +691,7 @@ void Partition::print(std::ostream& os) const {
 
   os << "Partition makespan, utilization:  " << makespan.max() << ",  ";
   os << utilization << "%" << std::endl;
+//  os << "Partition makespan: " << makespan.max() << std::endl;
 }
 
 void Partition::pagg_t::propagate_is_no_op()
@@ -885,6 +887,7 @@ void Partition::pinput_t::propagate_prefer_no_reblock() {
 }
 
 void Partition::pinput_t::propagate_no_cost_input() {
+  rel(*self, unit            == 0);
   rel(*self, start           == 0);
   rel(*self, duration        == 0);
   rel(*self, worker          == 0);
@@ -908,7 +911,7 @@ void Partition::pinput_t::when_partition_info_set() {
     int unit = product(inc_part);
     int kernel_duration = self.opt.to_gecode_cost(
           self.opt.get_input_kernel_cost(inc_part, p.nid));
-    DCB01("input nid "
+    DCB_WHEN("input nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
@@ -931,7 +934,7 @@ void Partition::pjoin_t::when_partition_info_set() {
     int unit = product(inc_part);
     int kernel_duration = self.opt.to_gecode_cost(
           self.opt.get_join_kernel_cost(inc_part, p.nid));
-    DCB01("join nid "
+    DCB_WHEN("join nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
@@ -1008,7 +1011,7 @@ void Partition::pagg_t::when_partition_info_set() {
     int unit = product(self.opt.get_out(inc_part, _join_nid));
     int kernel_duration = self.opt.to_gecode_cost(
           self.opt.get_agg_kernel_cost(inc_part, pagg.nid));
-    DCB01("agg nid "
+    DCB_WHEN("agg nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     pagg._set_unit_and_kernel_duration(unit, kernel_duration);
   });
@@ -1045,7 +1048,7 @@ void Partition::preblock_t::when_partition_info_set() {
     int unit = product(above);
     int kernel_duration = self.opt.to_gecode_cost(
           self.opt.get_reblock_kernel_cost(above, below, p.nid));
-    DCB01("reblock nid "
+    DCB_WHEN("reblock nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
@@ -1068,6 +1071,7 @@ void Partition::_set_branching() {
   BoolVarArgs is_no_ops;
   IntVarArgs all_parts;
   for(nid_t const& nid: covered()) {
+    DCB_WHEN("THIS GUYS COVERED ATM: " << nid);
     node_t const& node = opt[nid];
 
     pode_t& p = *vars[nid];
@@ -1098,7 +1102,7 @@ void Partition::_set_branching() {
     }
   }
 
-  // TODO: how to branch?
+  // TODO(optimize): how to branch?
 
   branch(*this, is_no_ops, BOOL_VAR_RND(rnd), BOOL_VAL_MAX());
   branch(*this, all_parts, INT_VAR_RND(rnd),  INT_VAL_RND(rnd));
@@ -1216,42 +1220,12 @@ void Partition::pinput_t::fix(pode_t const& other) {
   }
 }
 
-// Some rules:
-//   0. All dependent nodes are included
-//   1. If an input is included, then so is atleast one of it's ups
-//   2. If a reblock is included, so is the parent join
-//   3. If a join is included, so are parent joins and parent aggs
-// Assumption:
-//   input so_far always has this constraint
 void _add(
   vector<node_t> const& dag,
   std::set<nid_t>& so_far,
   int& num_added,
   nid_t nid)
 {
-  node_t const& node = dag[nid];
-
-  // (1) is satisfied by assuming this is only called when
-  // adding other functions
-  if(node.type == node_t::node_type::input) {
-    auto [_0, did_insert] = so_far.insert(nid);
-    if(did_insert) {
-      num_added++;
-
-      bool has_an_included_parent = false;
-      for(nid_t const& up: node.ups) {
-        if(so_far.count(up) > 0) {
-          has_an_included_parent = true;
-          break;
-        }
-      }
-      if(!has_an_included_parent) {
-        throw std::runtime_error("_add incorrectly added an input node");
-      }
-    }
-    return;
-  }
-
   auto [_0, did_insert] = so_far.insert(nid);
   if(did_insert) {
     num_added++;
@@ -1261,30 +1235,12 @@ void _add(
     return;
   }
 
-  // add all downs (0)
+  node_t const& node = dag[nid];
+
   for(nid_t const& down: node.downs) {
     _add(dag, so_far, num_added, down);
   }
-
-  // does rule (2) apply?
-  if(node.type == node_t::node_type::reblock) {
-    return _add(dag, so_far, num_added, node.ups[0]);
-  }
-
-  // does rule (3) apply?
-  if(node.type == node_t::node_type::join) {
-    for(nid_t const& up: node.ups) {
-      // a join up is either a reblock, a join or an agg.
-      if(dag[up].type != node_t::node_type::reblock) {
-        _add(dag, so_far, num_added, up);
-      }
-    }
-  }
 }
-
-// TODO: What is the best way to set the covering?
-// It is tricky because you can end up with unsolveable
-// problems, depending on what parameters were chosen
 
 void Partition::_set_covering(vector<nid_t> const& must_cover_these) {
   std::set<nid_t> so_far;
@@ -1303,7 +1259,9 @@ void Partition::_set_covering(vector<nid_t> const& must_cover_these) {
       break;
     }
 
-    if(node.type == node_t::node_type::input) {
+    if(node.type == node_t::node_type::input ||
+       node.type == node_t::node_type::reblock)
+    {
       continue;
     }
 
@@ -1314,5 +1272,6 @@ void Partition::_set_covering(vector<nid_t> const& must_cover_these) {
   _covered.resize(so_far.size());
   std::copy(so_far.begin(), so_far.end(), _covered.begin());
 }
+
 
 }}
