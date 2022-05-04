@@ -492,7 +492,7 @@ bool mpi_communicator_t::expect_coord_cmds(size_t num_cmds, std::vector<command_
 
 bool mpi_communicator_t::expect_bytes(size_t num_bytes, std::vector<char> &out) {
   out.resize(num_bytes);
-  return MPI_Recv(out.data(), 0, MPI_CHAR, ANY_NODE, COORDINATOR_BCAST_BYTES, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS;
+  return MPI_Recv(out.data(), num_bytes, MPI_CHAR, ANY_NODE, COORDINATOR_BCAST_BYTES, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS;
 }
 
 // return the rank
