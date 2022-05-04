@@ -519,7 +519,7 @@ Partition::Partition(partition_options_t const& opt0, vector<nid_t> must_cover_t
   _set_covering(must_cover_these);
 
   DCB_P_CONSTRUCTOR("A");
-  int upper_limit = 1000*opt.upper_bound_time();
+  int upper_limit = opt.upper_bound_time();
   DCB_P_CONSTRUCTOR("B");
   DCB02("UPPER LIMIT OF " << upper_limit);
 
