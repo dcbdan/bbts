@@ -183,10 +183,7 @@ mpi_communicator_t::sync_request_t mpi_communicator_t::expect_request_sync(node_
 
 // recieves the request that we got from expect_request_sync
 bool mpi_communicator_t::receive_request_sync(node_id_t node, com_tags tag, void *bytes, size_t num_bytes) {
-
-  // recieve the requests
-  MPI_Status status;
-  return MPI_Recv(bytes, num_bytes, MPI_CHAR, node, tag + FREE_TAG, MPI_COMM_WORLD, &status) == MPI_SUCCESS;
+  return recv_sync(bytes, num_bytes, node, tag);
 }
 
 bool mpi_communicator_t::op_request(const command_ptr_t &_cmd) {
