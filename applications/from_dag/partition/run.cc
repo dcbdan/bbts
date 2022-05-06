@@ -64,17 +64,28 @@ Partition* _run(Partition* init, partition_options_t const& opt) {
 
 vector<partition_info_t> run_partition(partition_options_t const& opt)
 {
-  Partition* partition = _run(new Partition(opt), opt);
+  vector<partition_info_t> ret(opt.size());
+
+  Partition* partition = _run(new Partition(opt, ret), opt);
 
   if(!partition) {
     throw std::runtime_error("Could not find a solution!");
+  } else {
+    for(nid_t const& nid: partition->covering()) {
+      ret[nid] = partition_info_t(
+        partition->get_partition(nid),
+        partition->get_start(nid),
+        partition->get_duration(nid),
+        partition->get_worker(nid),
+        partition->get_unit(nid));
+    }
   }
 
   while(partition->num_covered() != opt.size()) {
     std::cout << "covered: " << partition->num_covered()
-      << " / " << opt.size() << ".           ";
+      << " / " << opt.size() << "\n"; //".           ";
 
-    Partition* tmp = new Partition(opt, *partition);
+    Partition* tmp = new Partition(opt, ret);
     std::cout << "Covering to " << tmp->num_covered() << "." << std::endl;
 
     delete partition;
@@ -83,20 +94,16 @@ vector<partition_info_t> run_partition(partition_options_t const& opt)
 
     if(!partition) {
       throw std::runtime_error("Could not find a solution!");
+    } else {
+      for(nid_t const& nid: partition->covering()) {
+        ret[nid] = partition_info_t(
+          partition->get_partition(nid),
+          partition->get_start(nid),
+          partition->get_duration(nid),
+          partition->get_worker(nid),
+          partition->get_unit(nid));
+      }
     }
-  }
-
-  // For each node, get the start time and the partitioning
-  vector<partition_info_t> ret;
-  ret.reserve(opt.size());
-  for(nid_t nid = 0; nid != opt.size(); ++nid) {
-    ret.push_back(partition_info_t{
-      .blocking = partition->get_partition(nid),
-      .start    = partition->get_start(nid),
-      .duration = partition->get_duration(nid),
-      .worker   = partition->get_worker(nid),
-      .unit     = partition->get_unit(nid)
-    });
   }
 
   delete partition;
