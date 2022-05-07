@@ -3,10 +3,13 @@
 #include <cstddef>
 #include <mpi.h>
 #include <unistd.h>
+#include <limits>
+
+#define DCB_MPI(x) // std::cout << x << std::endl
 
 namespace bbts {
 
-size_t const MAX_SIZE = 2147483648;
+size_t const MAX_SIZE = std::numeric_limits<int>::max();
 
 mpi_communicator_t::mpi_communicator_t(const node_config_ptr_t &_cfg) {
 
@@ -72,6 +75,7 @@ bool mpi_communicator_t::recv_sync(void *_bytes, size_t num_bytes, node_id_t _no
   bool ret = true;
   while(num_bytes != 0) {
     int this_batch = std::min(MAX_SIZE, num_bytes);
+    DCB_MPI("r" << this_batch << "@" << get_rank());
     ret = ret && MPI_Recv(this_ptr, this_batch, MPI_CHAR, _node,
                           _tag + FREE_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS;
     this_ptr += this_batch;
@@ -89,7 +93,8 @@ bool mpi_communicator_t::send_sync(const void *_bytes, size_t num_bytes, node_id
   char* this_ptr = (char*)_bytes;
   bool ret = true;
   while(num_bytes != 0) {
-    size_t this_batch = std::min(MAX_SIZE, num_bytes);
+    int this_batch = std::min(MAX_SIZE, num_bytes);
+    DCB_MPI("s" << this_batch << "@" << get_rank());
     ret = ret && MPI_Ssend(this_ptr, this_batch, MPI_CHAR, _node, _tag + FREE_TAG, MPI_COMM_WORLD) == MPI_SUCCESS;
     this_ptr += this_batch;
     num_bytes -= this_batch;
@@ -150,7 +155,7 @@ mpi_communicator_t::async_request_t mpi_communicator_t::send_async(const void *_
   async_request_t _req;
   char* this_ptr = (char*)_bytes;
   while(num_bytes != 0) {
-    size_t this_batch = std::min(MAX_SIZE, num_bytes);
+    int this_batch = std::min(MAX_SIZE, num_bytes);
     _req.success = _req.success && MPI_Isend(this_ptr, this_batch,
                       MPI_CHAR, _node, _tag + FREE_TAG, MPI_COMM_WORLD, &_req.request) == MPI_SUCCESS;
     this_ptr += this_batch;
@@ -184,9 +189,7 @@ mpi_communicator_t::sync_request_t mpi_communicator_t::expect_request_sync(node_
 // recieves the request that we got from expect_request_sync
 bool mpi_communicator_t::receive_request_sync(node_id_t node, com_tags tag, void *bytes, size_t num_bytes) {
 
-  // recieve the requests
-  MPI_Status status;
-  return MPI_Recv(bytes, num_bytes, MPI_CHAR, node, tag + FREE_TAG, MPI_COMM_WORLD, &status) == MPI_SUCCESS;
+  return recv_sync(bytes, num_bytes, node, tag);
 }
 
 bool mpi_communicator_t::op_request(const command_ptr_t &_cmd) {
@@ -492,7 +495,7 @@ bool mpi_communicator_t::expect_coord_cmds(size_t num_cmds, std::vector<command_
 
 bool mpi_communicator_t::expect_bytes(size_t num_bytes, std::vector<char> &out) {
   out.resize(num_bytes);
-  return MPI_Recv(out.data(), 0, MPI_CHAR, ANY_NODE, COORDINATOR_BCAST_BYTES, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS;
+  return MPI_Recv(out.data(), num_bytes, MPI_CHAR, ANY_NODE, COORDINATOR_BCAST_BYTES, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS;
 }
 
 // return the rank

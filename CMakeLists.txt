@@ -12,6 +12,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/libraries")
 # set the location for cmake scripts
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 
+set(MKL_THREADING "sequential")
+
 # if we are compiling for debug add the debug flags
 if(CMAKE_BUILD_TYPE MATCHES Debug)
 
@@ -86,8 +88,7 @@ if(${ENABLE_IB})
 endif()
 
 # try to find mkl
-set(BLA_VENDOR Intel10_64lp_seq)
-find_package(BLAS)
+find_package(MKL REQUIRED)
 
 # try to find the mpi library
 find_package(MPI REQUIRED)
@@ -156,8 +157,11 @@ add_library(bbts-common $<TARGET_OBJECTS:tensor>
 # to open .so files and stuff
 target_link_libraries(bbts-common ${CMAKE_DL_LIBS})
 
+# the mkl implementation
+target_link_libraries(bbts-common ${MKL_LIBRARIES})
+
 # the blas implementation
-target_link_libraries(bbts-common ${BLAS_LIBRARIES})
+#target_link_libraries(bbts-common ${BLAS_LIBRARIES})
 
 if(${ENABLE_IB})
   # link ibverbs

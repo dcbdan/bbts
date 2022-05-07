@@ -57,7 +57,7 @@ using std::tuple;
 
 #define MAXRANK 8
 
-#define CU_DEBUG
+//#define CU_DEBUG
 
 #ifdef CU_DEBUG
 using time_measurement_t = decltype(std::chrono::high_resolution_clock::now());

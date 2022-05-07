@@ -24,7 +24,8 @@ target_link_libraries(from_dag
   -lgecodeint
   -lgecodekernel
   -lgecodesearch
-  -lgecodesupport)
+  -lgecodesupport
+  -lpthread)
 target_link_libraries(from_dag ${MPI_LIBRARIES})
 
 add_library(from_dag_ops SHARED ${app_dir}/ops/ops.cc)

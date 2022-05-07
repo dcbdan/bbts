@@ -324,7 +324,7 @@ private:
     void propagate_no_cost_input();
     void when_partition_info_set();
     void set_constraints() override {
-      //propagate_prefer_no_reblock();
+      propagate_prefer_no_reblock();
       propagate_no_cost_input();
       when_partition_info_set();
     }
