@@ -77,9 +77,8 @@ vector<int> partition_options_t::_set_possible_parts()
   ret.reserve(40);
   // just powers of 2s and multiples of 12,
   // early multiples of 3
-  //for(int x: {1,2,3,4,6,8,9,12,15,18,21,24,32,36,48,
-  //            60,64,72,84,96,108,120,132,144})
-  for(int x: {1,64}) // {1,8,32,64,256})
+  for(int x: {1,2,3,4,6,8,9,12,15,18,21,24,32,36,48,
+              60,64,72,84,96,108,120,132,144,256})
   {
     if(x <= num_workers()) {
       ret.push_back(x);
@@ -1169,31 +1168,28 @@ void Partition::preblock_t::when_partition_info_set() {
       }
     }
 
+    // If for all i, above[i] >= below[i] then this reblock does not induce a barrier
+    // Otherwise it is called a barrier reblock, even though it might not be that bad of
+    // a barrier, i.e. [3,4,5,5] -> [1,1,5,5] is not that bad of a barrier, but
+    // [4,1] -> [1,3] is...
+    bool is_barrier_reblock = false;
+    for(int i = 0; i != above.size(); ++i) {
+      if(above[i] < below[i]) {
+        is_barrier_reblock = true;
+        break;
+      }
+    }
+
     int unit = product(above);
     int kernel_duration = self.opt.to_gecode_cost(
           self.opt.get_reblock_kernel_cost(above, below, p.nid));
+    if(kernel_duration > 0 && is_barrier_reblock) {
+      kernel_duration += self.opt.barrier_reblock_cost();
+    }
     DCB_WHEN("reblock nid "
       << _nid << " unit, kernel_duration: " << unit << ", " << kernel_duration);
     p._set_unit_and_kernel_duration(unit, kernel_duration);
   });
-}
-
-void Partition::preblock_t::disallow_barrier_reblock() {
-  // All this means is that no blocking along any dimension
-  // can decrease. That guarantees that the reblock does not perform
-  // as a barrier.
-  IntVarArgs args_above = local_partition_above();
-  if(is_below_fixed()) {
-    vector<int> args_below = local_fixed_partition_below();
-    for(int i = 0; i != args_above.size(); ++i) {
-      rel(*self, args_above[i] >= args_below[i]);
-    }
-  } else {
-    IntVarArgs args_below = local_partition_below();
-    for(int i = 0; i != args_above.size(); ++i) {
-      rel(*self, args_above[i] >= args_below[i]);
-    }
-  }
 }
 
 void Partition::_set_branching() {

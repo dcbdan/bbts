@@ -36,7 +36,7 @@ class PartitionOptions : public Gecode::BaseOptions {
   Driver::IntOption _flops_multiplier;
   Driver::IntOption _max_units;
   Driver::IntOption _min_units;
-  Driver::BoolOption _disallow_barrier_reblock;
+  Driver::IntOption _barrier_reblock_cost;
   Driver::UnsignedIntOption _search_compute_threads;
   Driver::UnsignedIntOption _search_restart_scale;
   Driver::UnsignedIntOption _search_time_per_cover;
@@ -62,7 +62,7 @@ public:
     _flops_multiplier("m-flops", "...", 1),
     _max_units("max-units", "...", 100000),
     _min_units("min-units", "...", -1),
-    _disallow_barrier_reblock("disallow-barrier-reblock", "...", false),
+    _barrier_reblock_cost("barrier-reblock-cost", "...", 0),
     _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
     _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
     _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
@@ -84,7 +84,7 @@ public:
     add(_flops_multiplier);
     add(_max_units);
     add(_min_units);
-    add(_disallow_barrier_reblock);
+    add(_barrier_reblock_cost);
 
     add(_search_compute_threads);
     add(_search_restart_scale);
@@ -115,7 +115,7 @@ public:
       _flops_multiplier.value(),
       _max_units.value(),
       _min_units.value(),
-      _disallow_barrier_reblock.value(),
+      _barrier_reblock_cost.value(),
       static_cast<int>(_search_compute_threads.value()),
       static_cast<int>(_search_restart_scale.value()),
       static_cast<int>(_search_time_per_cover.value()),
@@ -400,16 +400,12 @@ int main(int argc, char **argv)
 
       {
         table_t table(2);
-        table << "nid" << "node" << "inputs" << "partition" << "start"
-              << "unit" << "# workers" << "d" << "d:init" << "d:in" << "d:out" << "d:compute"
-              << table.endl;
+        table << "nid" << "inputs" << "partition" << "unit" << "start" << "duration" << "node" << table.endl;
         for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
           auto const& pp = partition_info[nid];
-          auto cc = options.to_gecode_cost_terms(
-            options.get_kernel_cost(get_inc_part, nid));
-          int d = cc.init + cc.input + cc.output + cc.compute;
-          table << nid;
           auto const& node = options.get_dag()[nid];
+          table << nid << node.downs;
+          table << pp.blocking << pp.unit << pp.start << pp.duration;
           if(node.type == node_t::node_type::input) {
             table << "I";
           } else
@@ -421,14 +417,42 @@ int main(int argc, char **argv)
           } else {
             table << "A";
           }
-          table << node.downs;
-          table << pp.blocking <<
-            (d == 0 ? (-1) : pp.start) << pp.unit << pp.worker << d << cc.init << cc.input << cc.output <<
-            cc.compute << table.endl;
+          table << table.endl;
         }
-
         std::cout << table << std::endl;
       }
+
+      //{
+      //  table_t table(2);
+      //  table << "nid" << "node" << "inputs" << "partition" << "start"
+      //        << "unit" << "# workers" << "d" << "d:init" << "d:in" << "d:out" << "d:compute"
+      //        << table.endl;
+      //  for(nid_t nid = 0; nid != options.get_dag().size(); ++nid) {
+      //    auto const& pp = partition_info[nid];
+      //    auto cc = options.to_gecode_cost_terms(
+      //      options.get_kernel_cost(get_inc_part, nid));
+      //    int d = cc.init + cc.input + cc.output + cc.compute;
+      //    table << nid;
+      //    auto const& node = options.get_dag()[nid];
+      //    if(node.type == node_t::node_type::input) {
+      //      table << "I";
+      //    } else
+      //    if(node.type == node_t::node_type::join) {
+      //      table << "J";
+      //    } else
+      //    if(node.type == node_t::node_type::reblock) {
+      //      table << "R";
+      //    } else {
+      //      table << "A";
+      //    }
+      //    table << node.downs;
+      //    table << pp.blocking <<
+      //      (d == 0 ? (-1) : pp.start) << pp.unit << pp.worker << d << cc.init << cc.input << cc.output <<
+      //      cc.compute << table.endl;
+      //  }
+
+      //  std::cout << table << std::endl;
+      //}
 
       generate_commands_t g(
         options.get_dag(),
