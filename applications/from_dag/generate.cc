@@ -6,7 +6,7 @@
 #include <numeric>
 #include <map>
 
-#define DCB01(x) // std::cout << x << std::endl;
+#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl
 #define HAS_PERMUTE(x) // std::cout << "HAS PERMUTE " << x << std::endl
 
 namespace bbts { namespace dag {
@@ -50,56 +50,43 @@ int select_node_t::select_from(vector<int> const& select_from_)
 }
 
 generate_commands_t::generate_commands_t(
-  dag_t const& dag,
-  vector<partition_info_t> const& info,
-  ud_info_t ud_info,
-  int num_nodes):
-    dag(dag),
-    info(info),
-    ud_info(ud_info),
-    num_nodes(num_nodes),
-    selector(num_nodes),
+  dag_t const& dag_,
+  vector<partition_info_t> const& info_,
+  ud_info_t ud_info_,
+  int num_nodes_):
+    dag(dag_),
+    info(info_),
+    ud_info(ud_info_),
+    num_nodes(num_nodes_),
+    selector(num_nodes_),
     _command_id(0),
-    _tid(0),
-    _priority(std::numeric_limits<int32_t>::max())
+    _tid(0)
 {
+  // Set up the relations and the information that the relations index
+  std::function<relation_t const& (nid_t)> get_rel =
+    std::bind(&generate_commands_t::operator[], this, std::placeholders::_1);
+
   relations.reserve(dag.size());
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    relations.emplace_back(this, nid);
+    relations.emplace_back(
+      nid, info[nid].blocking, dag, get_rel);
   }
 
-  vector<nid_t> idxs = priority_dag_order();
-
-  // recursing at the ouptut nodes, add the priorities
-  for(nid_t which: idxs) {
-    if(dag[which].ups.size() == 0) {
-      add_priority(which);
-    }
+  tid_locs.reserve(dag.size());
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    tid_locs.push_back(
+      vector<tid_loc_t>(
+        relations[nid].get_num_blocks(),
+        {-1,-1}));
   }
 
-  for(nid_t which: idxs) {
+  // Add the nodes
+  for(nid_t which: dag.breadth_dag_order()) {
     add_node(which);
   }
-  //// Add the input nodes everywhere
-  //for(nid_t which: idxs) {
-  //  if(dag[which].downs.size() == 0) {
-  //    add_input_node_everywhere(which);
-  //  }
-  //}
 
-  //// For the rest of the nodes, add the items in the relations
-  //// wherever they end up
-  //for(nid_t which: idxs) {
-  //  if(dag[which].downs.size() > 0) {
-  //    add_node(which);
-  //  }
-  //}
-
+  // And now the deletes
   add_deletes();
-}
-
-bool priority_was_set(int32_t p) {
-  return p != std::numeric_limits<int32_t>::min();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -727,57 +714,30 @@ public:
   }
 };
 
-void generate_commands_t::add_input_node_everywhere(nid_t nid) {
-  node_t const& node = dag[nid];
-  assert(node.type == node_t::node_type::input);
+vector<tid_loc_t>
+generate_commands_t::get_inputs(nid_t an_nid, vector<int> const& an_bid) const
+{
+  vector<tuple<nid_t, int>> items = relations[an_nid].get_inputs(an_bid);
 
-  vector<loc_t> all_other_locs(num_nodes-1);
-  std::iota(all_other_locs.begin(), all_other_locs.end(), 1);
+  vector<tid_loc_t> ret;
+  ret.reserve(items.size());
+  for(auto const& [input_nid, input_idx]: items) {
+    ret.push_back(tid_locs[input_nid][input_idx]);
+  }
+  return ret;
+}
 
-  // for each bid, add the command and get the output
-  indexer_t indexer(relations[nid].partition);
-  do {
-    auto const& bid = indexer.idx;
-
-    tid_t tid = next_tid();
-    for(int which_node = 0; which_node != num_nodes; ++which_node) {
-      tid_loc_t cur{ tid, which_node };
-
-      auto params = node.get_bbts_params();
-      // input kernels in libbarb_cutensor require
-      // appending for each rank
-      //   (which blk, local dim size, output dim size)
-      // as parameters
-      using uint_type = decltype(bbts::command_param_t().u);
-      auto const& ps = relations[nid].partition;
-      for(int r = 0; r != bid.size(); ++r) {
-        params.push_back({ .u = static_cast<uint_type>(bid[r])               });
-        params.push_back({ .u = static_cast<uint_type>(node.dims[r] / ps[r]) });
-        params.push_back({ .u = static_cast<uint_type>(node.dims[r])         });
-      }
-
-      input_commands.emplace_back(command_t::create_apply(
-        next_command_id(),
-        ud_info.get_join_ud(node.join_kernel),
-        false,
-        params,
-        {},
-        {cur}));
-      input_commands.back()->priority = relations[nid].priority(bid);
-    }
-
-    relations[nid][bid] = {tid, 0};
-    if(num_nodes > 1) {
-      // they aren't really being moved, but that is ok
-      moved_to_locs[tid] = all_other_locs;
-    }
-  } while (indexer.increment());
+tid_loc_t&
+generate_commands_t::get_tid_loc(nid_t an_nid, vector<int> const& an_bid)
+{
+  auto [nid, idx] = relations[an_nid][an_bid];
+  return tid_locs[nid][idx];
 }
 
 void generate_commands_t::add_node(nid_t nid) {
   // don't do anything if this is actually a no op!
   // get_inputs will reach past no ops.
-  if(relations[nid].is_no_op) {
+  if(relations[nid].is_no_op()) {
     return;
   }
 
@@ -809,10 +769,7 @@ void generate_commands_t::add_node(nid_t nid) {
   do {
     auto const& bid = indexer.idx;
 
-    int priority = 0; // relations[nid].priority(bid);
-    assert(priority_was_set(priority));
-
-    vector<tid_loc_t> inputs = relations[nid].get_inputs(bid);
+    vector<tid_loc_t> inputs = get_inputs(nid, bid);
 
     // TODO: This location-choosing strategy is being used because
     // it is the easiest solution. When it is verified that this
@@ -858,9 +815,8 @@ void generate_commands_t::add_node(nid_t nid) {
         params,
         {},
         {cur}));
-      input_commands.back()->priority = priority;
 
-      relations[nid][bid] = cur;
+      get_tid_loc(nid, bid) = cur;
     }
     else if(node.type == node_t::node_type::join)
     {
@@ -933,8 +889,7 @@ void generate_commands_t::add_node(nid_t nid) {
           {after_op}));
       }
 
-      relations[nid][bid] = cur;
-
+      get_tid_loc(nid, bid) = cur;
     }
     // Create a reduce command
     else if(node.type == node_t::node_type::agg)
@@ -948,9 +903,8 @@ void generate_commands_t::add_node(nid_t nid) {
         node.get_bbts_params(),
         inputs,
         cur));
-      commands.back()->priority = priority;
 
-      relations[nid][bid] = cur;
+      get_tid_loc(nid, bid) = cur;
     }
     else if(node.type == node_t::node_type::reblock)
     {
@@ -1000,7 +954,6 @@ void generate_commands_t::add_node(nid_t nid) {
             reblock_params,
             {tid, loc},
             {compact_tid, loc}));
-          commands.back()->priority = priority;
         }
         // if the compact input needs to be moved, move it
         if(loc != compute_location) {
@@ -1022,7 +975,6 @@ void generate_commands_t::add_node(nid_t nid) {
           reblock_params,
           {tid_loc_t{compact_tid, compute_location}},
           cur));
-        commands.back()->priority = priority;
         if(compact_is_new) {
           commands.emplace_back(command_t::create_delete(
             next_command_id(),
@@ -1030,20 +982,11 @@ void generate_commands_t::add_node(nid_t nid) {
         }
       }
 
-      relations[nid][bid] = cur;
+      get_tid_loc(nid, bid) = cur;
     } else {
       throw std::runtime_error("should not reach");
     }
 
-  } while (indexer.increment());
-}
-
-void generate_commands_t::add_priority(nid_t nid) {
-  // For each block, recursively add priorities
-  indexer_t indexer(relations[nid].partition);
-  do {
-    auto const& bid = indexer.idx;
-    relations[nid].add_priority(bid);
   } while (indexer.increment());
 }
 
@@ -1056,288 +999,6 @@ generate_commands_t::extract()
   input_commands.resize(0);
   commands.resize(0);
   return std::move(ret);
-}
-
-generate_commands_t::relation_t::relation_t(generate_commands_t* self_, nid_t nid_):
-  self(self_),
-  nid(nid_),
-  partition(self_->info[nid_].blocking),
-  is_no_op(_is_no_op())
-{
-  int n = is_no_op ? 0 : product(partition);
-  tid_locs = vector<tid_loc_t>(n, {-1,-1});
-  priorities = vector<int32_t>(n, std::numeric_limits<int32_t>::min());
-}
-
-vector<tuple<nid_t, vector<int>>>
-generate_commands_t::relation_t::get_bid_inputs(vector<int> const& bid) const
-{
-  assert(bid.size() == partition.size());
-
-  node_t const& node = self->dag[nid];
-
-  if(node.type == node_t::node_type::agg) {
-    vector<tuple<nid_t, vector<int>>> ret;
-
-    // basically, cartesian product over the agg dimensions.
-    nid_t join_nid = node.downs[0];
-    node_t const& join_node = self->dag[join_nid];
-    auto const& aggs = join_node.aggs;
-    auto const& join_blocking = self->info[join_nid].blocking;
-
-    vector<int> agg_szs;
-    agg_szs.reserve(aggs.size());
-    for(int which: aggs) {
-      agg_szs.push_back(join_blocking[which]);
-    }
-
-    indexer_t indexer(agg_szs);
-
-    ret.reserve(product(agg_szs));
-    do {
-      auto inc_bid = dag_t::combine_out_agg(aggs, bid, indexer.idx);
-      ret.emplace_back(join_nid, inc_bid);
-    } while(indexer.increment());
-
-    return ret;
-  }
-
-  if(node.type == node_t::node_type::reblock) {
-
-    nid_t input_nid = node.downs[0];
-
-    if(is_no_op) {
-      return {{input_nid, bid}};
-    } else {
-      vector<tuple<nid_t, vector<int>>> ret;
-      // the expander can figure out which inputs touch
-      // this output.
-      expand_indexer_t e_indexer(
-        // this is the input partitioning
-        self->relations[input_nid].partition,
-        // this is the output partitioning
-        partition);
-
-      // get all those inputs
-      auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
-
-      ret.reserve(inputs.size());
-      for(auto const& input_bid: inputs) {
-        ret.emplace_back(input_nid, input_bid);
-      }
-      return ret;
-    }
-  }
-
-  if(node.type == node_t::node_type::join) {
-    vector<tuple<nid_t, vector<int>>> ret;
-    ret.reserve(node.downs.size());
-
-    for(auto const& input_nid: node.downs) {
-      vector<int> input_bid = self->dag.get_out_for_input(bid, nid, input_nid);
-      ret.emplace_back(input_nid, input_bid);
-    }
-
-    return ret;
-  }
-
-  if(node.type == node_t::node_type::input) {
-    return {};
-  }
-
-  assert(false);
-  return {};
-}
-
-// Go into the input relations and get the input tid_locs
-vector<tid_loc_t>
-generate_commands_t::relation_t::get_inputs(vector<int> const& bid)
-{
-  assert(bid.size() == partition.size());
-
-  vector<tid_loc_t> ret;
-
-  node_t const& node = self->dag[nid];
-
-  if(node.type == node_t::node_type::agg) {
-    // basically, cartesian product over the agg dimensions.
-    nid_t join_nid = node.downs[0];
-    node_t const& join_node = self->dag[join_nid];
-    auto const& aggs = join_node.aggs;
-    auto const& join_blocking = self->info[join_nid].blocking;
-
-    vector<int> agg_szs;
-    agg_szs.reserve(aggs.size());
-    for(int which: aggs) {
-      agg_szs.push_back(join_blocking[which]);
-    }
-
-    indexer_t indexer(agg_szs);
-
-    ret.reserve(product(agg_szs));
-    do {
-      auto inc_bid = dag_t::combine_out_agg(aggs, bid, indexer.idx);
-      ret.push_back(self->relations[join_nid][inc_bid]);
-    } while(indexer.increment());
-  } else
-  if(node.type == node_t::node_type::reblock) {
-    nid_t input_nid = node.downs[0];
-
-    if(is_no_op) {
-      ret = {self->relations[input_nid][bid]};
-    } else {
-      // the expander can figure out which inputs touch
-      // this output.
-      expand_indexer_t e_indexer(
-        // this is the input partitioning
-        self->relations[input_nid].partition,
-        // this is the output partitioning
-        partition);
-
-      // get all those inputs
-      auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
-
-      ret.reserve(inputs.size());
-      for(auto const& input_bid: inputs) {
-        ret.push_back(self->relations[input_nid][input_bid]);
-      }
-    }
-  } else
-  if(node.type == node_t::node_type::join) {
-    ret.reserve(node.downs.size());
-
-    for(auto const& input_nid: node.downs) {
-      vector<int> input_bid = self->dag.get_out_for_input(bid, nid, input_nid);
-      ret.push_back(self->relations[input_nid][input_bid]);
-    }
-  } else
-  if(node.type == node_t::node_type::input) {
-    ret = {};
-  } else {
-    assert(false);
-  }
-
-  // Uninitialized tids and locs are negative.. Make sure
-  // no uninitialized tid or locs were retrieved.
-  for(auto const& [t,l]: ret) {
-    assert(t >= 0);
-    assert(l >= 0);
-  }
-
-  return ret;
-}
-
-// If this node is a no op, then reach past this relation.
-tid_loc_t& generate_commands_t::relation_t::operator[](vector<int> const& bid) {
-  assert(bid.size() == partition.size());
-  if(is_no_op) {
-    node_t const& node = self->dag[nid];
-
-    if(node.type == node_t::node_type::reblock) {
-      // if this is a no op, the input relation has the same shape,
-      // so use the same bid
-      nid_t input_nid = node.downs[0];
-      return self->relations[input_nid][bid];
-    }
-
-    if(node.type == node_t::node_type::agg) {
-      // if this is a no op, then the agg dims are all 1,
-      // so the inc_bid needs to be zero there.. so if j is agg,
-      // ijk->ik, then bid = (1,3) -> inc_bid = (1,0,3)
-      nid_t join_nid = node.downs[0];
-      node_t const& join_node = self->dag[join_nid];
-
-      // just in case
-      assert(join_node.type == node_t::node_type::join);
-
-      auto const& aggs = join_node.aggs;
-
-      vector<int> inc_bid = dag_t::combine_out_agg(
-        aggs,
-        bid,
-        vector<int>(aggs.size(), 0));
-
-      return self->relations[join_nid][inc_bid];
-    }
-
-    throw std::runtime_error("should not reach");
-  }
-
-  // otherwise, we find the tid, column major ordering and all that
-  return tid_locs[bid_to_idx(bid)];
-}
-
-// column major ordering
-int generate_commands_t::relation_t::bid_to_idx(vector<int> const& bid) const {
-  vector<int> const& parts = self->info[nid].blocking;
-  int idx = 0;
-  int p = 1;
-  for(int r = 0; r != bid.size(); ++r) {
-    idx += p * bid[r];
-    p   *= parts[r];
-  }
-  return idx;
-}
-
-int32_t generate_commands_t::relation_t::priority(vector<int> const& bid) const {
-  assert(!is_no_op);
-  return priorities[bid_to_idx(bid)];
-}
-
-void generate_commands_t::relation_t::print(std::ostream& os) const {
-  std::stringstream s;
-  s << (self->dag[nid]);
-  auto str = s.str();
-
-  std::string spaces =
-    60 > str.size()                   ?
-    std::string(60 - str.size(), ' ') :
-    std::string(10, ' ')              ;
-
-  os << str << spaces << "  &  blocking: ";
-  print_list(os, partition);
-}
-
-bool generate_commands_t::relation_t::_is_no_op() {
-  node_t const& node = self->dag[nid];
-  if(node.type == node_t::node_type::input) {
-    return false;
-  }
-  if(node.type == node_t::node_type::join) {
-    return false;
-  }
-  if(node.type == node_t::node_type::reblock) {
-    // if these are the same, there is no reblock
-    auto const& my_blocking    = self->info[nid].blocking;
-    auto const& input_blocking = self->info[node.downs[0]].blocking;
-    return my_blocking == input_blocking;
-  }
-  if(node.type == node_t::node_type::agg) {
-    auto const& my_blocking    = self->info[nid].blocking;
-    auto const& join_blocking = self->info[node.downs[0]].blocking;
-    // if there is nothing to agg, this is a no op
-    return product(my_blocking) == product(join_blocking);
-  }
-  throw std::runtime_error("should not reach");
-  return true;
-}
-
-void generate_commands_t::relation_t::add_priority(vector<int> const& bid)
-{
-  // Was this already set? then don't recurse and exit.
-  // Otherwise set the priority if this is an op and recurse.
-
-  if(!is_no_op) {
-    auto& p = priorities[bid_to_idx(bid)];
-    if(priority_was_set(p)) {
-      return;
-    } else {
-      p = self->next_priority();
-    }
-  }
-  for(auto const& [child_nid, input_bid]: get_bid_inputs(bid)) {
-    self->relations[child_nid].add_priority(input_bid);
-  }
 }
 
 bool generate_commands_t::was_moved_to(tid_t tid, loc_t loc) {
@@ -1369,25 +1030,21 @@ void generate_commands_t::add_deletes()
   // and is not a no op, delete the tids
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
     node_t const& node = dag[nid];
-    if(node.ups.size() > 0 && node.downs.size() > 0) {
-      relations[nid].add_deletes();
+    if(node.ups.size() > 0 && node.downs.size() > 0 && !relations[nid].is_no_op()) {
+      _add_deletes(nid);
     }
   }
 }
 
-void generate_commands_t::relation_t::add_deletes()
+void generate_commands_t::_add_deletes(nid_t nid)
 {
-  if(_is_no_op()) {
-    return;
-  }
-
-  for(auto const& [tid, loc]: tid_locs) {
-    self->commands.emplace_back(command_t::create_delete(
-      self->next_command_id(),
+  for(auto const& [tid, loc]: tid_locs[nid]) {
+    commands.emplace_back(command_t::create_delete(
+      next_command_id(),
       {tid_loc_t{tid, loc}}));
-    for(auto const& other_loc: self->moved_to_locs[tid]) {
-      self->commands.emplace_back(command_t::create_delete(
-        self->next_command_id(),
+    for(auto const& other_loc: moved_to_locs[tid]) {
+      commands.emplace_back(command_t::create_delete(
+        next_command_id(),
         {tid_loc_t{tid, other_loc}}));
     }
   }

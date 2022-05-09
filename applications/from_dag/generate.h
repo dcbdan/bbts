@@ -6,6 +6,8 @@
 
 #include "dag.h"
 #include "partition_info.h"
+#include "relation.h"
+
 #include "../../src/commands/command.h"
 
 namespace bbts { namespace dag {
@@ -81,61 +83,25 @@ struct generate_commands_t {
     return dag.size();
   }
 
-  vector<nid_t> priority_dag_order() const {
-    return dag.priority_dag_order(
-      [&](nid_t nid){ return info[nid].start; });
-  }
-
-  struct relation_t {
-    relation_t(generate_commands_t* self_, nid_t nid_);
-
-    vector<tuple<nid_t, vector<int>>>
-    get_bid_inputs(vector<int> const& bid) const;
-
-    vector<tid_loc_t> get_inputs(vector<int> const& bid);
-
-    tid_loc_t& operator[](vector<int> const& bid);
-
-    int32_t priority(vector<int> const& bid) const;
-
-    void add_priority(vector<int> const& bid);
-
-    void print(std::ostream& os) const;
-
-    int bid_to_idx(vector<int> const& bid) const;
-
-    void add_deletes();
-  private:
-    bool _is_no_op();
-
-    generate_commands_t* self;
-    nid_t const nid;
-    vector<tid_loc_t> tid_locs;
-    vector<int32_t> priorities;
-  public:
-    std::vector<int> const& partition;
-    bool const is_no_op;
-  };
-
-  relation_t& operator[](nid_t const& nid) {
+  relation_t const& operator[](nid_t const& nid) const {
     return relations[nid];
   }
 
 private:
-  void add_input_node_everywhere(nid_t nid);
-
   void add_node(nid_t nid);
 
-  void add_priority(nid_t nid);
-
   void add_deletes();
+  void _add_deletes(nid_t nid);
 
   int next_command_id() { return _command_id++; }
   int next_tid()        { return _tid++;        }
-  int next_priority()   { return _priority--;   }
+
+  vector<tid_loc_t> get_inputs(nid_t nid, vector<int> const& bid) const;
+  tid_loc_t& get_tid_loc(nid_t nid, vector<int> const& bid);
 
 private:
   vector<relation_t> relations;
+  vector<vector<tid_loc_t>> tid_locs;
 
   vector<command_ptr_t> input_commands;
   vector<command_ptr_t> commands;
@@ -156,7 +122,6 @@ private:
 
   int _command_id;
   int _tid;
-  int32_t _priority;
 };
 
 }}

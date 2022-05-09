@@ -6,6 +6,7 @@ get_filename_component(app_dir ${CMAKE_CURRENT_LIST_FILE} DIRECTORY)
 add_executable(from_dag ${app_dir}/main.cc
                         ${app_dir}/dag.cc
                         ${app_dir}/parse.cc
+                        ${app_dir}/relation.cc
                         ${app_dir}/generate.cc
                         ${app_dir}/print_table.cc
                         ${app_dir}/partition/partition.cc

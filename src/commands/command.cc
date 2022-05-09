@@ -233,6 +233,7 @@ command_ptr_t command_t::create_touch(
 
   // now that we have fixed the parameters, this is just an apply with a type of
   // TOUCH and nfo num_writes set
+  // NOTE: this assumes all the tids live at one location!
   command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, in, {out});
 
   tmp->type = TOUCH;
@@ -262,6 +263,7 @@ command_ptr_t command_t::create_compact(
     params.begin() + 2);
 
   // Now there is no compact type, this is really just an apply.
+  // NOTE: this assumes all the tids live at one location!
   command_ptr_t tmp = create_apply(id, fun_id, is_gpu, params, {in}, {out});
 
   return std::move(tmp);

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <ostream>
 
 #include <gecode/driver.hh>
 #include <gecode/int.hh>
@@ -251,78 +252,78 @@ tuple<bool, vector<int>> parse_repl_line(std::string const& str)
   return {true, ret};
 }
 
-// A very bad finicky repl..... There are two things it does:
-// - given an (nid, bid) pair, print out the corresponding tensor.
-// - or given an empty line, print out the dag + partitioning.
-void repl(::bbts::node_t& node, generate_commands_t& g) {
-  auto print_dag = [&]() {
-    vector<nid_t> idxs = g.priority_dag_order();
-    for(nid_t nid: idxs) {
-      std::cout << nid;
-      if(!g[nid].is_no_op) {
-        std::cout << "    *";
-      } else {
-        std::cout << "     ";
-      }
-      std::cout << ": ";
-
-      g[nid].print(std::cout);
-      std::cout << std::endl;
-    }
-  };
-
-  print_dag();
-
-  std::string s;
-  while(true) {
-    std::cout << "##>> ";
-    std::getline(std::cin, s);
-
-    if(s == "") {
-      print_dag();
-      continue;
-    }
-
-    auto [success, ints] = parse_repl_line(s);
-    if(success) {
-      nid_t nid = ints[0];
-      if(nid < 0 || nid >= g.size()) {
-        std::cout << "invalid node id" << std::endl;
-        continue;
-      }
-
-      vector<int> bid(ints.begin() + 1, ints.end());
-      auto& relation = g[nid];
-      if(bid.size() != relation.partition.size()) {
-        std::cout << "invalid block id" << std::endl;
-        continue;
-      }
-
-      int which_bad = -1;
-      for(int r = 0; r != relation.partition.size(); ++r) {
-        if(bid[r] < 0 || bid[r] >= relation.partition[r]) {
-          which_bad = r;
-          break;
-        }
-      }
-      if(which_bad >= 0) {
-        std::cout << "invalid block id, index " << which_bad << std::endl;
-        continue;
-      }
-
-      auto [tid, _0] = g[nid][bid];
-      auto [got_it, msg] = node.print_tensor_info(tid);
-      if(!got_it) {
-        std::cout << "Could not get tensor id " << tid << ". " << msg << std::endl;
-        continue;
-      }
-      std::cout << msg << std::endl;
-    } else {
-      std::cout << "exiting..." << std::endl;
-      return;
-    }
-  }
-}
+// // A very bad finicky repl..... There are two things it does:
+// // - given an (nid, bid) pair, print out the corresponding tensor.
+// // - or given an empty line, print out the dag + partitioning.
+// void repl(::bbts::node_t& node, generate_commands_t& g) {
+//   auto print_dag = [&]() {
+//     vector<nid_t> idxs = g.priority_dag_order();
+//     for(nid_t nid: idxs) {
+//       std::cout << nid;
+//       if(!g[nid].is_no_op) {
+//         std::cout << "    *";
+//       } else {
+//         std::cout << "     ";
+//       }
+//       std::cout << ": ";
+//
+//       g[nid].print(std::cout);
+//       std::cout << std::endl;
+//     }
+//   };
+//
+//   print_dag();
+//
+//   std::string s;
+//   while(true) {
+//     std::cout << "##>> ";
+//     std::getline(std::cin, s);
+//
+//     if(s == "") {
+//       print_dag();
+//       continue;
+//     }
+//
+//     auto [success, ints] = parse_repl_line(s);
+//     if(success) {
+//       nid_t nid = ints[0];
+//       if(nid < 0 || nid >= g.size()) {
+//         std::cout << "invalid node id" << std::endl;
+//         continue;
+//       }
+//
+//       vector<int> bid(ints.begin() + 1, ints.end());
+//       auto& relation = g[nid];
+//       if(bid.size() != relation.partition.size()) {
+//         std::cout << "invalid block id" << std::endl;
+//         continue;
+//       }
+//
+//       int which_bad = -1;
+//       for(int r = 0; r != relation.partition.size(); ++r) {
+//         if(bid[r] < 0 || bid[r] >= relation.partition[r]) {
+//           which_bad = r;
+//           break;
+//         }
+//       }
+//       if(which_bad >= 0) {
+//         std::cout << "invalid block id, index " << which_bad << std::endl;
+//         continue;
+//       }
+//
+//       auto [tid, _0] = g[nid][bid];
+//       auto [got_it, msg] = node.print_tensor_info(tid);
+//       if(!got_it) {
+//         std::cout << "Could not get tensor id " << tid << ". " << msg << std::endl;
+//         continue;
+//       }
+//       std::cout << msg << std::endl;
+//     } else {
+//       std::cout << "exiting..." << std::endl;
+//       return;
+//     }
+//   }
+// }
 
 void cmd_to_table(table_t& table, bbts::command_t const& cmd)
 {
@@ -362,6 +363,38 @@ void cmd_to_table(table_t& table, bbts::command_t const& cmd)
   }
 
   table << inn_tids << out_tids << inn_locs << out_locs << table.endl;
+}
+
+void print_commands(std::ostream& os, vector<bbts::command_ptr_t> const& cmds) {
+  for(auto const& cmd_ptr: cmds) {
+    bbts::command_t const& cmd = *cmd_ptr;
+    if(cmd.type == bbts::command_t::op_type_t::APPLY) {
+      os << "APPLY";
+    } else
+    if(cmd.type == bbts::command_t::op_type_t::REDUCE) {
+      os << "REDUCE";
+    } else
+    if(cmd.type == bbts::command_t::op_type_t::MOVE) {
+      os << "MOVE";
+    } else
+    if(cmd.type == bbts::command_t::op_type_t::TOUCH) {
+      os << "TOUCH";
+    } else {
+      continue;
+    }
+    os << ",";
+    os << cmd.get_num_inputs() << ",";
+    os << cmd.get_num_outputs();
+    for(int i = 0; i != cmd.get_num_inputs(); ++i) {
+      auto const& [tid,node] = cmd.get_input(i);
+      os << "," << tid << "," << node;
+    }
+    for(int i = 0; i != cmd.get_num_outputs(); ++i) {
+      auto const& [tid,node] = cmd.get_output(i);
+      os << "," << tid << "," << node;
+    }
+    os << std::endl;
+  }
 }
 
 int main(int argc, char **argv)
@@ -461,6 +494,12 @@ int main(int argc, char **argv)
         node.get_num_nodes());
 
       auto [input_cmds, run_cmds] = g.extract();
+
+      {
+        std::ofstream f("commands_for_js.txt");
+        print_commands(f, input_cmds);
+        print_commands(f, run_cmds);
+      }
 
       //{
       //  table_t table(4);
