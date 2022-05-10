@@ -280,9 +280,11 @@ private:
     Gecode::BoolVar is_no_op;
     void propagate_is_no_op();
     void when_partition_info_set();
+    void disallow_barrier_reblock(); 
     void set_constraints() override {
       propagate_is_no_op();
       when_partition_info_set();
+      disallow_barrier_reblock();
     }
     void print_domain_sizes() override;
 
