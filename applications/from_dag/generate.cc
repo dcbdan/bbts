@@ -672,14 +672,19 @@ public:
 };
 
 vector<tid_loc_t>
-generate_commands_t::get_inputs(nid_t an_nid, vector<int> const& an_bid) const
+generate_commands_t::get_inputs(nid_t an_nid, vector<int> const& an_bid, int prefer_loc) const
 {
   vector<tuple<nid_t, int>> items = relations[an_nid].get_inputs(an_bid);
 
   vector<tid_loc_t> ret;
   ret.reserve(items.size());
   for(auto const& [input_nid, input_idx]: items) {
-    ret.push_back(tid_locs[input_nid][input_idx]);
+    auto [tid,compute_loc] = tid_locs[input_nid][input_idx];
+    if(was_moved_to(tid, prefer_loc)) {
+      ret.push_back({ tid, prefer_loc });
+    } else {
+      ret.push_back({ tid, compute_loc});
+    }
   }
   return ret;
 }
@@ -726,10 +731,10 @@ void generate_commands_t::add_node(nid_t nid) {
   do {
     auto const& bid = indexer.idx;
 
-    vector<tid_loc_t> inputs = get_inputs(nid, bid);
-
     // The compute location was pre computed somehow; use that
     int compute_location = compute_locs[nid][relations[nid].bid_to_idx(bid)];
+
+    vector<tid_loc_t> inputs = get_inputs(nid, bid, compute_location);
 
     // Now we have all the inputs, figure out what the node is and use that
     // to create the command and get a new tid.
@@ -839,13 +844,37 @@ void generate_commands_t::add_node(nid_t nid) {
     {
       tid_loc_t cur{ next_tid(), compute_location };
 
-      commands.emplace_back(command_t::create_reduce(
-        next_command_id(),
-        ud_info.castable_elementwise,
-        false,
-        node.get_bbts_params(),
-        inputs,
-        cur));
+      // If all the inputs are not at compute_location, this guy will not work.
+      // To handle this, first move the first input to the compute_location.
+      bool has_one_input_at_compute_loc = false;
+      for(auto const& [_0, input_loc]: inputs) {
+        if(input_loc == compute_location) {
+          has_one_input_at_compute_loc = true;
+          break;
+        }
+      }
+      if(!has_one_input_at_compute_loc) {
+        auto const& [input_tid, input_loc] = inputs[0];
+        assure_moved_to(commands, input_tid, input_loc, compute_location);
+
+        auto inputs_copy = inputs;
+        inputs_copy[0] = tid_loc_t{ input_tid, compute_location };
+        commands.emplace_back(command_t::create_reduce(
+          next_command_id(),
+          ud_info.castable_elementwise,
+          false,
+          node.get_bbts_params(),
+          inputs_copy,
+          cur));
+      } else {
+        commands.emplace_back(command_t::create_reduce(
+          next_command_id(),
+          ud_info.castable_elementwise,
+          false,
+          node.get_bbts_params(),
+          inputs,
+          cur));
+      }
 
       get_tid_loc(nid, bid) = cur;
     }
@@ -944,8 +973,12 @@ generate_commands_t::extract()
   return std::move(ret);
 }
 
-bool generate_commands_t::was_moved_to(tid_t tid, loc_t loc) {
-  for(auto const& other_loc: moved_to_locs[tid]) {
+bool generate_commands_t::was_moved_to(tid_t tid, loc_t loc) const {
+  if(moved_to_locs.count(tid) == 0) {
+    return false;
+  }
+
+  for(auto const& other_loc: moved_to_locs.at(tid)) {
     if(other_loc == loc) {
       return true;
     }
