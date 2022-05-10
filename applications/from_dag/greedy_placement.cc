@@ -36,6 +36,10 @@ private:
 //         pick the cheapest rank among the non-full ranks,
 //         update the necessary moves,
 //         update the loc counter
+// Also note:
+// - reduces and touches (aggs and reblocks) do not add to input locs
+//     > touches compact before move
+//     > reduces local agg before move
 vector<placement_t> greedy_solve_placement(
   vector<relation_t> const& relations,
   int num_nodes)
@@ -79,7 +83,6 @@ vector<placement_t> greedy_solve_placement(
       }
     }
   }
-
 
   compute_score_t compute_score(relations);
 
@@ -147,9 +150,13 @@ vector<placement_t> greedy_solve_placement(
       // update counts
       counts[best_rank]--;
 
-      // update the input ranks
-      for(auto const& [input_nid, input_idx]: inputs) {
-        ret[input_nid].locs[input_idx].insert(best_rank);
+      // update the input ranks for tensors that got moved..
+      // reblock and agg don't count because
+      // touch   and reduce don't move the input tensors
+      if(dag[nid].type == node_t::node_type::join) {
+        for(auto const& [input_nid, input_idx]: inputs) {
+          ret[input_nid].locs[input_idx].insert(best_rank);
+        }
       }
     } while (indexer.increment());
   }
