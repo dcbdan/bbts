@@ -245,24 +245,119 @@ bool Placement::_set_covering() {
   return ret;
 }
 
-// TODO: figure out what this should have
+//void Placement::_set_branching() {
+//  DCB01("set branching enter");
+//  for(nid_t const& nid: covering()) {
+//    relvar_t& relvar = *vars[nid];
+//
+//    for(int i = 0; i != relvar.locs.size(); ++i) {
+//      //branch(*this, relvar.locs[i], SET_VAL_RND_INC(rnd));
+//      //branch(*this, relvar.locs[i], SET_VAL_RND_EXC(rnd));
+//      branch(*this, relvar.locs[i], SET_VAL_MAX_INC());
+//    }
+//
+//    if(!relvar.fixed_computes()) {
+//      for(int i = 0; i != relvar.computes.size(); ++i) {
+//        branch(*this, relvar.computes, INT_VAL_RND(rnd));
+//      }
+//    }
+//  }
+//  DCB01("set branching exit");
+//}
+
+//void Placement::_set_branching() {
+//  DCB01("set branching enter");
+//  for(nid_t const& nid: covering()) {
+//    relvar_t& relvar = *vars[nid];
+//
+//    for(int i = 0; i != relvar.locs.size(); ++i) {
+//      branch(*this, relvar.locs[i], SET_VAL_RND_INC(rnd));
+//    }
+//
+//    if(!relvar.fixed_computes()) {
+//      branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
+//    }
+//  }
+//  DCB01("set branching exit");
+//}
+
 void Placement::_set_branching() {
   DCB01("set branching enter");
   for(nid_t const& nid: covering()) {
     relvar_t& relvar = *vars[nid];
-    if(!relvar.fixed_computes()) {
-      branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
-    }
+
     branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
+    branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
+
+    if(!relvar.fixed_computes()) {
+      for(int i = 0; i != 10; ++i) {
+        branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
+      }
+    }
   }
   DCB01("set branching exit");
 }
+
+//void Placement::_set_branching() {
+//  DCB01("set branching enter");
+//  for(nid_t const& nid: covering()) {
+//    relvar_t& relvar = *vars[nid];
+//    if(!relvar.fixed_computes()) {
+//      //branch(*this, relvar.computes, INT_VAR_RND(rnd), INT_VAL_RND(rnd));
+//      branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
+//    }
+//    // Case 0: hard to find with this guy, good quality when found
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MAX_EXC());
+//
+//    // Case 1: nothing found
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MAX_INC());
+//
+//    // Case 2: found bad solutiong, failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
+//
+//    // Case 3: failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
+//
+//    // Case 4: failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MED_INC());
+//
+//    // Case 5: failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MIN_INC());
+//
+//    // Case 6: failed good quality
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MIN_EXC());
+//
+//    // Case 7: found fast then failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MIN_EXC());
+//
+//    // Case 8: failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
+//
+//    // Case 9: failed
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
+//
+//    //////////////////
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
+//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MAX_EXC());
+//
+//    ////branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_RND_EXC(rnd));
+//    //branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_MAX_EXC());
+//
+//    ////branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_RND_INC(rnd));
+//    //branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_MAX_INC());
+//
+//  }
+//  DCB01("set branching exit");
+//}
 
 // NOTE: Search::Options is not a proper data type, it contains pointers to stuff
 //       that get modified and deleted. So call this function to get a "fresh"
 //       object and don't use search options more than once.
 Search::Options build_search_options() {
-  int num_threads = 4;
+  int num_threads = 24;
   int search_time_per_cover = 10000;
   int search_restart_scale = Search::Config::slice;
 
@@ -362,6 +457,7 @@ vector<placement_t> solve_placement(
 
   DCB01("SOLVE C");
   while(!placement->is_completely_covered()) {
+    std::cout << "..." << std::endl;
     Placement* tmp = new Placement(relations, ret, num_nodes, num_cover);
 
     delete placement;

@@ -14,51 +14,17 @@ namespace bbts { namespace dag {
 using utils::expand::expand_indexer_t;
 using utils::expand::column_major_expand_t;
 
-int select_node_t::select_score(vector<int> const& scores) {
-  auto m = *std::max_element(scores.begin(), scores.end());
-
-  vector<int> which;
-  which.reserve(scores.size());
-  for(int i = 0; i != scores.size(); ++i) {
-    if(scores[i] == m) {
-      which.push_back(i);
-    }
-  }
-
-  return select_from(which);
-}
-
-int select_node_t::select_from(vector<int> const& select_from_)
-{
-  int which = select_from_.front();
-  uint64_t score = counts[which];
-
-  for(int i = 1; i < select_from_.size(); ++i) {
-    int const& which_maybe = select_from_[i];
-    uint64_t const& score_maybe = counts[which_maybe];
-
-    if(score_maybe < score) {
-      score = score_maybe;
-      which = which_maybe;
-    }
-  }
-
-  // now increment
-  counts[which]++;
-
-  return which;
-}
-
 generate_commands_t::generate_commands_t(
   dag_t const& dag_,
   vector<relation_t> const& relations_,
+  vector<vector<int>> const& compute_locs_,
   ud_info_t ud_info_,
   int num_nodes_):
     dag(dag_),
     relations(relations_),
+    compute_locs(compute_locs_),
     ud_info(ud_info_),
     num_nodes(num_nodes_),
-    selector(num_nodes_),
     _command_id(0),
     _tid(0)
 {
@@ -762,22 +728,8 @@ void generate_commands_t::add_node(nid_t nid) {
 
     vector<tid_loc_t> inputs = get_inputs(nid, bid);
 
-    // TODO: This location-choosing strategy is being used because
-    // it is the easiest solution. When it is verified that this
-    // could be better, and determined how it could be better,
-    // change it.
-    vector<int> num_from_node(num_nodes, 0);
-    // ^ for each location, count the number of tensors that
-    //   already exist at that location
-    for(auto const& [tid, loc]: inputs) {
-      num_from_node[loc]++;
-      for(auto const& moved_to_loc: moved_to_locs[tid]) {
-        num_from_node[moved_to_loc]++;
-      }
-    }
-    // pick one of the locations that has the most number of tensors
-    // already available
-    int compute_location = selector.select_score(num_from_node);
+    // The compute location was pre computed somehow; use that
+    int compute_location = compute_locs[nid][relations[nid].bid_to_idx(bid)];
 
     // Now we have all the inputs, figure out what the node is and use that
     // to create the command and get a new tid.

@@ -43,6 +43,8 @@ struct relation_t {
 
   size_t get_num_blocks() const;
 
+  uint64_t tensor_size() const;
+
   // This nid
   nid_t const nid;
   // The underlying dag

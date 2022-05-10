@@ -70,7 +70,7 @@ private:
     // and only have variables for locs
     bool fixed_computes() const { return self->info[nid].computes_set(); }
 
-    int tensor_size() const;
+    int tensor_size() const; // TODO: implement properly
 
     void load_balance();
     void must_live_at();

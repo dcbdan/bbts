@@ -172,6 +172,15 @@ int relation_t::bid_to_idx(vector<int> const& bid) const
   return idx;
 }
 
+uint64_t relation_t::tensor_size() const {
+  vector<int> const& dims = dag[nid].dims;
+  uint64_t ret = 1;
+  for(int i = 0; i != dims.size(); ++i) {
+    ret *= (dims[i] / partition[i]);
+  }
+  return ret;
+}
+
 size_t relation_t::get_num_blocks() const {
   if(is_no_op()) {
     return 0;

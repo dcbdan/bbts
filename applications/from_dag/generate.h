@@ -16,23 +16,6 @@ using std::vector;
 using std::tuple;
 using std::function;
 
-// Let each node have a count. Given a list of nodes,
-// always pick the node with the least count, then
-// increment the count by one.
-struct select_node_t {
-  select_node_t(int n): counts(n, 0) {
-    assert(n > 0);
-  }
-
-  // For each node, there is a score.
-  // Pick from the nodes with the highest score.
-  int select_score(vector<int> const& scores);
-
-  int select_from(vector<int> const& select_from_);
-private:
-  vector<uint64_t> counts;
-};
-
 // A node in ::bbts::dag is a join,agg,reblock computation
 // at the vertex of a compute graph.
 //
@@ -74,6 +57,7 @@ struct generate_commands_t {
   generate_commands_t(
     dag_t const& dag,
     vector<relation_t> const& relations,
+    vector<vector<int>> const& compute_locs,
     ud_info_t ud_info,
     int num_nodes);
 
@@ -100,6 +84,7 @@ private:
   tid_loc_t& get_tid_loc(nid_t nid, vector<int> const& bid);
 
 private:
+  vector<vector<int>> const& compute_locs;
   vector<relation_t> const& relations;
   vector<vector<tid_loc_t>> tid_locs;
 
@@ -117,7 +102,6 @@ private:
   ud_info_t ud_info;
 
   int num_nodes;
-  select_node_t selector;
 
   int _command_id;
   int _tid;

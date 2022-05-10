@@ -11,7 +11,8 @@
 #include "parse.h"
 #include "partition/partition.h"
 #include "generate.h"
-#include "placement.h"
+//#include "placement.h"
+#include "greedy_placement.h"
 
 #include "print_table.h"
 
@@ -503,20 +504,33 @@ int main(int argc, char **argv)
           nid, partition_info[nid].blocking, options, get_rel);
       }
 
-      vector<placement_t> items = solve_placement(relations, node.get_num_nodes(), 1); // 10000);
+      //vector<placement_t> items = solve_placement(relations, node.get_num_nodes(), 1);
+      vector<placement_t> items = greedy_solve_placement(relations, node.get_num_nodes());
+
+      //for(placement_t const& item: items) {
+      //  if(item.computes.size() > 0) {
+      //    std::cout << item.computes << "| ";
+      //    for(auto const& s: item.locs) {
+      //      std::cout << std::vector<int>(s.begin(), s.end()) << ".";
+      //    }
+      //    std::cout << std::endl;
+      //  }
+      //}
+
+      vector<vector<int>> compute_locs;
+      compute_locs.reserve(items.size());
       for(placement_t const& item: items) {
-        if(item.computes_set()) {
-          std::cout << item.computes << "| ";
-          for(auto const& s: item.locs) {
-            std::cout << std::vector<int>(s.begin(), s.end()) << ".";
-          }
-          std::cout << std::endl;
+        if(item.computes.size() > 0) {
+          compute_locs.push_back(item.computes);
+        } else {
+          compute_locs.push_back(vector<int>());
         }
       }
 
       generate_commands_t g(
         options,
         relations,
+        compute_locs,
         ud_info,
         node.get_num_nodes());
 
