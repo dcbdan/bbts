@@ -11,6 +11,7 @@
 #include "parse.h"
 #include "partition/partition.h"
 #include "generate.h"
+#include "placement.h"
 
 #include "print_table.h"
 
@@ -487,9 +488,35 @@ int main(int argc, char **argv)
       //  std::cout << table << std::endl;
       //}
 
+      // Set up the relations and the information that the relations index
+      std::vector<relation_t> relations;
+      std::function<relation_t const& (nid_t)> get_rel =
+        [&relations](nid_t nid) -> relation_t const&
+                             //    ^ add this signature or the lambda doesn't work
+      {
+        return relations[nid];
+      };
+
+      relations.reserve(options.size());
+      for(nid_t nid = 0; nid != options.size(); ++nid) {
+        relations.emplace_back(
+          nid, partition_info[nid].blocking, options, get_rel);
+      }
+
+      vector<placement_t> items = solve_placement(relations, node.get_num_nodes(), 1); // 10000);
+      for(placement_t const& item: items) {
+        if(item.computes_set()) {
+          std::cout << item.computes << "| ";
+          for(auto const& s: item.locs) {
+            std::cout << std::vector<int>(s.begin(), s.end()) << ".";
+          }
+          std::cout << std::endl;
+        }
+      }
+
       generate_commands_t g(
-        options.get_dag(),
-        partition_info,
+        options,
+        relations,
         ud_info,
         node.get_num_nodes());
 

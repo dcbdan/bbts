@@ -51,27 +51,18 @@ int select_node_t::select_from(vector<int> const& select_from_)
 
 generate_commands_t::generate_commands_t(
   dag_t const& dag_,
-  vector<partition_info_t> const& info_,
+  vector<relation_t> const& relations_,
   ud_info_t ud_info_,
   int num_nodes_):
     dag(dag_),
-    info(info_),
+    relations(relations_),
     ud_info(ud_info_),
     num_nodes(num_nodes_),
     selector(num_nodes_),
     _command_id(0),
     _tid(0)
 {
-  // Set up the relations and the information that the relations index
-  std::function<relation_t const& (nid_t)> get_rel =
-    std::bind(&generate_commands_t::operator[], this, std::placeholders::_1);
-
-  relations.reserve(dag.size());
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    relations.emplace_back(
-      nid, info[nid].blocking, dag, get_rel);
-  }
-
+  // Setup the information that the relations index
   tid_locs.reserve(dag.size());
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
     tid_locs.push_back(
