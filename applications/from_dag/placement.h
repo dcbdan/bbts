@@ -4,6 +4,9 @@
 #include "relation.h"
 #include "misc.h"
 
+// for placement_t
+#include "greedy_placement.h"
+
 #include <gecode/driver.hh>
 #include <gecode/int.hh>
 #include <gecode/minimodel.hh>
@@ -19,19 +22,6 @@ namespace bbts { namespace dag {
 using std::vector;
 using std::tuple;
 using std::function;
-
-struct placement_t {
-  bool computes_set() const {
-    return computes.size() > 0;
-  }
-
-  // If computes.size() == 0, then
-  //   this node is a no op or there is nothing set
-  vector<int> computes;
-  // If computes.size() != 0 and locs.size() == 0, then
-  //   the locs still need to be figured out
-  vector<std::set<int>> locs;
-};
 
 struct Placement : public Gecode::IntMinimizeSpace {
   Placement(
@@ -82,7 +72,7 @@ private:
 
     // The relvars that have a fixed computes are inputs to the dag
     // and only have variables for locs
-    bool fixed_computes() const { return self->info[nid].computes_set(); }
+    bool fixed_computes() const { return self->info[nid].size() > 0; }
 
     void load_balance();
     void set_costs();

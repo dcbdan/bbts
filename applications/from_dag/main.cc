@@ -1,5 +1,6 @@
 #include <iostream>
 #include <ostream>
+#include <iterator>
 
 #include <gecode/driver.hh>
 #include <gecode/int.hh>
@@ -11,7 +12,8 @@
 #include "parse.h"
 #include "partition/partition.h"
 #include "generate.h"
-//#include "placement.h"
+
+#include "placement.h"
 #include "greedy_placement.h"
 
 #include "print_table.h"
@@ -498,28 +500,75 @@ int main(int argc, char **argv)
 
       relations_t relations(options, partitions);
 
-      //vector<placement_t> items = solve_placement(relations, node.get_num_nodes(), 10000);
-      vector<placement_t> items = greedy_solve_placement(relations, node.get_num_nodes());
-
-      for(placement_t const& item: items) {
-        if(item.computes.size() > 0) {
-          std::cout << item.computes << "| ";
-          //for(auto const& s: item.locs) {
-          //  std::cout << std::vector<int>(s.begin(), s.end()) << ".";
-          //}
-          std::cout << std::endl;
-        }
-      }
-
       vector<vector<int>> compute_locs;
-      compute_locs.reserve(items.size());
-      for(placement_t const& item: items) {
-        if(item.computes.size() > 0) {
-          compute_locs.push_back(item.computes);
-        } else {
-          compute_locs.push_back(vector<int>());
+
+      // This is too slow!
+      //vector<placement_t> items_solve = solve_placement(relations, node.get_num_nodes(), 10000);
+      //std::cout << "WITH SOLVE: " << total_move_cost(relations, just_computes(items_solve)) << std::endl;
+
+      {
+        vector<vector<vector<int>>> items;
+        items.resize(5);
+
+        {
+          // The first bool: in each relation, should the minimum move costed block be chosen, or just
+          //                 do in order
+          // The second bool: should the cost of outputs be included
+          //
+          // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
+          auto x0 = greedy_solve_placement(true,  true,  relations, node.get_num_nodes());
+          auto x1 = greedy_solve_placement(true,  false, relations, node.get_num_nodes());
+          auto x2 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
+          auto x3 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
+
+          items[0] = just_computes(x0);
+          items[1] = just_computes(x1);
+          items[2] = just_computes(x2);
+          items[3] = just_computes(x3);
         }
+
+        // A round robin placement to each relation
+        items[4] = dumb_solve_placement(relations, node.get_num_nodes());
+
+        uint64_t cost_tt = total_move_cost(relations, items[0]);
+        uint64_t cost_tf = total_move_cost(relations, items[1]);
+        uint64_t cost_ft = total_move_cost(relations, items[2]);
+        uint64_t cost_ff = total_move_cost(relations, items[3]);
+        uint64_t cost_dd = total_move_cost(relations, items[4]);
+
+        table_t table(2);
+        table << "which method" << "cost" << table.endl;
+        table << "tt" << cost_tt << table.endl;
+        table << "tf" << cost_tf << table.endl;
+        table << "ft" << cost_ft << table.endl;
+        table << "ff" << cost_ff << table.endl;
+        table << "dd" << cost_dd << table.endl;
+        std::cout << table;
+
+        vector<uint64_t> costs =
+          {
+            cost_tt,
+            cost_tf,
+            cost_ft,
+            cost_ff,
+            cost_dd
+          };
+
+        auto iter = std::min_element(costs.begin(), costs.end());
+        int which = std::distance(costs.begin(), iter);
+        std::cout << "which: " << which << std::endl;
+        compute_locs = items[which];
       }
+
+      //for(placement_t const& item: items) {
+      //  if(item.computes.size() > 0) {
+      //    std::cout << item.computes << "| ";
+      //    //for(auto const& s: item.locs) {
+      //    //  std::cout << std::vector<int>(s.begin(), s.end()) << ".";
+      //    //}
+      //    std::cout << std::endl;
+      //  }
+      //}
 
       generate_commands_t g(
         options,

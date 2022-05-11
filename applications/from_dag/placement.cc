@@ -203,7 +203,7 @@ void Placement::_add(nid_t nid, std::set<nid_t>& so_far, int& num_added) const {
   }
 
   auto [_0, did_insert] = so_far.insert(nid);
-  if(did_insert && !info[nid].computes_set()) {
+  if(did_insert && !info[nid].size() > 0) {
     num_added++;
   } else {
     // If (1) nothing was inserted or
@@ -228,7 +228,7 @@ bool Placement::_set_covering() {
   DCB01("SC B");
   for(nid_t const& nid: dag.breadth_dag_order()) {
     DCB01("SC." << nid);
-    if(!relations[nid].is_no_op() && !info[nid].computes_set()) {
+    if(!relations[nid].is_no_op() && !info[nid].size() > 0) {
       _add(nid, so_far, num_added);
       if(num_added > cover_size) {
         ret = false;
@@ -352,7 +352,7 @@ vector<placement_t> solve_placement(
     throw std::runtime_error("Placement: Could not find a solution!");
   } else {
     for(nid_t const& nid: placement->covering()) {
-      if(!ret[nid].computes_set()) {
+      if(!ret[nid].size() > 0) {
         ret[nid].computes = placement->get_computes(nid);
       }
       //ret[nid].locs = placement->get_locs(nid);
@@ -374,7 +374,7 @@ vector<placement_t> solve_placement(
       throw std::runtime_error("Placement: Could not find a solution!");
     } else {
       for(nid_t const& nid: placement->covering()) {
-        if(!ret[nid].computes_set()) {
+        if(!ret[nid].size() > 0) {
           ret[nid].computes = placement->get_computes(nid);
         }
         ret[nid].locs = placement->get_locs(nid);
