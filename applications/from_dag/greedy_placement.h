@@ -20,7 +20,7 @@ struct placement_t {
 };
 
 vector<placement_t> greedy_solve_placement(
-  vector<relation_t> const& relations,
+  relations_t const& relations,
   int num_nodes);
 
 }}

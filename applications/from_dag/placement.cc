@@ -9,7 +9,7 @@ namespace bbts { namespace dag {
 using namespace Gecode;
 
 Placement::Placement(
-  vector<relation_t> const& relations_,
+  relations_t const& relations_,
   vector<placement_t> const& info_,
   int num_nodes_,
   int cover_size_):
@@ -43,19 +43,12 @@ Placement::Placement(
   for(nid_t const& nid: covering()) {
     relvar_t& relvar = *vars[nid];
     for(int i = 0; i != relvar.size(); ++i) {
-      costs << expr(*this, relvar.tensor_size() * (cardinality(relvar.locs[i]) - 1));
+      costs << relvar.costs[i];
     }
   }
   total_move = expr(*this, sum(costs));
 
   DCB01("E");
-
-  // TODO: figure out an upper bound for the move cost?
-  // This would be a good sanity check..
-  //int upper_bound = 1000000000000000;
-  //rel(*this, total_move <= upper_bound);
-
-  // TODO: fuse single input joins?
 
   _set_branching();
   DCB01("F");
@@ -95,12 +88,7 @@ Placement::relvar_t::relvar_t(Placement* self_, nid_t nid_):
       0, num_nodes-1);
   }
 
-  // each set is {}...{0,...,num_nodes-1} with cardinality >= 1 and <= num_nodes
-  locs = SetVarArray(*self, size(),
-    IntSet(), IntSet(0, num_nodes-1), 1, num_nodes);
-  //for(int i = 0; i != size(); ++i) {
-  //  std::cout << locs[i] << std::endl;
-  //}
+  costs = IntVarArray(*self, size(), 0, 1000000);
 }
 
 Placement::relvar_t::relvar_t(Placement* self_, relvar_t& other):
@@ -109,11 +97,8 @@ Placement::relvar_t::relvar_t(Placement* self_, relvar_t& other):
   if(!fixed_computes()) {
     computes.update(*self, other.computes);
   }
-  locs.update    (*self, other.locs);
+  costs.update(*self, other.costs);
 }
-
-// TODO TODO TODO IMPLEMENT THIS GUY
-int Placement::relvar_t::tensor_size() const { return 1; }
 
 // Make sure that there is a minimum number of nodes
 // being computed at each location
@@ -136,43 +121,62 @@ void Placement::relvar_t::load_balance() {
   DCB01("load balance exit");
 }
 
-// For each of the inputs, make sure that
-void Placement::relvar_t::must_live_at() {
-  DCB01("must_live_at enter");
-  for(int i = 0; i != size(); ++i) {
-    rel(*self, computes[i], SRT_SUB, locs[i]);
+void Placement::set_cost_t::operator()(Space& home) const {
+  Placement& self = static_cast<Placement&>(home);
+  Placement::relvar_t& r = static_cast<Placement::relvar_t&>(*self.vars[nid]);
+
+  std::set<int> all_locs;
+
+  if(r.fixed_computes()) {
+    all_locs.insert(self.info[nid].computes[idx]);
+  } else {
+    all_locs.insert(r.computes[idx].val());
   }
-  DCB01("must_live_at exit");
+
+  auto const& outputs = self.relations[nid].get_outputs(idx);
+  for(auto const& [output_nid, output_idx]: outputs) {
+    if(self.vars[output_nid]) {
+      all_locs.insert(self.vars[output_nid]->computes[output_idx].val());
+    }
+  }
+
+  int cost = all_locs.size() - 1; // TODO: use tensor size
+
+  Int::IntView _cost = r.costs[idx];
+
+  ModEvent _ev = _cost.eq(self, cost);
+
+  if(_ev == Int::ME_INT_FAILED)
+  {
+    self.fail();
+  }
 }
 
-void Placement::relvar_t::inputs_live_at_computed_at() {
-  DCB01("inputs live at computed at enter");
-  // for each block, get the inputs, tell the inputs they must
-  // live at this compute.
+// For each block, when it is determined where this guy ends up
+// getting moved, set the costs
+void Placement::relvar_t::set_costs() {
   indexer_t indexer(self->relations[nid].partition);
   do {
     auto const& bid = indexer.idx;
+    int idx = self->relations[nid].bid_to_idx(bid);
 
-    int output_idx = self->relations[nid].bid_to_idx(bid);
-    auto inputs = self->relations[nid].get_inputs(bid);
-    for(auto const& [input_nid, input_idx]: inputs) {
-      relvar_t& input = *(self->vars[input_nid]);
-      rel(*self, computes[output_idx], SRT_SUB, input.locs[input_idx]);
+    vector<tuple<nid_t, int>> const& outputs = self->relations[nid].get_outputs(idx);
+    IntVarArgs cs;
+
+    if(!fixed_computes()) {
+      cs << computes[idx];
     }
+
+    for(auto const& [output_nid, output_idx]: outputs) {
+      if(self->vars[output_nid]) {
+        cs << self->vars[output_nid]->computes[output_idx];
+      }
+    }
+
+    // Once cs are set, set costs[idx].
+    wait(*self, cs, set_cost_t(nid, idx));
+
   } while (indexer.increment());
-  DCB01("inputs live at computed at exit");
-}
-
-void Placement::relvar_t::set_minimum_locs() {
-  DCB01("set min locs enter");
-  int num_nodes = self->num_nodes;
-  for(int i = 0; i != size(); ++i) {
-    auto min_set = self->info[nid].locs[i];
-    for(auto const& rank: min_set) {
-      dom(*self, locs[i], SRT_SUP, rank);
-    }
-  }
-  DCB01("set min locs exit");
 }
 
 vector<nid_t> Placement::get_inputs(nid_t nid) const {
@@ -245,120 +249,20 @@ bool Placement::_set_covering() {
   return ret;
 }
 
-//void Placement::_set_branching() {
-//  DCB01("set branching enter");
-//  for(nid_t const& nid: covering()) {
-//    relvar_t& relvar = *vars[nid];
-//
-//    for(int i = 0; i != relvar.locs.size(); ++i) {
-//      //branch(*this, relvar.locs[i], SET_VAL_RND_INC(rnd));
-//      //branch(*this, relvar.locs[i], SET_VAL_RND_EXC(rnd));
-//      branch(*this, relvar.locs[i], SET_VAL_MAX_INC());
-//    }
-//
-//    if(!relvar.fixed_computes()) {
-//      for(int i = 0; i != relvar.computes.size(); ++i) {
-//        branch(*this, relvar.computes, INT_VAL_RND(rnd));
-//      }
-//    }
-//  }
-//  DCB01("set branching exit");
-//}
-
-//void Placement::_set_branching() {
-//  DCB01("set branching enter");
-//  for(nid_t const& nid: covering()) {
-//    relvar_t& relvar = *vars[nid];
-//
-//    for(int i = 0; i != relvar.locs.size(); ++i) {
-//      branch(*this, relvar.locs[i], SET_VAL_RND_INC(rnd));
-//    }
-//
-//    if(!relvar.fixed_computes()) {
-//      branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
-//    }
-//  }
-//  DCB01("set branching exit");
-//}
-
 void Placement::_set_branching() {
   DCB01("set branching enter");
   for(nid_t const& nid: covering()) {
-    relvar_t& relvar = *vars[nid];
-
-    branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
-    branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
-
-    if(!relvar.fixed_computes()) {
-      for(int i = 0; i != 10; ++i) {
-        branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
-      }
-    }
+    branch(*this, vars[nid]->computes, INT_VAR_RND(rnd), INT_VAL_RND(rnd));
   }
   DCB01("set branching exit");
 }
-
-//void Placement::_set_branching() {
-//  DCB01("set branching enter");
-//  for(nid_t const& nid: covering()) {
-//    relvar_t& relvar = *vars[nid];
-//    if(!relvar.fixed_computes()) {
-//      //branch(*this, relvar.computes, INT_VAR_RND(rnd), INT_VAL_RND(rnd));
-//      branch(*this, relvar.computes, INT_VAR_NONE(), INT_VAL_RND(rnd));
-//    }
-//    // Case 0: hard to find with this guy, good quality when found
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MAX_EXC());
-//
-//    // Case 1: nothing found
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MAX_INC());
-//
-//    // Case 2: found bad solutiong, failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
-//
-//    // Case 3: failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
-//
-//    // Case 4: failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MED_INC());
-//
-//    // Case 5: failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MIN_INC());
-//
-//    // Case 6: failed good quality
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MIN_EXC());
-//
-//    // Case 7: found fast then failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MIN_EXC());
-//
-//    // Case 8: failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
-//
-//    // Case 9: failed
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_INC(rnd));
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
-//
-//    //////////////////
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_RND_EXC(rnd));
-//    //branch(*this, relvar.locs, SET_VAR_NONE(), SET_VAL_MAX_EXC());
-//
-//    ////branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_RND_EXC(rnd));
-//    //branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_MAX_EXC());
-//
-//    ////branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_RND_INC(rnd));
-//    //branch(*this, relvar.locs, SET_VAR_RND(rnd), SET_VAL_MAX_INC());
-//
-//  }
-//  DCB01("set branching exit");
-//}
 
 // NOTE: Search::Options is not a proper data type, it contains pointers to stuff
 //       that get modified and deleted. So call this function to get a "fresh"
 //       object and don't use search options more than once.
 Search::Options build_search_options() {
   int num_threads = 24;
-  int search_time_per_cover = 10000;
+  int search_time_per_cover = 30000;
   int search_restart_scale = Search::Config::slice;
 
   Search::Options so;
@@ -409,7 +313,7 @@ Placement* _run(Placement* init) {
 }
 
 vector<placement_t> solve_placement(
-  vector<relation_t> const& relations,
+  relations_t const& relations,
   int num_nodes,
   int num_cover)
 {
@@ -451,12 +355,14 @@ vector<placement_t> solve_placement(
       if(!ret[nid].computes_set()) {
         ret[nid].computes = placement->get_computes(nid);
       }
-      ret[nid].locs = placement->get_locs(nid);
+      //ret[nid].locs = placement->get_locs(nid);
     }
   }
 
   DCB01("SOLVE C");
   while(!placement->is_completely_covered()) {
+    throw std::runtime_error("rewrite covering and make sure to set locs");
+
     std::cout << "..." << std::endl;
     Placement* tmp = new Placement(relations, ret, num_nodes, num_cover);
 
@@ -492,20 +398,5 @@ vector<int> Placement::get_computes(nid_t nid) {
   }
   return ret;
 }
-
-vector<std::set<int>> Placement::get_locs(nid_t nid) {
-  relvar_t& relvar = *vars[nid];
-
-  vector<std::set<int>> ret(relvar.size());
-  for(int i = 0; i != relvar.size(); ++i) {
-    for(int rank = 0; rank != num_nodes; ++rank) {
-      if(relvar.locs[i].contains(rank)) {
-        ret[i].insert(rank);
-      }
-    }
-  }
-  return ret;
-}
-
 
 }}

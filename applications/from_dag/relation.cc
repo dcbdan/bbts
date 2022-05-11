@@ -9,22 +9,52 @@ namespace bbts { namespace dag {
 using utils::expand::expand_indexer_t;
 using utils::expand::column_major_expand_t;
 
+relations_t::relations_t(
+  dag_t const& dag_,
+  vector<vector<int>> const& partition):
+    dag(dag_), cache(dag_.size())
+{
+  std::function<relation_t const& (nid_t)> get_rel = std::bind(
+    &relations_t::operator[], this, std::placeholders::_1);
+
+  relations.reserve(dag.size());
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    relations.emplace_back(
+      nid, partition[nid], dag, cache, get_rel);
+  }
+
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    if(!relations[nid].is_no_op()) {
+      cache.inns[nid].resize(relations[nid].get_num_blocks());
+      cache.outs[nid].resize(relations[nid].get_num_blocks());
+    }
+  }
+
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    if(!relations[nid].is_no_op()) {
+      relations[nid].write_cache(cache);
+    }
+  }
+}
+
 relation_t::relation_t(
   nid_t nid_,
   vector<int> const& partition_,
   dag_t const& dag_,
+  cache_t const& cache_,
   function<relation_t const& (nid_t)> rels_):
     nid(nid_),
     partition(partition_),
     dag(dag_),
+    cache(cache_),
     rels(rels_),
     _is_no_op(std::bind(&relation_t::set_is_no_op, this))
 {}
 
-vector<tuple<nid_t, int>> relation_t::get_inputs(vector<int> const& bid) const
+vector<tuple<nid_t, int>> relation_t::_get_inputs(vector<int> const& bid) const
 {
   vector<tuple<nid_t, int>> ret;
-  auto items = get_bid_inputs(bid);
+  auto items = _get_bid_inputs(bid);
   ret.reserve(items.size());
 
   for(auto const& [input_nid, input_bid]: items) {
@@ -33,8 +63,24 @@ vector<tuple<nid_t, int>> relation_t::get_inputs(vector<int> const& bid) const
   return ret;
 }
 
+void relation_t::write_cache(cache_t& cache) const {
+  indexer_t indexer(partition);
+
+  do {
+    auto const& bid = indexer.idx;
+    int idx = bid_to_idx(bid);
+
+    cache.inns[nid][idx] = _get_inputs(bid);
+
+    for(auto const& [input_nid, input_idx]: cache.inns[nid][idx]) {
+      cache.outs[input_nid][input_idx].emplace_back(nid, idx);
+    }
+
+  } while (indexer.increment());
+}
+
 vector<tuple<nid_t, vector<int>>>
-relation_t::get_bid_inputs(vector<int> const& bid) const
+relation_t::_get_bid_inputs(vector<int> const& bid) const
 {
   if(bid.size() != partition.size()) {
     throw std::runtime_error("bid size is incorrect");

@@ -16,7 +16,7 @@ using utils::expand::column_major_expand_t;
 
 generate_commands_t::generate_commands_t(
   dag_t const& dag_,
-  vector<relation_t> const& relations_,
+  relations_t const& relations_,
   vector<vector<int>> const& compute_locs_,
   ud_info_t ud_info_,
   int num_nodes_):
@@ -674,7 +674,7 @@ public:
 vector<tid_loc_t>
 generate_commands_t::get_inputs(nid_t an_nid, vector<int> const& an_bid, int prefer_loc) const
 {
-  vector<tuple<nid_t, int>> items = relations[an_nid].get_inputs(an_bid);
+  vector<tuple<nid_t, int>> const& items = relations[an_nid].get_inputs(an_bid);
 
   vector<tid_loc_t> ret;
   ret.reserve(items.size());

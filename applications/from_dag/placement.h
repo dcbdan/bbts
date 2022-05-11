@@ -35,7 +35,7 @@ struct placement_t {
 
 struct Placement : public Gecode::IntMinimizeSpace {
   Placement(
-    vector<relation_t> const& relations_,
+    relations_t const& relations_,
     vector<placement_t> const& info_,
     int num_nodes_,
     int num_covered_);
@@ -54,15 +54,29 @@ struct Placement : public Gecode::IntMinimizeSpace {
   }
 
   vector<int> get_computes(nid_t nid);
-  vector<std::set<int>> get_locs(nid_t nid);
+
+  vector<std::set<int>> get_locs(nid_t nid) { return {}; } // TODO
 
 private:
+  struct set_cost_t {
+    set_cost_t(
+      nid_t const nid,
+      int idx):
+        nid(nid), idx(idx)
+    {}
+
+    void operator()(Space& home) const;
+  private:
+    nid_t const nid;
+    int const idx;
+  };
+
   struct relvar_t {
     relvar_t(Placement* self, nid_t nid);
     relvar_t(Placement* self, relvar_t& other);
 
     Gecode::IntVarArray computes;
-    Gecode::SetVarArray locs;
+    Gecode::IntVarArray costs;
 
     size_t size() const { return self->relations[nid].get_num_blocks(); }
 
@@ -70,30 +84,18 @@ private:
     // and only have variables for locs
     bool fixed_computes() const { return self->info[nid].computes_set(); }
 
-    int tensor_size() const; // TODO: implement properly
-
     void load_balance();
-    void must_live_at();
-    void inputs_live_at_computed_at();
+    void set_costs();
 
-    void set_minimum_locs();
+    // void fuse_single_join(); TODO
 
     void set_constraints() {
       if(!fixed_computes()) {
         // constrain where the nodes can be computed
         load_balance();
-
-        // Each block must live at where it is computed
-        must_live_at();
-
-        // The inputs for each block must live at
-        //   wherever this guys gets computed at
-        inputs_live_at_computed_at();
-      } else {
-        // For fixed nodes, we already know a minimum set of where things
-        // must be computed, so constrain that
-        set_minimum_locs();
       }
+
+      set_costs();
     }
 
     Placement* self;
@@ -102,7 +104,7 @@ private:
   using relvar_ptr = std::unique_ptr<relvar_t>;
 
 private:
-  vector<relation_t> const& relations;
+  relations_t const& relations;
   vector<placement_t> const& info;
   vector<nid_t> _covering;
   bool _is_completely_covered;
@@ -117,7 +119,7 @@ private:
 
   void _set_branching();
 
-  // For a node, get the non-no-op outputs of that node
+  // For a node, get the non-no-op inputs of that node
   vector<nid_t> get_inputs(nid_t nid) const; // TODO: maybe cache?
 public:
   virtual Gecode::Space* copy() {
@@ -130,7 +132,7 @@ public:
 };
 
 vector<placement_t> solve_placement(
-  vector<relation_t> const& relations,
+  relations_t const& relations,
   int num_nodes,
   int num_cover);
 

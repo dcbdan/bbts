@@ -490,32 +490,26 @@ int main(int argc, char **argv)
       //}
 
       // Set up the relations and the information that the relations index
-      std::vector<relation_t> relations;
-      std::function<relation_t const& (nid_t)> get_rel =
-        [&relations](nid_t nid) -> relation_t const&
-                             //    ^ add this signature or the lambda doesn't work
-      {
-        return relations[nid];
-      };
-
-      relations.reserve(options.size());
-      for(nid_t nid = 0; nid != options.size(); ++nid) {
-        relations.emplace_back(
-          nid, partition_info[nid].blocking, options, get_rel);
+      vector<vector<int>> partitions;
+      partitions.reserve(partition_info.size());
+      for(auto const& p: partition_info) {
+        partitions.push_back(p.blocking);
       }
 
-      //vector<placement_t> items = solve_placement(relations, node.get_num_nodes(), 1);
+      relations_t relations(options, partitions);
+
+      //vector<placement_t> items = solve_placement(relations, node.get_num_nodes(), 10000);
       vector<placement_t> items = greedy_solve_placement(relations, node.get_num_nodes());
 
-      //for(placement_t const& item: items) {
-      //  if(item.computes.size() > 0) {
-      //    std::cout << item.computes << "| ";
-      //    for(auto const& s: item.locs) {
-      //      std::cout << std::vector<int>(s.begin(), s.end()) << ".";
-      //    }
-      //    std::cout << std::endl;
-      //  }
-      //}
+      for(placement_t const& item: items) {
+        if(item.computes.size() > 0) {
+          std::cout << item.computes << "| ";
+          //for(auto const& s: item.locs) {
+          //  std::cout << std::vector<int>(s.begin(), s.end()) << ".";
+          //}
+          std::cout << std::endl;
+        }
+      }
 
       vector<vector<int>> compute_locs;
       compute_locs.reserve(items.size());

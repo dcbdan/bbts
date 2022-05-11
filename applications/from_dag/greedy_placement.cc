@@ -4,7 +4,7 @@ namespace bbts { namespace dag {
 
 struct compute_score_t {
   compute_score_t(
-    vector<relation_t> const& relations):
+    relations_t const& relations):
       relations(relations)
   {}
 
@@ -26,7 +26,7 @@ struct compute_score_t {
   }
 
 private:
-  vector<relation_t> const& relations;
+  relations_t const& relations;
 };
 
 // 1. Every relation must be node balanced
@@ -41,7 +41,7 @@ private:
 //     > touches compact before move
 //     > reduces local agg before move
 vector<placement_t> greedy_solve_placement(
-  vector<relation_t> const& relations,
+  relations_t const& relations,
   int num_nodes)
 {
   auto const& dag = relations[0].dag;

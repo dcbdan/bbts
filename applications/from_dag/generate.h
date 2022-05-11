@@ -56,7 +56,7 @@ struct ud_info_t {
 struct generate_commands_t {
   generate_commands_t(
     dag_t const& dag,
-    vector<relation_t> const& relations,
+    relations_t const& relations,
     vector<vector<int>> const& compute_locs,
     ud_info_t ud_info,
     int num_nodes);
@@ -87,7 +87,7 @@ private:
 
 private:
   vector<vector<int>> const& compute_locs;
-  vector<relation_t> const& relations;
+  relations_t const& relations;
   vector<vector<tid_loc_t>> tid_locs;
 
   vector<command_ptr_t> input_commands;
