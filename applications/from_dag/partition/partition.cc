@@ -542,11 +542,15 @@ Partition::Partition(
   int lower_limit = 0;
   for(auto const& p: info) {
     if(p.is_set()) {
+      DCB_P_CONSTRUCTOR("NOT GONNA HAPPEN...");
       lower_limit = std::max(lower_limit, p.start + p.duration);
     }
   }
-  int upper_limit = 100 * opt.upper_bound_time();
+  int upper_limit = 10 * opt.upper_bound_time();
 
+  DCB_P_CONSTRUCTOR("?");
+
+  DCB_P_CONSTRUCTOR("lower, upper: " << lower_limit << ", " << upper_limit);
   makespan = IntVar(*this, lower_limit, upper_limit);
 
   DCB_P_CONSTRUCTOR("C");
@@ -925,6 +929,21 @@ void Partition::preblock_t::propagate_is_no_op()
 
   // If this is a no op, set a bunch of stuff to zero
   Partition::pode_t::_set_no_op(is_no_op);
+}
+
+void Partition::preblock_t::disallow_barrier_reblock() {
+  if(is_below_fixed()) {
+    std::cout << "CANNOT DISALLOW THIS BARRIER REBLOCK" << std::endl;
+    return;
+  }
+  // All this means is that no blocking along any dimension
+  // can decrease. That guarantees that the reblock does not perform
+  // as a barrier.
+  IntVarArgs args_above = local_partition_above();
+  IntVarArgs args_below = local_partition_below();
+  for(int i = 0; i != args_above.size(); ++i) {
+    rel(*self, args_above[i] >= args_below[i]);
+  }
 }
 
 void Partition::pode_t::_set_no_op(BoolVar& is_no_op) {

@@ -68,7 +68,7 @@ public:
     _max_units("max-units", "...", 100000),
     _min_units("min-units", "...", -1),
     _barrier_reblock_cost("barrier-reblock-cost", "...", 0),
-    _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 24),
+    _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 4),
     _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
     _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
     _cover_size("cover-size", "...", 20),
