@@ -36,4 +36,7 @@ struct indexer_t {
   std::vector<int>       idx;
 };
 
+std::vector<std::vector<int>> cartesian(
+  std::vector<std::vector<int> > const& vs);
+
 }}

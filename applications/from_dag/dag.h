@@ -54,9 +54,11 @@ using nid_t  = int;
 using dim_t  = int;
 using rank_t = int;
 
+// TODO(wish): THESE ASSUMPTIONS ARE NOT RESTRICT ENOUGH TO REFLECT THIS CODE
 // Dag assumptions:
 // - Every aggs down node is a join
 // - Every reblocks up node is a join
+// - If a join has an up agg, that is the only up node
 // This means you may have
 // - multiple join nodes in a row
 // You may not have

@@ -47,30 +47,6 @@ int get_max_num_inputs_est(int inn, int out) {
   return (end+inn-1) / inn; // celing(end / inn)
 }
 
-vector<vector<int>> cartesian(
-  vector<vector<int> > const& vs)
-{
-  // assuming all vs have a size greater than zero
-
-  vector<int> max;
-  for(auto const& v: vs) {
-    max.push_back(v.size());
-  }
-  indexer_t indexer(max);
-
-  vector<vector<int>> ret;
-  do {
-    vector<int> next_val;
-    next_val.reserve(vs.size());
-    for(int which_v = 0; which_v != vs.size(); ++ which_v) {
-      next_val.push_back(vs[which_v][indexer.idx[which_v]]);
-    }
-    ret.push_back(next_val);
-  } while(indexer.increment());
-
-  return ret;
-}
-
 vector<int> partition_options_t::_set_possible_parts()
 {
   vector<int> ret;
@@ -1416,6 +1392,7 @@ void Partition::_set_covering() {
     }
   }
 }
+
 
 
 }}
