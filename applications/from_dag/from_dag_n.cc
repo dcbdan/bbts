@@ -17,7 +17,7 @@
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
 
-#define DCB01(x) std::cout << __LINE__ << " " << x << std::endl
+#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl
 
 using namespace bbts::dag;
 
@@ -153,13 +153,17 @@ std::unordered_map<int, vector<int>> build_possible_parts(
 
   // For each dim, collect the set of potential parts
   for(auto const& d: dims) {
-    for(int x: {1,2,3,4,6,8,9,12,15,18,21,24,32,36,48,
-                60,64,72,84,96,108,120,132,144,256})
-    {
-      if(x <= num_workers && d % x == 0) {
+  //  if(d == 1024) {
+  //    ret[d] = vector<int>{1,2,4,8,16,32,64,128,256};
+  //  } else {
+  //    ret[d] = vector<int>{1};
+  //  }
+    for(int x: {1,2,256,128,64,32,16,8,4}) {
+      if(x <= num_workers && d % x == 0 && ret[d].size() < 3) {
         ret[d].push_back(x);
       }
     }
+    std::cout << ret[d] << std::endl;
   }
 
   return ret;
@@ -207,12 +211,14 @@ int main(int argc, char **argv)
       DCB01("did the superize!");
 
       search_params_t params {
-        .num_workers             = 0,
-        .max_depth               = 3,
-        .all_parts               = true,
-        .inn_multiplier          = 1000,
-        .flops_multiplier        = 1,
-        .reblock_multiplier      = 1000
+        .num_workers                  = 0,
+        .max_depth                    = 3,
+        .all_parts                    = true,
+        .include_outside_up_reblock   = false,
+        .include_outside_down_reblock = true,
+        .inn_multiplier               = 1000,
+        .flops_multiplier             = 1,
+        .reblock_multiplier           = 1000
       };
 
       params.num_workers =                      std::stoi(argv[2]);
@@ -249,9 +255,12 @@ int main(int argc, char **argv)
       DCB01("D table next...");
 
       {
+        int num_agg = 0;
+        int num_reb = 0;
+
         table_t table(2);
         table << "nid" << "inputs" << "partition" << "unit" << "node" << table.endl;
-        for(nid_t nid = 0; nid != dag.size(); ++nid) {
+        for(nid_t const& nid: dag.breadth_dag_order()) {
           auto const& node = dag[nid];
           table << nid << node.downs << partition[nid];
 
@@ -271,73 +280,77 @@ int main(int argc, char **argv)
           } else
           if(node.type == node_t::node_type::reblock) {
             table << "R";
+            if(num_unit > 0) { num_reb++; }
           } else {
             table << "A";
+            if(num_unit > 0) { num_agg++; }
           }
           table << table.endl;
         }
         std::cout << table << std::endl;
+        std::cout << "num aggregation: " << num_agg << std::endl;
+        std::cout << "num reblock:     " << num_reb << std::endl;
       }
 
       DCB01("D compute_locs next...");
 
-      vector<vector<int>> compute_locs;
+      //vector<vector<int>> compute_locs;
 
-      {
-        vector<vector<vector<int>>> items;
-        items.resize(5);
+      //{
+      //  vector<vector<vector<int>>> items;
+      //  items.resize(5);
 
-        {
-          // The first bool: in each relation, should the minimum move costed block be chosen, or just
-          //                 do in order
-          // The second bool: should the cost of outputs be included
-          //
-          // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
-          auto x0 = greedy_solve_placement(true,  true,  relations, node.get_num_nodes());
-          auto x1 = greedy_solve_placement(true,  false, relations, node.get_num_nodes());
-          auto x2 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
-          auto x3 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
+      //  {
+      //    // The first bool: in each relation, should the minimum move costed block be chosen, or just
+      //    //                 do in order
+      //    // The second bool: should the cost of outputs be included
+      //    //
+      //    // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
+      //    auto x0 = greedy_solve_placement(true,  true,  relations, node.get_num_nodes());
+      //    auto x1 = greedy_solve_placement(true,  false, relations, node.get_num_nodes());
+      //    auto x2 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
+      //    auto x3 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
 
-          items[0] = just_computes(x0);
-          items[1] = just_computes(x1);
-          items[2] = just_computes(x2);
-          items[3] = just_computes(x3);
-        }
+      //    items[0] = just_computes(x0);
+      //    items[1] = just_computes(x1);
+      //    items[2] = just_computes(x2);
+      //    items[3] = just_computes(x3);
+      //  }
 
-        // A round robin placement to each relation
-        items[4] = dumb_solve_placement(relations, node.get_num_nodes());
+      //  // A round robin placement to each relation
+      //  items[4] = dumb_solve_placement(relations, node.get_num_nodes());
 
-        uint64_t cost_tt = total_move_cost(relations, items[0]);
-        uint64_t cost_tf = total_move_cost(relations, items[1]);
-        uint64_t cost_ft = total_move_cost(relations, items[2]);
-        uint64_t cost_ff = total_move_cost(relations, items[3]);
-        uint64_t cost_dd = total_move_cost(relations, items[4]);
+      //  uint64_t cost_tt = total_move_cost(relations, items[0]);
+      //  uint64_t cost_tf = total_move_cost(relations, items[1]);
+      //  uint64_t cost_ft = total_move_cost(relations, items[2]);
+      //  uint64_t cost_ff = total_move_cost(relations, items[3]);
+      //  uint64_t cost_dd = total_move_cost(relations, items[4]);
 
-        table_t table(2);
-        table << "which method" << "cost" << table.endl;
-        table << "tt" << cost_tt << table.endl;
-        table << "tf" << cost_tf << table.endl;
-        table << "ft" << cost_ft << table.endl;
-        table << "ff" << cost_ff << table.endl;
-        table << "dd" << cost_dd << table.endl;
-        std::cout << table;
+      //  table_t table(2);
+      //  table << "which method" << "cost" << table.endl;
+      //  table << "tt" << cost_tt << table.endl;
+      //  table << "tf" << cost_tf << table.endl;
+      //  table << "ft" << cost_ft << table.endl;
+      //  table << "ff" << cost_ff << table.endl;
+      //  table << "dd" << cost_dd << table.endl;
+      //  std::cout << table;
 
-        vector<uint64_t> costs =
-          {
-            cost_tt,
-            cost_tf,
-            cost_ft,
-            cost_ff,
-            cost_dd
-          };
+      //  vector<uint64_t> costs =
+      //    {
+      //      cost_tt,
+      //      cost_tf,
+      //      cost_ft,
+      //      cost_ff,
+      //      cost_dd
+      //    };
 
-        auto iter = std::min_element(costs.begin(), costs.end());
-        int which = std::distance(costs.begin(), iter);
-        std::cout << "which: " << which << std::endl;
-        compute_locs = items[which];
-      }
+      //  auto iter = std::min_element(costs.begin(), costs.end());
+      //  int which = std::distance(costs.begin(), iter);
+      //  std::cout << "which: " << which << std::endl;
+      //  compute_locs = items[which];
+      //}
 
-      DCB01("E load kernel lib next...");
+      //DCB01("E load kernel lib next...");
 
       //ud_info_t ud_info = load_kernel_lib(node, STRINGIZE(FROM_DAG_KERNEL_LIB));
 

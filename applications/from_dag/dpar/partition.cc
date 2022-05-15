@@ -22,8 +22,10 @@ std::ostream& operator<<(std::ostream& os, std::vector<T> const& xs)
 }
 
 
-#define DCB01(x) std::cout << "dpar " << __LINE__ << " " << x << std::endl
-#define DCB_SUPERIZE(x) std::cout << "dpar super " << __LINE__ << " " << x << std::endl
+#define DCB01(x)        // std::cout << "dpar " << __LINE__ << " " << x << std::endl
+#define DCB_SUPERIZE(x) // std::cout << "dpar super " << __LINE__ << " " << x << std::endl
+#define DCB_B(x) //std::cout << "batch prob " << __LINE__ << "| " << x << std::endl
+#define DCB_X(x) //std::cout << x << std::endl
 
 using std::set;
 using std::unordered_map;
@@ -61,6 +63,11 @@ solver_t::solver_t(
     possible_parts(possible_parts_),
     partition(dag_.size())
 {
+  // For each possible part, sort it
+  for(std::pair<const int, vector<int>>& pair: possible_parts) {
+    std::sort(pair.second.begin(), pair.second.end());
+  }
+
   DCB01("sover_t constructor enter");
   // Initialize partition for join and input nodes to the first possible
   // part for that particular dimension size.
@@ -185,7 +192,7 @@ vector<vector<int>> solver_t::get_partition() const {
       nid_t const& join_nid = node.ups[0];
       ret[nid] = dag.get_out_for_input(partition[join_nid], join_nid, nid);
     } else {
-      throw std::runtime_error("should not reach");
+      throw std::runtime_error("get_partition: should not reach");
     }
   }
 
@@ -205,12 +212,19 @@ vector<vector<int>> solver_t::get_partition() const {
 // TODO(WISH): create a partiitoner where reblocks don't have to be
 //             everywhere
 void superize(vector<node_t>& dag) {
+
   DCB01("enter superize");
   for(nid_t join_nid = 0; join_nid != dag.size(); ++join_nid) {
-    node_t& join_node = dag[join_nid];
-    if(join_node.type != node_t::node_type::join) {
+    if(dag[join_nid].type != node_t::node_type::join) {
       continue;
     }
+
+    // Since this function modifies dag throughout, and vector resizing invalidates
+    // references, make sure a vector resize does not happen.
+    dag.reserve(dag.size() + 2 * dag[join_nid].downs.size());
+
+    // Now update and push into the graph in place.
+    node_t& join_node = dag[join_nid];
     DCB_SUPERIZE("on nid " << join_nid);
 
     for(nid_t& down_nid: dag[join_nid].downs) {
@@ -218,10 +232,14 @@ void superize(vector<node_t>& dag) {
       if(down_node.type == node_t::node_type::reblock) {
         continue;
       }
+      DCB_SUPERIZE("nid " << join_nid << " connected down to "
+        << down_nid << " | down_node ups " << down_node.ups);
 
       // Insert a reblock
       vector<int> reblock_dims =
         dag_t(dag).get_out_for_input(join_node.dims, join_nid, down_nid);
+
+      DCB_SUPERIZE("A" << down_node.ups);
 
       nid_t reblock_nid = dag.size();
       dag.push_back(node_t {
@@ -234,34 +252,70 @@ void superize(vector<node_t>& dag) {
       });
 
       // join's down is the reblock now
+      DCB_SUPERIZE("B" << down_node.ups);
       down_nid = reblock_nid;
+      DCB_SUPERIZE("C" << down_node.ups);
 
       // down's up is the reblock now
+      bool found_it = false;
       for(nid_t& to_middle_nid: down_node.ups) {
+        DCB_SUPERIZE("TO_MIDDLE_NID " << to_middle_nid);
         if(to_middle_nid == join_nid) {
+          found_it = true;
           to_middle_nid = reblock_nid;
+          break;
         }
       }
+      if(!found_it) { throw std::runtime_error("error in superize"); }
     }
   }
   DCB01("exit superize");
 }
 
 vector<vector<int>> solver_t::coster_t::get_options(nid_t nid) {
-  // TODO(necessary): add to params ways to limit the sie of options!!
-  if(!params.all_parts) {
-    throw std::runtime_error("get_options for all_parts = false not implemented");
-  }
-  // Just do the cartesian product.
-  auto const& dims = self->dag[nid].dims;
+  if(params.all_parts) {
+    // Just do the cartesian product.
+    auto const& dims = self->dag[nid].dims;
 
-  vector<vector<int>> os;
-  os.reserve(dims.size());
-  for(auto const& d: dims) {
-    os.push_back(self->possible_parts.at(d));
-  }
+    vector<vector<int>> os;
+    os.reserve(dims.size());
+    for(auto const& d: dims) {
+      os.push_back(self->possible_parts.at(d));
+    }
 
-  return cartesian(os).resize(2);
+    return cartesian(os);
+  } else {
+    auto const& dims = self->dag[nid].dims;
+
+    auto const& current = self->partition.at(nid);
+
+    vector<vector<int>> os;
+    os.reserve(dims.size());
+
+    for(int i = 0; i != dims.size(); ++i) {
+      // - Add 1 if it is in possible parts
+      // - Add the current value
+      // - Add the first value larger than the current value,
+      //     if the current value isn't the largest
+
+      auto const& c = current[i];
+      auto const& d = dims[i];
+      auto const& parts = self->possible_parts.at(d);
+
+      vector<int> ps{c};
+      if(parts[0] == 1) {
+        ps.push_back(1);
+      }
+      auto w = std::upper_bound(parts.begin(), parts.end(), c);
+      if(w != parts.end()) {
+        ps.push_back(*w);
+      }
+
+      os.push_back(std::move(ps));
+    }
+
+    return cartesian(os);
+  }
 }
 
 // The cost of a "super" node is as follows:
@@ -297,48 +351,52 @@ uint64_t solver_t::coster_t::cost_super_node(
     out_partition = partition;
   }
 
-  // Now get the compute nids of the up SUPER node... All up nodes will be reblocks.
-  for(nid_t const& up_reblock_nid: dag[super_top].ups) {
-    nid_t compute_nid = dag[up_reblock_nid].ups[0];
+  if(params.reblock_multiplier > 0 && params.include_outside_up_reblock) {
+    // Now get the compute nids of the up SUPER node... All up nodes will be reblocks.
+    for(nid_t const& up_reblock_nid: dag[super_top].ups) {
+      nid_t compute_nid = dag[up_reblock_nid].ups[0];
 
-    // This node already belongs to this coster, so the
-    // reblock cost will be computed by cost_edge.
-    if(s_nids.count(compute_nid) > 0) {
-      continue;
+      // This node already belongs to this coster, so the
+      // reblock cost will be computed by cost_edge.
+      if(s_nids.count(compute_nid) > 0) {
+        continue;
+      }
+
+      auto partition_up = dag.get_out_for_input(
+        self->partition[compute_nid], compute_nid, up_reblock_nid);
+
+      auto const& partition_down = out_partition;
+      ret += cost_reblock(up_reblock_nid, partition_up, partition_down);
     }
-
-    auto partition_up = dag.get_out_for_input(
-      self->partition[compute_nid], compute_nid, up_reblock_nid);
-
-    auto const& partition_down = out_partition;
-    ret += cost_reblock(up_reblock_nid, partition_up, partition_down);
   }
 
-  // Now any reblocks below this guy that are not included in the coster
-  // have to be included
-  for(nid_t const& reblock_nid: node.downs) {
-    nid_t const& below_reblock_nid = dag[reblock_nid].downs[0];
+  if(params.reblock_multiplier > 0 && params.include_outside_down_reblock) {
+    // Now any reblocks below this guy that are not included in the coster
+    // have to be included
+    for(nid_t const& reblock_nid: node.downs) {
+      nid_t const& below_reblock_nid = dag[reblock_nid].downs[0];
 
-    nid_t compute_nid;
-    if(dag[below_reblock_nid].type == node_t::node_type::agg) {
-      compute_nid = dag[below_reblock_nid].downs[0];
-    } else {
-      compute_nid = below_reblock_nid;
+      nid_t compute_nid;
+      if(dag[below_reblock_nid].type == node_t::node_type::agg) {
+        compute_nid = dag[below_reblock_nid].downs[0];
+      } else {
+        compute_nid = below_reblock_nid;
+      }
+
+      // This node already belongs to this coster, so the
+      // reblock will be considered at the cost_edge
+      if(s_nids.count(compute_nid) > 0) {
+        continue;
+      }
+
+      auto partition_down = dag.get_out(
+        self->partition[compute_nid], compute_nid);
+
+      auto partition_up = dag.get_out_for_input(
+        partition, nid, reblock_nid);
+
+      ret += cost_reblock(reblock_nid, partition_up, partition_down);
     }
-
-    // This node already belongs to this coster, so the
-    // reblock will be considered at the cost_edge
-    if(s_nids.count(compute_nid) > 0) {
-      continue;
-    }
-
-    auto partition_down = dag.get_out(
-      self->partition[compute_nid], compute_nid);
-
-    auto partition_up = dag.get_out_for_input(
-      partition, nid, reblock_nid);
-
-    ret += cost_reblock(reblock_nid, partition_up, partition_down);
   }
 
   return ret;
@@ -364,8 +422,10 @@ uint64_t solver_t::coster_t::cost_super_edge(
     inn_partition = partition;
   }
 
-  bool found = false;
   for(nid_t const& up_reblock_nid: dag[super_top].ups) {
+    if(dag[up_reblock_nid].type != node_t::node_type::reblock) {
+      throw std::runtime_error("invalid up reblock nid!!!");
+    }
     nid_t compute_nid = dag[up_reblock_nid].ups[0];
     if(compute_nid == parent_nid) {
       auto upp_partition = dag.get_out_for_input(
@@ -375,7 +435,7 @@ uint64_t solver_t::coster_t::cost_super_edge(
     }
   }
 
-  throw std::runtime_error("should not reach");
+  throw std::runtime_error("cost_super_edge: should not reach");
   return 0;
 }
 
@@ -435,6 +495,7 @@ uint64_t solver_t::coster_t::cost_node(
     // Every input must be moved,
     // There are (num_inn - 1) additions.
     // Each output block can be added up in parallel.
+    DCB_B("case: agg");
     return _cost(num_out, num_inn * bytes, (num_inn - 1) * bytes, false);
   }
 
@@ -446,8 +507,8 @@ uint64_t solver_t::coster_t::cost_node(
     vector<int> local_inc_dims;
     local_inc_dims.resize(node.dims.size());
     for(int i = 0; i != node.dims.size(); ++i) {
-      local_inc_dims.push_back(node.dims[i] / inc_partition[i]);
-      flops *= local_inc_dims.back();
+      local_inc_dims[i] = node.dims[i] / inc_partition[i];
+      flops *= local_inc_dims[i];
       num_parallel *= inc_partition[i];
     }
 
@@ -455,22 +516,25 @@ uint64_t solver_t::coster_t::cost_node(
     for(nid_t const& down_nid: node.downs) {
       uint64_t p = 1;
       auto ds = dag.get_out_for_input(local_inc_dims, nid, down_nid);
+      DCB_B(local_inc_dims << ", " << ds);
       for(auto const& d: ds) {
         p *= d;
       }
       bytes += p;
     }
 
+    DCB_B("case: join");
     return _cost(num_parallel, bytes, flops, false);
   }
 
-  throw std::runtime_error("should not reach");
+  throw std::runtime_error("cost_node: should not reach");
   return 0;
 }
 
 uint64_t solver_t::coster_t::cost_reblock(
   nid_t nid, vector<int> const& out_part, vector<int> const& inn_part) const
 {
+  DCB_B("cost_reblock at " << nid << ". inn,out " << inn_part << ", " << out_part);
   if(inn_part == out_part) {
     return 0;
   }
@@ -489,6 +553,8 @@ uint64_t solver_t::coster_t::cost_reblock(
     max_num_inputs *= _get_max_num_inputs_est(inn_part[r], out_part[r]);
   }
 
+  DCB_B("case: reblock");
+
   // The flops cost:
   //   every output block traverses (as a worst case) max_num_inputs * inn_size items.
   // The inputs cost:
@@ -503,6 +569,17 @@ inline uint64_t solver_t::coster_t::_cost(
   uint64_t flops,
   bool is_reblock) const
 {
+  // TODO: what to scale by?
+  //inn_bytes = 1; // /= 1000;
+  //flops     = 1; // /= 1000;
+
+  if(is_reblock) {
+    DCB_B("THERE IS A REBLOCK HERE? ! ? !");
+  }
+  DCB_B("_cost: par" << num_parallel << ".");
+  DCB_B("_cost: inn" << inn_bytes << ".");
+  DCB_B("_cost: flp" << flops << ".");
+
   uint64_t reblock_multiplier = is_reblock ? params.reblock_multiplier : 1;
 
   uint64_t cost_per_item =
@@ -513,8 +590,15 @@ inline uint64_t solver_t::coster_t::_cost(
   // and 6 (params.num_workers) workers on it, it will take
   // (ceiling [13 / 6] = 3) * however long one unit takes.
   uint64_t parallel_multiplier = (num_parallel + params.num_workers - 1) / params.num_workers;
+  DCB_X("parallel_multiplier: " << parallel_multiplier);
 
-  return parallel_multiplier * cost_per_item;
+  // TODO: parallel_multiplier squared?
+  return parallel_multiplier * parallel_multiplier * cost_per_item;
+  //return parallel_multiplier * (cost_per_item + 100000000);
+
+  //uint64_t T = 1024 * 1024;
+  //uint64_t c = T / num_parallel;
+  //return parallel_multiplier * parallel_multiplier * c;
 }
 
 }}

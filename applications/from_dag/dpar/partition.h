@@ -20,6 +20,8 @@ struct search_params_t {
   int num_workers;
   int max_depth;
   bool all_parts;
+  bool include_outside_up_reblock;
+  bool include_outside_down_reblock;
   uint64_t inn_multiplier;
   uint64_t flops_multiplier;
   uint64_t reblock_multiplier;
@@ -130,7 +132,7 @@ private:
   // - For a Join - Join connection, they must have the same partition,
   //   i.e. belong to the same cost node.
   dag_t const& dag;
-  std::unordered_map<int, vector<int>> const& possible_parts;
+  std::unordered_map<int, vector<int>> possible_parts;
 };
 
 // TODO(WISH): remove duplicate reblocks!
