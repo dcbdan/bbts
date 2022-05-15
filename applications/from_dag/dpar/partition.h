@@ -22,9 +22,12 @@ struct search_params_t {
   bool all_parts;
   bool include_outside_up_reblock;
   bool include_outside_down_reblock;
-  uint64_t inn_multiplier;
-  uint64_t flops_multiplier;
-  uint64_t reblock_multiplier;
+  int flops_scale_min;
+  int flops_scale_max;
+  int bytes_scale_min;
+  int bytes_scale_max;
+  int reblock_multiplier;
+  int barrier_reblock_multiplier;
 };
 
 // For each possible join node,
@@ -38,7 +41,7 @@ struct search_params_t {
 vector<vector<int>> run_partition(
   // THIS DAG MUST BE SUPERIZED: THE INPUTS OF EVERY JOIN MUST BE REBLOCKS!
   dag_t const& dag,
-  search_params_t params,
+  search_params_t const& params,
   std::unordered_map<int, std::vector<int>> const& possible_parts);
 
 // Insert reblocks to make sure that the only inputs to joins are
@@ -59,10 +62,11 @@ struct solver_t {
   solver_t(
     // This dag must be so that every join's input is a reblock!
     dag_t const& dag_,
+    search_params_t const& params_,
     std::unordered_map<int, vector<int>> const& possible_parts_);
 
   // solve the dynamic programming problem starting at nid
-  void solve(nid_t nid, search_params_t params);
+  void solve(nid_t nid);
 
   // Can you solve solve at this node?
   bool can_solve_at(nid_t nid) const { return cost_nodes[nid] != nullptr; }
@@ -77,7 +81,7 @@ private:
   // This guy holds a tree of computations and provides the necessary info
   // for calling the tree solver
   struct coster_t {
-    coster_t(nid_t, search_params_t, solver_t* self);
+    coster_t(nid_t, solver_t* self);
 
     // The options tree
     tree::tree_t< vector<vector<int>> > t_nids;
@@ -99,13 +103,8 @@ private:
     uint64_t cost_reblock(nid_t nid, vector<int> const& p_up, vector<int> const& p_down) const;
   private:
     solver_t* self;
-    search_params_t params;
 
-    uint64_t _cost(
-      uint64_t num_parallel,
-      uint64_t inn_bytes,
-      uint64_t flops,
-      bool is_reblock) const;
+    uint64_t _cost(uint64_t total, int num_parallel) const;
   };
 
   // This just holds the graph of "super" nodes
@@ -133,6 +132,10 @@ private:
   //   i.e. belong to the same cost node.
   dag_t const& dag;
   std::unordered_map<int, vector<int>> possible_parts;
+
+  search_params_t const params;
+  vector<uint64_t> relation_bytes;
+  vector<uint64_t> relation_flops;
 };
 
 // TODO(WISH): remove duplicate reblocks!

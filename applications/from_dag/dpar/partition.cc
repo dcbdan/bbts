@@ -32,11 +32,11 @@ using std::unordered_map;
 
 vector<vector<int>> run_partition(
   dag_t const& dag,
-  search_params_t params,
+  search_params_t const& params,
   unordered_map<int, vector<int>> const& possible_parts)
 {
   DCB01("enter run partition");
-  solver_t solver(dag, possible_parts);
+  solver_t solver(dag, params, possible_parts);
 
   for(nid_t nid: dag.breadth_dag_order()) {
     if(dag[nid].type == node_t::node_type::input) {
@@ -48,7 +48,7 @@ vector<vector<int>> run_partition(
       // This will happen at every join node, basically. Regardless of
       // the depth at nid.. One could say only if the depth is deep enough
       // or it is an output node, solve.
-      solver.solve(nid, params);
+      solver.solve(nid);
     }
   }
 
@@ -58,17 +58,41 @@ vector<vector<int>> run_partition(
 
 solver_t::solver_t(
   dag_t const& dag_,
+  search_params_t const& params_,
   unordered_map<int, vector<int>> const& possible_parts_):
     dag(dag_),
+    params(params_),
     possible_parts(possible_parts_),
     partition(dag_.size())
 {
+  DCB01("sover_t constructor enter");
+
+  // For each relation, compute the total bytes and flops size.
+  relation_bytes.resize(dag.size());
+  relation_flops.resize(dag.size());
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    node_t const& node = dag[nid];
+
+    relation_flops.push_back(product(node.dims));
+    relation_bytes.push_back(product(dag.get_out(node.dims, nid)));
+  }
+  // Now scale the relations_x sizings to be in the windows proivded
+  {
+    uint64_t max_flops = *std::max_element(relation_flops.begin(), relation_flops.end());
+    uint64_t max_bytes = *std::max_element(relation_bytes.begin(), relation_bytes.end());
+    int rng_flops = params.flops_scale_max - params.flops_scale_min;
+    int rng_bytes = params.bytes_scale_max - params.bytes_scale_min;
+    for(nid_t i = 0; i != dag.size(); ++i) {
+      relation_flops[i] = params.flops_scale_min + (relation_flops[i] * rng_flops) / max_flops;
+      relation_bytes[i] = params.bytes_scale_min + (relation_bytes[i] * rng_bytes) / max_bytes;
+    }
+  }
+
   // For each possible part, sort it
   for(std::pair<const int, vector<int>>& pair: possible_parts) {
     std::sort(pair.second.begin(), pair.second.end());
   }
 
-  DCB01("sover_t constructor enter");
   // Initialize partition for join and input nodes to the first possible
   // part for that particular dimension size.
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
@@ -115,9 +139,11 @@ solver_t::solver_t(
   DCB01("sover_t constructor exit");
 }
 
-solver_t::coster_t::coster_t(nid_t top_nid, search_params_t params, solver_t* self):
-  self(self), params(params)
+solver_t::coster_t::coster_t(nid_t top_nid, solver_t* self):
+  self(self)
 {
+  auto const& params = self->params;
+
   t_nids.insert_root(top_nid, get_options(top_nid));
   s_nids.insert(top_nid);
 
@@ -138,13 +164,13 @@ solver_t::coster_t::coster_t(nid_t top_nid, search_params_t params, solver_t* se
   DCB01("COSTER has nids of " << std::vector<int>(s_nids.begin(), s_nids.end()));
 }
 
-void solver_t::solve(nid_t nid, search_params_t params) {
+void solver_t::solve(nid_t nid) {
   using namespace std::placeholders;
 
   DCB01("solve A");
 
   // Set up the tree to solve with the dynamic programming algorithm
-  coster_t coster(nid, params, this);
+  coster_t coster(nid, this);
 
   DCB01("solve B");
 
@@ -273,6 +299,7 @@ void superize(vector<node_t>& dag) {
 }
 
 vector<vector<int>> solver_t::coster_t::get_options(nid_t nid) {
+  auto const& params = self->params;
   if(params.all_parts) {
     // Just do the cartesian product.
     auto const& dims = self->dag[nid].dims;
@@ -326,6 +353,7 @@ vector<vector<int>> solver_t::coster_t::get_options(nid_t nid) {
 uint64_t solver_t::coster_t::cost_super_node(
   nid_t nid, vector<int> const& partition) const
 {
+  auto const& params = self->params;
   auto const& dag = self->dag;
   auto const& node = dag[nid];
 
@@ -460,6 +488,42 @@ int _get_max_num_inputs_est(int inn, int out) {
   return (end+inn-1) / inn; // celing(end / inn)
 }
 
+// There are two values of a relation: relation_bytes, relation_flops.
+// Let T = the relation_flops + the number of incoming bytes
+// Then:
+//   T * w: the total relation cost
+//   n    : the number of blocks in this partitioning
+//   w    : the number of workers
+//   p    : parallel multiplier
+//   C    : cost associated with this partitioning
+//   c    : cost per block
+// The actual, final cost associated with this partitioning is
+//   C := p * c
+// The cost per/block is:
+//   Tw / min(n, w).
+// The parallel multiplier is:
+//   p = ceiling( n / w )
+// Example: w = 4
+//   n  c   p  C
+//   1  4T  1  4T
+//   2  2T  1  2T
+//   4   T  1   T
+//   8   T  2  2T
+// The implication:
+//   The goldilocks zone is to be partitioned at the number of workers.
+//   There is a penalty for less and a penalty for more.
+inline uint64_t solver_t::coster_t::_cost(uint64_t total, int num_parallel) const {
+  auto const& params = self->params;
+  auto const& num_workers = params.num_workers;
+
+  uint64_t cost_per_block =
+    (total * params.num_workers) / std::min(num_parallel, num_workers);
+
+  uint64_t parallel_multiplier = (num_parallel + num_workers - 1) / num_workers;
+
+  return cost_per_block * parallel_multiplier;
+}
+
 uint64_t solver_t::coster_t::cost_node(
   nid_t nid, vector<int> const& inc_partition) const
 {
@@ -473,58 +537,37 @@ uint64_t solver_t::coster_t::cost_node(
     auto const& agg_node = dag[nid];
     nid_t const& compute_nid = agg_node.downs[0];
 
-    vector<int> agg_part = dag.get_agg(inc_partition,         compute_nid);
-    uint64_t num_inn = 1;
-    for(auto const& i: agg_part) {
-      num_inn *= i;
-    }
-    if(num_inn == 1) {
+    int num_agg = product(dag.get_agg(inc_partition, compute_nid));
+    if(num_agg == 1) {
       return 0;
     }
+    int num_blk = product(dag.get_out(inc_partition, compute_nid));
 
-    vector<int> out_part = dag.get_out(inc_partition,         compute_nid);
-    vector<int> out_dims = agg_node.dims;
+    // Each block has num_agg inputs
+    uint64_t total_bytes = self->relation_bytes[nid] * num_agg;
 
-    uint64_t bytes = 1;
-    uint64_t num_out = 1;
-    for(int i = 0; i != out_dims.size(); ++i) {
-      bytes *= (out_dims[i] / out_part[i]);
-      num_out *= out_part[i];
-    }
+    // num_agg blocks to agg -> num_agg-1 additions, num_blocks times.
+    uint64_t total_flops = self->relation_flops[nid] * (num_agg-1);
 
-    // Every input must be moved,
-    // There are (num_inn - 1) additions.
-    // Each output block can be added up in parallel.
-    DCB_B("case: agg");
-    return _cost(num_out, num_inn * bytes, (num_inn - 1) * bytes, false);
+    return _cost(total_bytes + total_flops, num_blk);
   }
 
   if(dag[nid].type == node_t::node_type::join) {
     node_t const& node = dag[nid];
 
-    uint64_t flops = 1;
-    uint64_t num_parallel = 1;
-    vector<int> local_inc_dims;
-    local_inc_dims.resize(node.dims.size());
-    for(int i = 0; i != node.dims.size(); ++i) {
-      local_inc_dims[i] = node.dims[i] / inc_partition[i];
-      flops *= local_inc_dims[i];
-      num_parallel *= inc_partition[i];
-    }
+    int num_blk = product(inc_partition);
+    int num_agg = product(dag.get_agg(inc_partition, nid));
 
-    uint64_t bytes = 0;
+    // Each block has an input form each input relation
+    uint64_t total_bytes = 0;
     for(nid_t const& down_nid: node.downs) {
-      uint64_t p = 1;
-      auto ds = dag.get_out_for_input(local_inc_dims, nid, down_nid);
-      DCB_B(local_inc_dims << ", " << ds);
-      for(auto const& d: ds) {
-        p *= d;
-      }
-      bytes += p;
+      total_bytes += self->relation_bytes[down_nid];
     }
 
-    DCB_B("case: join");
-    return _cost(num_parallel, bytes, flops, false);
+    // This relation has this many flops
+    uint64_t const& total_flops = self->relation_flops[nid];
+
+    return _cost(total_bytes + total_flops, num_blk);
   }
 
   throw std::runtime_error("cost_node: should not reach");
@@ -535,70 +578,40 @@ uint64_t solver_t::coster_t::cost_reblock(
   nid_t nid, vector<int> const& out_part, vector<int> const& inn_part) const
 {
   DCB_B("cost_reblock at " << nid << ". inn,out " << inn_part << ", " << out_part);
+
+  auto const& params = self->params;
+
   if(inn_part == out_part) {
     return 0;
   }
 
-  auto const& dims = self->dag[nid].dims;
-
-  uint64_t inn_size;
-  uint64_t num_out_blocks = 1;
-  for(int i = 0; i != inn_part.size(); ++i) {
-    inn_size *= (dims[i] / inn_part[i]);
-    num_out_blocks *= out_part[i];
-  }
+  int num_blk = product(out_part);
 
   uint64_t max_num_inputs = 1;
-  for(int r = 0; r != dims.size(); ++r) {
+  for(int r = 0; r != inn_part.size(); ++r) {
     max_num_inputs *= _get_max_num_inputs_est(inn_part[r], out_part[r]);
   }
 
+  uint64_t const& num_bytes = self->relation_bytes[nid] * max_num_inputs;
+  uint64_t const& num_flops = self->relation_flops[nid] * max_num_inputs;
+
+  // It may not really be a barirer, but this'll do
+  bool is_barrier = false;
+  for(int i = 0; i != inn_part.size(); ++i) {
+    if(out_part[i] < inn_part[i]) {
+      is_barrier = true;
+      break;
+    }
+  }
+  int barrier_multiplier = is_barrier
+        ? params.barrier_reblock_multiplier
+        : 1
+        ;
+
   DCB_B("case: reblock");
 
-  // The flops cost:
-  //   every output block traverses (as a worst case) max_num_inputs * inn_size items.
-  // The inputs cost:
-  //   every output block needs     (as a worst case) max_num_inputs * inn_size items.
-  uint64_t s = inn_size * max_num_inputs;
-  return _cost(num_out_blocks, s, s, true);
-}
-
-inline uint64_t solver_t::coster_t::_cost(
-  uint64_t num_parallel,
-  uint64_t inn_bytes,
-  uint64_t flops,
-  bool is_reblock) const
-{
-  // TODO: what to scale by?
-  //inn_bytes = 1; // /= 1000;
-  //flops     = 1; // /= 1000;
-
-  if(is_reblock) {
-    DCB_B("THERE IS A REBLOCK HERE? ! ? !");
-  }
-  DCB_B("_cost: par" << num_parallel << ".");
-  DCB_B("_cost: inn" << inn_bytes << ".");
-  DCB_B("_cost: flp" << flops << ".");
-
-  uint64_t reblock_multiplier = is_reblock ? params.reblock_multiplier : 1;
-
-  uint64_t cost_per_item =
-    (inn_bytes * (reblock_multiplier * params.inn_multiplier)) +
-    (flops     * (reblock_multiplier * params.flops_multiplier));
-
-  // If you have 13 (num_parallel) units of work to do,
-  // and 6 (params.num_workers) workers on it, it will take
-  // (ceiling [13 / 6] = 3) * however long one unit takes.
-  uint64_t parallel_multiplier = (num_parallel + params.num_workers - 1) / params.num_workers;
-  DCB_X("parallel_multiplier: " << parallel_multiplier);
-
-  // TODO: parallel_multiplier squared?
-  return parallel_multiplier * parallel_multiplier * cost_per_item;
-  //return parallel_multiplier * (cost_per_item + 100000000);
-
-  //uint64_t T = 1024 * 1024;
-  //uint64_t c = T / num_parallel;
-  //return parallel_multiplier * parallel_multiplier * c;
+  return barrier_multiplier * params.reblock_multiplier *
+           _cost(num_bytes + num_flops, num_blk);
 }
 
 }}

@@ -193,9 +193,10 @@ int main(int argc, char **argv)
       //   DAG FILE              [REQUIRED]
       //   NUM VIRTUAL WORKERS   [REQUIRED]
       //   MAX DEPTH
-      //   INN MULTIPLIER
-      //   FLOPS MULTIPLIER
+      //   F_MIN F_MAX
+      //   B_MIN B_MAX
       //   REBLOCK MULTIPLIER
+      //   BARRIER REBLOCK MULTIPLIER
       if(argc < 3) {
         throw std::runtime_error("not enough arguments");
       }
@@ -216,18 +217,27 @@ int main(int argc, char **argv)
         .all_parts                    = true,
         .include_outside_up_reblock   = false,
         .include_outside_down_reblock = true,
-        .inn_multiplier               = 1000,
-        .flops_multiplier             = 1,
-        .reblock_multiplier           = 1000
+        .flops_scale_min              = 1,
+        .flops_scale_max              = 100,
+        .bytes_scale_min              = 1,
+        .bytes_scale_max              = 100,
+        .reblock_multiplier           = 1,
+        .barrier_reblock_multiplier   = 2
       };
 
       params.num_workers =                      std::stoi(argv[2]);
       DCB01("num workers: " << params.num_workers);
 
-      if(argc > 3) { params.max_depth          = std::stoi(argv[3]); }
-      if(argc > 4) { params.inn_multiplier     = std::stoi(argv[4]); }
-      if(argc > 5) { params.flops_multiplier   = std::stoi(argv[5]); }
-      if(argc > 6) { params.reblock_multiplier = std::stoi(argv[6]); }
+      if(argc > 3) { params.max_depth                  = std::stoi(argv[3]); }
+
+      if(argc > 4) { params.flops_scale_min            = std::stoi(argv[4]); }
+      if(argc > 5) { params.flops_scale_max            = std::stoi(argv[5]); }
+
+      if(argc > 6) { params.bytes_scale_min            = std::stoi(argv[6]); }
+      if(argc > 7) { params.bytes_scale_max            = std::stoi(argv[7]); }
+
+      if(argc > 8) { params.reblock_multiplier         = std::stoi(argv[8]); }
+      if(argc > 9) { params.barrier_reblock_multiplier = std::stoi(argv[9]); }
 
       {
         table_t table(4);
@@ -235,8 +245,10 @@ int main(int argc, char **argv)
         table << "num_workers        " << params.num_workers        << table.endl;
         table << "max_depth          " << params.max_depth          << table.endl;
         table << "all_parts          " << params.all_parts          << table.endl;
-        table << "inn_multiplier     " << params.inn_multiplier     << table.endl;
-        table << "flops_multiplier   " << params.flops_multiplier   << table.endl;
+        table << "flops_scale_min    " << params.flops_scale_min    << table.endl;
+        table << "flops_scale_max    " << params.flops_scale_max    << table.endl;
+        table << "bytes_scale_min    " << params.bytes_scale_min    << table.endl;
+        table << "bytes_scale_max    " << params.bytes_scale_max    << table.endl;
         table << "reblock_multiplier " << params.reblock_multiplier << table.endl;
         std::cout << table << std::endl;
       }
@@ -290,91 +302,84 @@ int main(int argc, char **argv)
         std::cout << table << std::endl;
         std::cout << "num aggregation: " << num_agg << std::endl;
         std::cout << "num reblock:     " << num_reb << std::endl;
+        std::cout << std::endl;
       }
 
       DCB01("D compute_locs next...");
 
-      //vector<vector<int>> compute_locs;
+      vector<vector<int>> compute_locs;
 
-      //{
-      //  vector<vector<vector<int>>> items;
-      //  items.resize(5);
+      {
+        vector<vector<vector<int>>> items;
+        items.resize(3);
 
-      //  {
-      //    // The first bool: in each relation, should the minimum move costed block be chosen, or just
-      //    //                 do in order
-      //    // The second bool: should the cost of outputs be included
-      //    //
-      //    // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
-      //    auto x0 = greedy_solve_placement(true,  true,  relations, node.get_num_nodes());
-      //    auto x1 = greedy_solve_placement(true,  false, relations, node.get_num_nodes());
-      //    auto x2 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
-      //    auto x3 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
+        {
+          // The first bool: in each relation, should the minimum move costed block be chosen, or just
+          //                 do in order
+          // The second bool: should the cost of outputs be included
+          //
+          // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
+          auto x0 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
+          auto x1 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
 
-      //    items[0] = just_computes(x0);
-      //    items[1] = just_computes(x1);
-      //    items[2] = just_computes(x2);
-      //    items[3] = just_computes(x3);
-      //  }
+          items[0] = just_computes(x0);
+          items[1] = just_computes(x1);
+        }
 
-      //  // A round robin placement to each relation
-      //  items[4] = dumb_solve_placement(relations, node.get_num_nodes());
+        // A round robin placement to each relation
+        items[2] = dumb_solve_placement(relations, node.get_num_nodes());
 
-      //  uint64_t cost_tt = total_move_cost(relations, items[0]);
-      //  uint64_t cost_tf = total_move_cost(relations, items[1]);
-      //  uint64_t cost_ft = total_move_cost(relations, items[2]);
-      //  uint64_t cost_ff = total_move_cost(relations, items[3]);
-      //  uint64_t cost_dd = total_move_cost(relations, items[4]);
+        uint64_t cost_ft = total_move_cost(relations, items[0]);
+        uint64_t cost_ff = total_move_cost(relations, items[1]);
+        uint64_t cost_dd = total_move_cost(relations, items[2]);
 
-      //  table_t table(2);
-      //  table << "which method" << "cost" << table.endl;
-      //  table << "tt" << cost_tt << table.endl;
-      //  table << "tf" << cost_tf << table.endl;
-      //  table << "ft" << cost_ft << table.endl;
-      //  table << "ff" << cost_ff << table.endl;
-      //  table << "dd" << cost_dd << table.endl;
-      //  std::cout << table;
+        table_t table(2);
+        table << "which method" << "cost" << table.endl;
+        table << "ft" << cost_ft << table.endl;
+        table << "ff" << cost_ff << table.endl;
+        table << "dd" << cost_dd << table.endl;
+        std::cout << table;
 
-      //  vector<uint64_t> costs =
-      //    {
-      //      cost_tt,
-      //      cost_tf,
-      //      cost_ft,
-      //      cost_ff,
-      //      cost_dd
-      //    };
+        vector<uint64_t> costs =
+          {
+            cost_ft,
+            cost_ff,
+            cost_dd
+          };
 
-      //  auto iter = std::min_element(costs.begin(), costs.end());
-      //  int which = std::distance(costs.begin(), iter);
-      //  std::cout << "which: " << which << std::endl;
-      //  compute_locs = items[which];
-      //}
+        auto iter = std::min_element(costs.begin(), costs.end());
+        int which = std::distance(costs.begin(), iter);
+        std::cout << "which: " << which << std::endl;
+        compute_locs = items[which];
+      }
 
-      //DCB01("E load kernel lib next...");
+      DCB01("E load kernel lib next...");
 
-      //ud_info_t ud_info = load_kernel_lib(node, STRINGIZE(FROM_DAG_KERNEL_LIB));
+      ud_info_t ud_info = load_kernel_lib(node, STRINGIZE(FROM_DAG_KERNEL_LIB));
 
-      //DCB01("F generate commands next...");
+      DCB01("F generate commands next...");
 
-      //generate_commands_t g(
-      //  dag,
-      //  relations,
-      //  compute_locs,
-      //  ud_info,
-      //  node.get_num_nodes());
+      generate_commands_t g(
+        dag,
+        relations,
+        compute_locs,
+        ud_info,
+        node.get_num_nodes());
 
-      //auto [input_cmds, run_cmds] = g.extract();
+      auto [input_cmds, run_cmds] = g.extract();
 
-      //DCB01("G run commands next...");
+      DCB01("G run commands next...");
 
-      //{
-      //  std::ofstream f("commands_for_js.txt");
-      //  print_commands(f, input_cmds);
-      //  print_commands(f, run_cmds);
-      //}
+      {
+        std::cout << "printing command dag to commands_for_js.txt" << std::endl;
 
-      //run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
-      //run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
+        std::ofstream f("commands_for_js.txt");
+        print_commands(f, input_cmds);
+        print_commands(f, run_cmds);
+      }
+
+      run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
+      run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
 
       auto [did_shutdown, message] = node.shutdown_cluster();
       if(!did_shutdown) {
