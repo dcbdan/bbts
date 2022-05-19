@@ -1,4 +1,5 @@
 #include "greedy_placement.h"
+#include "dpar/min_cost_tree.h"
 
 #define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl;
 
@@ -486,6 +487,418 @@ vector<vector<int>> dumb_solve_placement(
     }
   }
   return ret;
+}
+
+struct dyn_solver_t {
+  dyn_solver_t(
+    relations_t const& relations,
+    int num_nodes,
+    vector<placement_t>& placements,
+    vector<vector<int>>& load_limits):
+      relations(relations), num_nodes(num_nodes),
+      placements(placements), load_limits(load_limits)
+  {}
+
+  // Reach past dummy joins
+  vector<tuple<nid_t, int>> get_useful_inputs(nid_t an_nid, int an_idx) const;
+  void solve_and_update(nid_t nid, int bid) {
+    tree_t t(nid, bid, this);
+    t.solve_and_update();
+  }
+
+  void solve_and_update(nid_t nid);
+
+  inline bool has_at(nid_t const& nid, int const& bid, int const& rank) const {
+    return placements[nid].locs[bid].count(rank) > 0;
+  }
+
+  inline vector<int> options(nid_t const& nid, int const& bid) const {
+    vector<int> ret;
+    ret.reserve(num_nodes);
+    for(int rank = 0; rank != num_nodes; ++rank) {
+      if(load_limits[nid][rank] > 0) {
+        ret.push_back(rank);
+      }
+    }
+    if(ret.size() == 0) {
+      throw std::runtime_error("could not find any options!");
+    }
+    return ret;
+  }
+
+  inline bool is_set(nid_t const& nid, int const& bid) const {
+    return placements[nid].locs[bid].size() > 0;
+  }
+
+  struct tree_t {
+    tree_t(nid_t nid, int id, dyn_solver_t* self);
+
+    bool insert(int parent_idx, nid_t nid, int id);
+
+    uint64_t cost_node(int idx,    int const& rank) const;
+    uint64_t cost_edge(int idx_up, int const& rank_up,
+                       int idx_dw, int const& rank_dw) const;
+
+    void solve_and_update();
+
+    tree::tree_t<vector<int>> options;
+
+    vector<vector<tuple<nid_t, int, bool>>> idx_to_children;
+
+    vector<tuple<nid_t, int>> idx_to_id;
+
+    dyn_solver_t* self;
+  };
+
+  relations_t const& relations;
+  int num_nodes;
+  vector<placement_t>& placements;
+  vector<vector<int>>& load_limits;
+};
+
+// 1. Input releations are round robin assigned
+// 2. For each chosen relation
+//      For each block in that relation,
+//      - setup the tree to solve stemming from that block
+//      - solve the dyn progrmaming problem over that tree
+//      - update the placements and the load balancing count
+// Also note:
+// - reduces and touches do not add to input locs
+//     > touches compact before move
+//     > reduces local agg before move
+// - the node cost in the dyn programming tree is the
+//   moves from inputs that are already set
+// - Which nodes to solve the dyn prog problem?
+//   - All agg nodes. These guys reach past their joins and reblocks
+//   - All joins with > 1 input and no agg above get chosen as well
+vector<placement_t> dyn_solve_placement(
+  relations_t const& relations,
+  int num_nodes)
+{
+  auto const& dag = relations[0].dag;
+
+  // Initialize the returned value
+  vector<placement_t> placements(relations.size());
+
+  // Start offset_rank at 1 since rank 0 is the master node
+  // that issues commands to the other nodes.
+  int offset_rank = num_nodes > 1 ? 1 : 0;
+
+  auto increment_offset_rank = [&]() {
+    offset_rank++;
+    if(offset_rank == num_nodes) {
+      offset_rank = 0;
+    }
+  };
+
+
+  // Round robin assign all inputs
+  for(nid_t nid = 0; nid != relations.size(); ++nid) {
+    size_t num_blocks = relations[nid].get_num_blocks();
+    node_t const& node = dag[nid];
+    if(node.downs.size() == 0) {
+
+      placements[nid] = placement_t(num_blocks);
+
+      for(int i = 0; i != placements[nid].computes.size(); ++i) {
+        placements[nid].locs[i].insert(offset_rank);
+        placements[nid].computes[i] = offset_rank;
+
+        increment_offset_rank();
+      }
+    } else {
+      placements[nid] = placement_t(num_blocks);
+    }
+  }
+
+  vector<vector<int>> load_limits(dag.size());
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    node_t const& node = dag[nid];
+    if(node.type == node_t::node_type::input) {
+      continue;
+    }
+
+    int num_blocks = relations[nid].get_num_blocks();
+
+    // Use ceil [ num_blocks / num_nodes ]
+
+    // This might be problematic. Consider:
+    //   num_blocks = 11, num_nodes = 10. Each block can get
+    //   2 items. If the first five nodes get 2 items, the sixth 1 item,
+    //   4 nodes don't do anything.
+    // However, this will lead to lower move costs, which is important when
+    // there are lots of nodes. Of course, placing everything on node 0
+    // has the lowest move cost of all!
+
+    // TODO(wish): add option to use increment_offset_rank and have a strict
+    //             number on each node
+
+    int max_per_rank = (num_blocks + num_nodes - 1) / num_nodes;
+    load_limits[nid] = vector<int>(num_nodes, max_per_rank);
+  }
+
+  // This guy holds references to everything here and can solve from any node
+  // requested. Even though it can solve from any node, the load balancing can
+  // be violated.
+  // TODO(wish): the dyn prog problem doesn't allow unbalanced solutions.
+  // It also reaches past dummy joins and doesn't set them.
+  dyn_solver_t solver(relations, num_nodes, placements, load_limits);
+
+  // For each non input, compute relation, assing the compute locations
+  // and update where each block ends up being moved to
+  for(nid_t const& nid: dag.breadth_dag_order()) {
+    // Skip no ops, input nodes and nodes that are already assigned
+    if(relations[nid].is_no_op()  ||
+       dag[nid].downs.size() == 0 ||
+       placements[nid].locs[0].size() > 0)
+    {
+      continue;
+    }
+
+    // This is an unassigned node, but is it chosen?
+    //   reblock                         not chosen
+    //   agg                             chosen
+    //   join
+    //     paired with agg               not chosen
+    //     is "by-pass-join" or dummy    not chosen
+    //     otherwise                     chosen
+
+    node_t const& node = dag[nid];
+
+    // Reblock nodes are never assigned directly
+    if(node.type == node_t::node_type::reblock) {
+      continue;
+    }
+    // If this is a join paired with an agg THAT IS NOT A NO OP, solve at the agg so pass
+    if(node.type == node_t::node_type::join &&
+       node.ups.size() == 1 &&
+       dag[node.ups[0]].type == node_t::node_type::agg &&
+       !relations[node.ups[0]].is_no_op())
+    {
+      continue;
+    }
+    // If this is a join, the up node (that is computed) is not an agg.
+    // If there is only 1 input, it is a by-pass-join, so do not choose it
+    if(node.type == node_t::node_type::join && node.downs.size() == 1)
+    {
+      continue;
+    }
+
+    // We either have an agg or a join with more than one input and it should
+    // be solved for.
+
+    // solve stemming from this nid and update load_limits and placements
+    solver.solve_and_update(nid);
+  }
+
+  // At this point every single placement is set _except_ dummy joins.
+  // So set them here
+
+  auto is_dummy = [&](nid_t nid) {
+    return dag[nid].type == node_t::node_type::join &&
+           (dag[nid].downs.size() == 1);
+  };
+
+  auto set_dummy = [&](nid_t _maybe_add) {
+    std::vector<nid_t> stack;
+    stack.reserve(3);
+
+    // "recurse" by adding the nids that need to be operated onto the "stack"
+    while(is_dummy(_maybe_add) && placements[_maybe_add].computes[0] == -1) {
+      stack.push_back(_maybe_add);
+      _maybe_add = dag[_maybe_add].downs[0];
+    }
+
+    // unwind the "stack"
+    while(stack.size() != 0) {
+      nid_t nid = stack.back();
+      stack.pop_back();
+
+      // update this dummy join
+      for(int bid = 0; bid != relations[nid].get_num_blocks(); ++bid) {
+        auto const& [down_nid, down_bid] = relations[nid].get_inputs(bid)[0];
+        placements[nid].computes[bid] = placements[down_nid].computes[down_bid];
+      }
+    }
+  };
+
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    set_dummy(nid);
+  }
+
+  // At this point, every bid in placements should be >= 0.
+  // TODO: remove this
+  for(nid_t nid = 0; nid != placements.size(); ++nid) {
+    auto const& placement = placements[nid];
+    for(auto const& compute_rank: placement.computes) {
+      if(compute_rank < 0 || compute_rank >= num_nodes) {
+        throw std::runtime_error("dyn_solve_placement did not account for all compute locs!");
+      }
+    }
+  }
+
+  return placements;
+}
+
+void dyn_solver_t::solve_and_update(nid_t nid)
+{
+  // TODO(wish): What is the correct order to traverse the blocks?
+
+  auto num_blocks = relations[nid].get_num_blocks();
+  for(int idx = 0; idx != num_blocks; ++idx) {
+    solve_and_update(nid, idx);
+  }
+}
+
+// TODO(cleanup): this is just a copy paste of compute_score_t's get_useful_input
+vector<tuple<nid_t, int>> dyn_solver_t::get_useful_inputs(nid_t an_nid, int an_idx) const
+{
+  auto const& dag = relations[0].dag;
+
+  // This reaches past no ops
+  auto const& immediate_inputs = relations[an_nid].get_inputs(an_idx);
+
+  vector<tuple<nid_t, int>> ret;
+  ret.reserve(immediate_inputs.size());
+  for(auto const& [nid, idx]: immediate_inputs) {
+    // If this is a join with one input, recursively get it's inputs
+    if(dag[nid].downs.size() == 1 && dag[nid].type == node_t::node_type::join) {
+      auto useful_input = get_useful_inputs(nid, idx);
+      if(useful_input.size() != 1) {
+        throw std::runtime_error("!");
+      }
+      ret.push_back(useful_input[0]);
+      continue;
+    }
+
+    // This is not a dummy join, so it is useful
+    ret.emplace_back(nid, idx);
+  }
+
+  return ret;
+}
+
+dyn_solver_t::tree_t::tree_t(nid_t nid, int id, dyn_solver_t* self_): self(self_)
+{
+  if(self->is_set(nid, id)) {
+    throw std::runtime_error("very bad, this tree would have nothing in it!");
+  }
+  // just a guess on an upper bound size
+  idx_to_id.reserve(20);
+  idx_to_children.reserve(20);
+
+  auto children = self->get_useful_inputs(nid, id);
+
+  idx_to_id.emplace_back(nid, id);
+
+  idx_to_children.push_back(vector<tuple<nid_t, int, bool>>());
+  idx_to_children.back().reserve(children.size());
+
+  options.insert_root(0, self->options(nid, id));
+  for(auto const& [down_nid, down_id]: children) {
+    // recursively build the tree
+    bool did_add = insert(0, down_nid, down_id);
+    idx_to_children[0].emplace_back(down_nid, down_id, did_add);
+  }
+}
+
+bool dyn_solver_t::tree_t::insert(int parent_idx, nid_t nid, int id) {
+  // This node doesn't belong in the tree since it has
+  // been set.
+  if(self->is_set(nid, id)) {
+    return false;
+  }
+
+  int idx = idx_to_id.size();
+
+  auto children = self->get_useful_inputs(nid, id);
+
+  idx_to_id.emplace_back(nid, id);
+
+  idx_to_children.push_back(vector<tuple<nid_t, int, bool>>());
+  idx_to_children.back().reserve(children.size());
+
+  options.insert_child(parent_idx, idx, self->options(nid, id));
+
+  for(auto const& [down_nid, down_id]: children) {
+    bool did_add = insert(idx, down_nid, down_id);
+    idx_to_children[idx].emplace_back(down_nid, down_id, did_add);
+  }
+  return true;
+}
+
+uint64_t dyn_solver_t::tree_t::cost_node(
+  int idx, int const& rank) const
+{
+  // For each compute-input in idx,
+  //   If the compute-input is part of this tree, then the corresponding
+  //   move cost will be included as an edge cost.
+  //   Otherwise, include any move cost that might occur.
+  uint64_t total = 0;
+  for(auto const& [down_nid, down_id, is_in_tree]: idx_to_children[idx]) {
+    if(!is_in_tree) {
+      if(!self->has_at(down_nid, down_id, rank)) {
+        total += self->relations[down_nid].tensor_size();
+      }
+    }
+  }
+  return total;
+}
+
+uint64_t dyn_solver_t::tree_t::cost_edge(
+  int idx_up,   int const& rank_up,
+  int idx_down, int const& rank_down) const
+{
+  if(rank_up == rank_down) {
+    return 0;
+  }
+  auto const& [down_nid, _0] = idx_to_id[idx_down];
+  return self->relations[down_nid].tensor_size();
+}
+
+void dyn_solver_t::tree_t::solve_and_update() {
+  using namespace std::placeholders;
+
+  tree::f_cost_node_t<int> f_cost_node = std::bind(
+    &dyn_solver_t::tree_t::cost_node,
+    this,
+    _1, _2);
+
+  tree::f_cost_edge_t<int> f_cost_edge = std::bind(
+    &dyn_solver_t::tree_t::cost_edge,
+    this,
+    _1, _2, _3, _4);
+
+  tree::tree_t<int> solution = tree::solve(options, f_cost_node, f_cost_edge);
+
+  // Update the solver
+  auto const& dag = self->relations[0].dag;
+  for(int idx = 0; idx != idx_to_id.size(); ++idx) {
+    int const& compute_rank = solution[idx];
+    auto const& [nid, id] = idx_to_id[idx];
+    node_t const& node = dag[nid];
+
+    // Tell placements the compute ranks
+    self->placements[nid].computes[id] = compute_rank;
+    self->placements[nid].locs[id].insert(compute_rank);
+    // ^ make sure to update the locations too
+
+    // Decrement the load limit, to keep things load balanced
+    self->load_limits[nid][compute_rank]--;
+
+    // If this node is a join, the inputs get moved here too.
+    // If this node is an agg or reblock, the inputs do not get moved here.
+    // This node is not an input.
+    if(node.type == node_t::node_type::join) {
+      // "Move" the inputs here
+      for(auto const& [down_nid, down_id, _uu]: idx_to_children[idx])
+      {
+        self->placements[down_nid].locs[down_id].insert(compute_rank);
+      }
+    }
+  }
+  // NOTE: placements has an invariant that if compute is set, locs has size > 1.
+  //       This invariant is not necessarily true during the above for loop.
 }
 
 }}

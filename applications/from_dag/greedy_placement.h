@@ -42,6 +42,10 @@ vector<placement_t> greedy_solve_placement(
   relations_t const& relations,
   int num_nodes);
 
+vector<placement_t> dyn_solve_placement(
+  relations_t const& relations,
+  int num_nodes);
+
 vector<vector<int>> dumb_solve_placement(
   relations_t const& relations,
   int num_nodes);

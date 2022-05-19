@@ -502,13 +502,9 @@ int main(int argc, char **argv)
 
       vector<vector<int>> compute_locs;
 
-      // This is too slow!
-      //vector<placement_t> items_solve = solve_placement(relations, node.get_num_nodes(), 10000);
-      //std::cout << "WITH SOLVE: " << total_move_cost(relations, just_computes(items_solve)) << std::endl;
-
       {
         vector<vector<vector<int>>> items;
-        items.resize(5);
+        items.resize(4);
 
         {
           // The first bool: in each relation, should the minimum move costed block be chosen, or just
@@ -516,41 +512,36 @@ int main(int argc, char **argv)
           // The second bool: should the cost of outputs be included
           //
           // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
-          auto x0 = greedy_solve_placement(true,  true,  relations, node.get_num_nodes());
-          auto x1 = greedy_solve_placement(true,  false, relations, node.get_num_nodes());
-          auto x2 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
-          auto x3 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
+          auto x0 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
+          auto x1 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
+          auto x2 = dyn_solve_placement(relations, node.get_num_nodes());
 
           items[0] = just_computes(x0);
           items[1] = just_computes(x1);
           items[2] = just_computes(x2);
-          items[3] = just_computes(x3);
         }
 
         // A round robin placement to each relation
-        items[4] = dumb_solve_placement(relations, node.get_num_nodes());
+        items[3] = dumb_solve_placement(relations, node.get_num_nodes());
 
-        uint64_t cost_tt = total_move_cost(relations, items[0]);
-        uint64_t cost_tf = total_move_cost(relations, items[1]);
-        uint64_t cost_ft = total_move_cost(relations, items[2]);
-        uint64_t cost_ff = total_move_cost(relations, items[3]);
-        uint64_t cost_dd = total_move_cost(relations, items[4]);
+        uint64_t cost_ft = total_move_cost(relations, items[0]);
+        uint64_t cost_ff = total_move_cost(relations, items[1]);
+        uint64_t cost_dy = total_move_cost(relations, items[2]);
+        uint64_t cost_dd = total_move_cost(relations, items[3]);
 
         table_t table(2);
         table << "which method" << "cost" << table.endl;
-        table << "tt" << cost_tt << table.endl;
-        table << "tf" << cost_tf << table.endl;
         table << "ft" << cost_ft << table.endl;
         table << "ff" << cost_ff << table.endl;
+        table << "dy" << cost_dy << table.endl;
         table << "dd" << cost_dd << table.endl;
         std::cout << table;
 
         vector<uint64_t> costs =
           {
-            cost_tt,
-            cost_tf,
             cost_ft,
             cost_ff,
+            cost_dy,
             cost_dd
           };
 

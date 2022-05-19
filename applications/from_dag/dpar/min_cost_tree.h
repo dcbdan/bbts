@@ -50,6 +50,10 @@ struct tree_t {
     return _top_node;
   }
 
+  bool is_leaf(int id) const {
+    return info[id].children.size() > 0;
+  }
+
 private:
   struct info_t {
     T item;
