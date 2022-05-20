@@ -154,9 +154,13 @@ solver_t::coster_t::coster_t(nid_t top_nid, solver_t* self):
       auto [nid, d] = so_far[idx];
       if(d < params.max_depth) {
         for(auto const& child: self->cost_nodes[nid]->downs) {
-          t_nids.insert_child(nid, child, get_options(child));
-          s_nids.insert(child);
-          so_far.emplace_back(child, d+1);
+          // There is the annoying case where child is already included
+          // in this tree.
+          if(s_nids.count(child) == 0) {
+            t_nids.insert_child(nid, child, get_options(child));
+            s_nids.insert(child);
+            so_far.emplace_back(child, d+1);
+          }
         }
       }
     }
@@ -350,6 +354,18 @@ vector<vector<int>> solver_t::coster_t::get_options(nid_t nid) {
 //   2. The aggregation if there is one,
 //   3. Any reblocks from above that are not included in this coster
 //   4. Any reblocks from below that are not included in this coster
+// For cases 3 and 4, if any of the up nodes or down nodes are already
+// included in this tree, the reblock is just ignored.. Consider the
+// following:
+//           [a]
+//         [b    c]
+//        [x d] [x e]
+// The problem is that to coster, the duplicate x will be removed:
+//          [a]
+//        [b   c]
+//      [x d] [e]
+// And during the dynamic programming problem, we can't tell what
+// the c-x edge will reveal...
 uint64_t solver_t::coster_t::cost_super_node(
   nid_t nid, vector<int> const& partition) const
 {
@@ -385,7 +401,8 @@ uint64_t solver_t::coster_t::cost_super_node(
       nid_t compute_nid = dag[up_reblock_nid].ups[0];
 
       // This node already belongs to this coster, so the
-      // reblock cost will be computed by cost_edge.
+      // reblock cost will be computed by cost_edge or it has to
+      // be ignored.
       if(s_nids.count(compute_nid) > 0) {
         continue;
       }
@@ -412,7 +429,8 @@ uint64_t solver_t::coster_t::cost_super_node(
       }
 
       // This node already belongs to this coster, so the
-      // reblock will be considered at the cost_edge
+      // reblock will be considered at the cost_edge or it
+      // has to be ignored all together
       if(s_nids.count(compute_nid) > 0) {
         continue;
       }
