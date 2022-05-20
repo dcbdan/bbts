@@ -901,4 +901,476 @@ void dyn_solver_t::tree_t::solve_and_update() {
   //       This invariant is not necessarily true during the above for loop.
 }
 
+struct coster_t {
+  coster_t(int num_nodes):
+    flop_costs(num_nodes), move_costs(num_nodes)
+  {}
+
+  struct delta_t {
+    delta_t(int num_nodes):
+      flops(num_nodes, 0), moves(num_nodes, 0)
+    {}
+
+    vector<uint64_t> flops;
+    vector<uint64_t> moves;
+  };
+
+  uint64_t cost() const {
+    auto f = std::max_element(flop_costs.begin(), flop_costs.end());
+    auto m = std::max_element(move_costs.begin(), move_costs.end());
+    return (*f) + (*m);
+  }
+
+  uint64_t cost_with_delta(delta_t const& delta) const {
+    uint64_t f = 0;
+    uint64_t m = 0;
+    for(int rank = 0; rank != flop_costs.size(); ++rank) {
+      uint64_t ff = flop_costs[rank] + delta.flops[rank];
+      uint64_t mm = move_costs[rank] + delta.moves[rank];
+      if(ff > f) { f = ff; }
+      if(mm > m) { m = mm; }
+    }
+    return f + m;
+  }
+
+  void update(delta_t const& delta) {
+    for(int rank = 0; rank != flop_costs.size(); ++rank) {
+      flop_costs[rank] += delta.flops[rank];
+      move_costs[rank] += delta.moves[rank];
+    }
+  }
+
+  vector<uint64_t> flop_costs;
+  vector<uint64_t> move_costs;
+};
+
+struct two_layer_solver_t {
+  two_layer_solver_t(
+    relations_t const& relations,
+    int num_nodes,
+    vector<placement_t>& placements):
+      relations(relations), num_nodes(num_nodes),
+      placements(placements), coster(num_nodes),
+      max_move(0), max_flop(0)
+  {
+    for(int idx = 0; idx != relations.size(); ++idx) {
+      auto const& relation = relations[idx];
+      max_move = std::max(max_move, relation.tensor_size());
+      max_flop = std::max(max_flop, relation.incident_size());
+    }
+  }
+
+  inline bool is_set(nid_t const& nid, int const& bid) const {
+    return placements[nid].locs[bid].size() > 0;
+  }
+
+  inline bool has_at(nid_t const& nid, int const& bid, int const& rank) const {
+    return placements[nid].locs[bid].count(rank) > 0;
+  }
+
+  uint64_t get_f(nid_t nid) const {
+    return scale_flops(relations[nid].incident_size());
+  }
+
+  uint64_t get_m(nid_t nid) const {
+    return scale_moves(relations[nid].tensor_size());
+  }
+
+  uint64_t scale_flops(uint64_t raw_flops) const {
+    return 1 + (1000*raw_flops) / max_flop;
+  }
+  uint64_t scale_moves(uint64_t raw_moves) const {
+    return 1 + (1000*raw_moves) / max_move;
+  }
+
+  // Reach past dummy joins
+  vector<tuple<nid_t, int>> get_useful_inputs(nid_t an_nid, int an_idx) const;
+
+  void update(nid_t nid, int bid);
+
+  struct tree_t {
+    tree_t(nid_t nid, int id, two_layer_solver_t* self);
+
+    tuple<coster_t::delta_t, tree::tree_t<int> > greedy_strategy() const;
+
+    tuple<coster_t::delta_t, tree::tree_t<int> > location_strategy(int rank) const;
+
+    coster_t::delta_t cost_tree(tree::tree_t<int> const& t) const;
+
+    void update(tree::tree_t<int> const& locs);
+  private:
+    bool insert(int parent_idx, nid_t nid, int id);
+    void recurse_greedy(int idx, tree::tree_t<int>& t, coster_t::delta_t& delta) const;
+
+    tree::tree_t<int> base;
+
+    vector<vector<tuple<nid_t, int, bool>>> idx_to_children;
+    vector<tuple<nid_t, int>> idx_to_id;
+    two_layer_solver_t* self;
+  };
+private:
+  relations_t const& relations;
+  int num_nodes;
+  vector<placement_t>& placements;
+  coster_t coster;
+
+  uint64_t max_flop;
+  uint64_t max_move;
+};
+
+// TODO(cleanup): this is just a copy paste
+vector<tuple<nid_t, int>> two_layer_solver_t::get_useful_inputs(
+  nid_t an_nid, int an_idx) const
+{
+  auto const& dag = relations[0].dag;
+
+  // This reaches past no ops
+  auto const& immediate_inputs = relations[an_nid].get_inputs(an_idx);
+
+  vector<tuple<nid_t, int>> ret;
+  ret.reserve(immediate_inputs.size());
+  for(auto const& [nid, idx]: immediate_inputs) {
+    // If this is a join with one input, recursively get it's inputs
+    if(dag[nid].downs.size() == 1 && dag[nid].type == node_t::node_type::join) {
+      auto useful_input = get_useful_inputs(nid, idx);
+      if(useful_input.size() != 1) {
+        throw std::runtime_error("!");
+      }
+      ret.push_back(useful_input[0]);
+      continue;
+    }
+
+    // This is not a dummy join, so it is useful
+    ret.emplace_back(nid, idx);
+  }
+
+  return ret;
+}
+
+
+vector<placement_t> two_layer_placement(
+  relations_t const& relations,
+  int num_nodes)
+{
+  auto const& dag = relations[0].dag;
+
+  // Initialize the returned value
+  vector<placement_t> placements(relations.size());
+
+  // Start offset_rank at 1 since rank 0 is the master node
+  // that issues commands to the other nodes.
+  int offset_rank = num_nodes > 1 ? 1 : 0;
+
+  auto increment_offset_rank = [&]() {
+    offset_rank++;
+    if(offset_rank == num_nodes) {
+      offset_rank = 0;
+    }
+  };
+
+  // Round robin assign all inputs
+  for(nid_t nid = 0; nid != relations.size(); ++nid) {
+    size_t num_blocks = relations[nid].get_num_blocks();
+    node_t const& node = dag[nid];
+    if(node.downs.size() == 0) {
+
+      placements[nid] = placement_t(num_blocks);
+
+      for(int i = 0; i != placements[nid].computes.size(); ++i) {
+        placements[nid].locs[i].insert(offset_rank);
+        placements[nid].computes[i] = offset_rank;
+
+        increment_offset_rank();
+      }
+    } else {
+      placements[nid] = placement_t(num_blocks);
+    }
+  }
+
+  two_layer_solver_t solver(relations, num_nodes, placements);
+
+  // For each non input, compute relation, assing the compute locations
+  // and update where each block ends up being moved to
+  for(nid_t const& nid: dag.breadth_dag_order()) {
+    // Skip no ops, input nodes and nodes that are already assigned
+    if(relations[nid].is_no_op()  ||
+       dag[nid].downs.size() == 0 ||
+       placements[nid].locs[0].size() > 0)
+    {
+      continue;
+    }
+
+    // This is an unassigned node, but is it chosen?
+    //   reblock                         not chosen
+    //   agg                             chosen
+    //   join
+    //     paired with agg               not chosen
+    //     is "by-pass-join" or dummy    not chosen
+    //     otherwise                     chosen
+
+    node_t const& node = dag[nid];
+
+    // Reblock nodes are never assigned directly
+    if(node.type == node_t::node_type::reblock) {
+      continue;
+    }
+    // If this is a join paired with an agg THAT IS NOT A NO OP, solve at the agg so pass
+    if(node.type == node_t::node_type::join &&
+       node.ups.size() == 1 &&
+       dag[node.ups[0]].type == node_t::node_type::agg &&
+       !relations[node.ups[0]].is_no_op())
+    {
+      continue;
+    }
+    // If this is a join, the up node (that is computed) is not an agg.
+    // If there is only 1 input, it is a by-pass-join, so do not choose it
+    if(node.type == node_t::node_type::join && node.downs.size() == 1)
+    {
+      continue;
+    }
+
+    // We either have an agg or a join with more than one input and it should
+    // be solved for.
+
+    // solve stemming from this nid and update the placements
+    for(int bid = 0; bid != relations[nid].get_num_blocks(); ++bid) {
+      solver.update(nid, bid);
+    }
+  }
+
+  // At this point every single placement is set _except_ dummy joins.
+  // So set them here
+
+  auto is_dummy = [&](nid_t nid) {
+    return dag[nid].type == node_t::node_type::join &&
+           (dag[nid].downs.size() == 1);
+  };
+
+  auto set_dummy = [&](nid_t _maybe_add) {
+    std::vector<nid_t> stack;
+    stack.reserve(3);
+
+    // "recurse" by adding the nids that need to be operated onto the "stack"
+    while(is_dummy(_maybe_add) && placements[_maybe_add].computes[0] == -1) {
+      stack.push_back(_maybe_add);
+      _maybe_add = dag[_maybe_add].downs[0];
+    }
+
+    // unwind the "stack"
+    while(stack.size() != 0) {
+      nid_t nid = stack.back();
+      stack.pop_back();
+
+      // update this dummy join
+      for(int bid = 0; bid != relations[nid].get_num_blocks(); ++bid) {
+        auto const& [down_nid, down_bid] = relations[nid].get_inputs(bid)[0];
+        placements[nid].computes[bid] = placements[down_nid].computes[down_bid];
+      }
+    }
+  };
+
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    set_dummy(nid);
+  }
+
+  // At this point, every bid in placements should be >= 0.
+  // TODO: remove this
+  for(nid_t nid = 0; nid != placements.size(); ++nid) {
+    auto const& placement = placements[nid];
+    for(auto const& compute_rank: placement.computes) {
+      if(compute_rank < 0 || compute_rank >= num_nodes) {
+        throw std::runtime_error("dyn_solve_placement did not account for all compute locs!");
+      }
+    }
+  }
+
+  return placements;
+}
+
+void two_layer_solver_t::update(nid_t nid, int bid) {
+  tree_t tree_gen(nid, bid, this);
+
+  auto [best_delta, best_tree] = tree_gen.greedy_strategy();
+  auto best_cost = coster.cost_with_delta(best_delta);
+
+  for(int rank = 0; rank != num_nodes; ++rank) {
+    auto [delta, tree] = tree_gen.location_strategy(rank);
+    auto cost = coster.cost_with_delta(delta);
+    if(cost < best_cost) {
+      best_delta = delta;
+      best_tree  = tree;
+    }
+  }
+
+  // Now use best_delta and best_tree to update everything.
+  coster.update(best_delta);
+  tree_gen.update(best_tree);
+}
+
+void two_layer_solver_t::tree_t::update(tree::tree_t<int> const& locs) {
+  // TODO(cleanup): this is copy paste of dyn's tree_t
+  auto const& dag = self->relations[0].dag;
+  for(int idx = 0; idx != idx_to_id.size(); ++idx) {
+    int const& compute_rank = locs[idx];
+    auto const& [nid, id] = idx_to_id[idx];
+    node_t const& node = dag[nid];
+
+    // Tell placements the compute ranks
+    self->placements[nid].computes[id] = compute_rank;
+    self->placements[nid].locs[id].insert(compute_rank);
+    // ^ make sure to update the locations too
+
+    // If this node is a join, the inputs get moved here too.
+    // If this node is an agg or reblock, the inputs do not get moved here.
+    // This node is not an input.
+    if(node.type == node_t::node_type::join) {
+      // "Move" the inputs here
+      for(auto const& [down_nid, down_id, _uu]: idx_to_children[idx])
+      {
+        self->placements[down_nid].locs[down_id].insert(compute_rank);
+      }
+    }
+  }
+}
+
+two_layer_solver_t::tree_t::tree_t(nid_t nid, int id, two_layer_solver_t* self_):
+  self(self_)
+{
+  if(self->is_set(nid, id)) {
+    throw std::runtime_error("very bad, this tree would have nothing in it!");
+  }
+  // just a guess on an upper bound size
+  idx_to_id.reserve(20);
+  idx_to_children.reserve(20);
+
+  auto children = self->get_useful_inputs(nid, id);
+
+  idx_to_id.emplace_back(nid, id);
+
+  idx_to_children.push_back(vector<tuple<nid_t, int, bool>>());
+  idx_to_children.back().reserve(children.size());
+
+  base.insert_root(0, 0);
+  for(auto const& [down_nid, down_id]: children) {
+    // recursively build the tree
+    bool did_add = insert(0, down_nid, down_id);
+    idx_to_children[0].emplace_back(down_nid, down_id, did_add);
+  }
+}
+
+bool two_layer_solver_t::tree_t::insert(int parent_idx, nid_t nid, int id) {
+  // This node doesn't belong in the tree since it has
+  // been set.
+  if(self->is_set(nid, id)) {
+    return false;
+  }
+
+  int idx = idx_to_id.size();
+
+  auto children = self->get_useful_inputs(nid, id);
+
+  idx_to_id.emplace_back(nid, id);
+
+  idx_to_children.push_back(vector<tuple<nid_t, int, bool>>());
+  idx_to_children.back().reserve(children.size());
+
+  base.insert_child(parent_idx, idx, 0);
+
+  for(auto const& [down_nid, down_id]: children) {
+    bool did_add = insert(idx, down_nid, down_id);
+    idx_to_children[idx].emplace_back(down_nid, down_id, did_add);
+  }
+  return true;
+}
+
+tuple<coster_t::delta_t, tree::tree_t<int> >
+two_layer_solver_t::tree_t::location_strategy(int rank) const
+{
+  tree::tree_t<int> ret_tree = base;
+  for(int idx = 0; idx != idx_to_id.size(); ++idx) {
+    ret_tree[idx] = rank;
+  }
+
+  coster_t::delta_t ret_delta = cost_tree(ret_tree);
+  return {ret_delta, ret_tree};
+}
+
+coster_t::delta_t
+two_layer_solver_t::tree_t::cost_tree(
+  tree::tree_t<int> const& t) const
+{
+  coster_t::delta_t ret(self->num_nodes);
+
+  for(int idx = 0; idx != idx_to_id.size(); ++idx) {
+    auto const& compute_loc = t[idx];
+    auto const& [nid,_0] = idx_to_id[idx];
+    ret.flops[compute_loc] += self->get_f(nid);
+
+    for(auto const& [child_nid, child_bid, _1]: idx_to_children[idx]) {
+      if(!self->has_at(child_nid, child_bid, compute_loc)) {
+        ret.moves[compute_loc] += self->get_m(child_nid);
+      }
+    }
+  }
+
+  return ret;
+}
+
+tuple<coster_t::delta_t, tree::tree_t<int> >
+two_layer_solver_t::tree_t::greedy_strategy() const
+{
+  tree::tree_t<int> ret_tree = base;
+  coster_t::delta_t ret_delta(self->num_nodes);
+  recurse_greedy(0, ret_tree, ret_delta);
+  return {ret_delta, ret_tree};
+}
+
+void two_layer_solver_t::tree_t::recurse_greedy(
+  int idx, tree::tree_t<int>& t, coster_t::delta_t& delta) const
+{
+  // 1. recurse to deal with the leaves first
+  // 2. for each location where there are inputs, pick the best and update
+  //    t and delta.
+
+  // TODO(wish): it is probably better to turn this into a loop instead of a
+  //             bunch of function calls, but the stack shouldn't get that deep.
+  for(auto const& child_idx: t.children(idx)) {
+    recurse_greedy(child_idx, t, delta);
+  }
+
+  uint64_t best_cost = std::numeric_limits<uint64_t>::max();
+  coster_t::delta_t best_delta(self->num_nodes);
+  int best_rank = 0;
+
+  // TODO(wish): don't try all the locations, just the ones that make sense!
+  for(int rank = 0; rank != self->num_nodes; ++rank) {
+    coster_t::delta_t maybe_delta = delta;
+
+    auto const& [nid,_0] = idx_to_id[idx];
+    maybe_delta.flops[rank] += self->get_f(nid);
+
+    int child_idx = 0;
+    for(auto const& [child_nid, child_bid, is_in_tree]: idx_to_children[idx]) {
+      if(!is_in_tree) {
+        if(!self->has_at(child_nid, child_bid, rank)) {
+          maybe_delta.moves[rank] += self->get_m(child_nid);
+        }
+      } else {
+        maybe_delta.moves[rank] += (t[child_idx] == rank) ? 0 : self->get_m(child_nid);
+        child_idx ++;
+      }
+    }
+
+    uint64_t cost = self->coster.cost_with_delta(maybe_delta);
+    if(cost < best_cost) {
+      best_delta = maybe_delta;
+      best_cost  = cost;
+      best_rank  = rank;
+    }
+  }
+
+  delta  = best_delta;
+  t[idx] = best_rank;
+}
+
 }}

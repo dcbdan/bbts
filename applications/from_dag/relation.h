@@ -76,6 +76,8 @@ struct relation_t {
 
   size_t get_num_blocks() const;
 
+  uint64_t incident_size() const;
+
   uint64_t tensor_size() const;
 
   // This nid

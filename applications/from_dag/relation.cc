@@ -218,8 +218,18 @@ int relation_t::bid_to_idx(vector<int> const& bid) const
   return idx;
 }
 
+uint64_t relation_t::incident_size() const {
+  vector<int> const& inc_dims = dag[nid].dims;
+  uint64_t ret = 1;
+  for(int i = 0; i != inc_dims.size(); ++i) {
+    ret *= (inc_dims[i] / partition[i]);
+  }
+  return ret;
+}
+
 uint64_t relation_t::tensor_size() const {
-  vector<int> const& dims = dag[nid].dims;
+  vector<int> const& _inc_dims = dag[nid].dims;
+  vector<int> dims = dag.get_out(_inc_dims, nid);
   uint64_t ret = 1;
   for(int i = 0; i != dims.size(); ++i) {
     ret *= (dims[i] / partition[i]);
