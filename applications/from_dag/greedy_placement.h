@@ -50,10 +50,6 @@ vector<vector<int>> dumb_solve_placement(
   relations_t const& relations,
   int num_nodes);
 
-vector<placement_t> two_layer_placement(
-  relations_t const& relations,
-  int num_nodes);
-
 uint64_t total_move_cost(
   relations_t const& relations,
   vector<vector<int>> const& computes);
