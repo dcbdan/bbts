@@ -137,9 +137,35 @@ void print_commands(std::ostream& os, vector<bbts::command_ptr_t> const& cmds) {
   }
 }
 
+vector<vector<int>> read_vecvec_from_file(std::string filename) {
+  std::ifstream f(filename);
+  vector<vector<int>> ret(1);
+  int i;
+  while(f && !f.eof()) {
+    char c = f.peek();
+    if(c == '\n') {
+      if(ret.back().size() != 0) {
+        ret.push_back(vector<int>());
+      }
+      f.get();
+    } else
+    if(std::isdigit(static_cast<unsigned char>(c))) {
+      f >> i;
+      ret.back().push_back(i);
+    } else {
+      f.get();
+    }
+  }
+  if(ret.size() > 0 && ret.back().size() == 0) {
+    ret.pop_back();
+  }
+  return ret;
+}
+
 std::unordered_map<int, vector<int>> build_possible_parts(
   dag_t const& dag,
-  int num_workers)
+  int num_workers,
+  std::string filename)
 {
   std::unordered_map<int, vector<int>> ret;
 
@@ -151,19 +177,51 @@ std::unordered_map<int, vector<int>> build_possible_parts(
     }
   }
 
-  // For each dim, collect the set of potential parts
+  // Read a vector of vector of ints from the file.
+  // Assume the first item in each vec is the dim, the rest possible parts.
+  // If anything fails, fine, continue on.
+  for(auto xs: read_vecvec_from_file(filename)) {
+    if(xs.size() == 0) {
+     continue;
+    }
+    int d = xs[0];
+    if(dims.count(d) == 0) {
+      continue;
+    }
+    if(ret.count(d) > 0) {
+      continue;
+    }
+    std::set<int> options;
+    for(int idx = 1; idx < xs.size(); ++idx) {
+      int const& p = xs[idx];
+      if(d % p == 0 && p <= num_workers) {
+        options.insert(p);
+      }
+    }
+    if(options.size() > 0) {
+      ret[d] = vector<int>(options.begin(), options.end());
+    }
+  }
+
+  // For each dim still unassigned, collect the set of potential parts
   for(auto const& d: dims) {
-  //  if(d == 1024) {
-  //    ret[d] = vector<int>{1,2,4,8,16,32,64,128,256};
-  //  } else {
-  //    ret[d] = vector<int>{1};
-  //  }
+    if(ret.count(d) > 0) {
+      continue;
+    }
+    // The (dumb) default is to pick 1, 2 and the 2 biggest
     for(int x: {1,2,256,128,64,32,16,8,4}) {
       if(x <= num_workers && d % x == 0 && ret[d].size() < 3) {
         ret[d].push_back(x);
       }
     }
-    std::cout << ret[d] << std::endl;
+  }
+
+  for(auto const& [d,ps]: ret) {
+    std::cout << d << ": ";
+    for(auto const& p: ps) {
+      std::cout << p << " ";
+    }
+    std::cout << std::endl;
   }
 
   return ret;
@@ -197,6 +255,7 @@ int main(int argc, char **argv)
       //   B_MIN B_MAX
       //   REBLOCK MULTIPLIER
       //   BARRIER REBLOCK MULTIPLIER
+      //   POSSIBLE_PARTS_FILE
       if(argc < 3) {
         throw std::runtime_error("not enough arguments");
       }
@@ -224,20 +283,22 @@ int main(int argc, char **argv)
         .reblock_multiplier           = 1,
         .barrier_reblock_multiplier   = 2
       };
+      std::string possible_parts_file = "possible_parts";
 
       params.num_workers =                      std::stoi(argv[2]);
       DCB01("num workers: " << params.num_workers);
 
-      if(argc > 3) { params.max_depth                  = std::stoi(argv[3]); }
+      if(argc > 3)  { params.max_depth                  = std::stoi(argv[3]); }
 
-      if(argc > 4) { params.flops_scale_min            = std::stoi(argv[4]); }
-      if(argc > 5) { params.flops_scale_max            = std::stoi(argv[5]); }
+      if(argc > 4)  { params.flops_scale_min            = std::stoi(argv[4]); }
+      if(argc > 5)  { params.flops_scale_max            = std::stoi(argv[5]); }
 
-      if(argc > 6) { params.bytes_scale_min            = std::stoi(argv[6]); }
-      if(argc > 7) { params.bytes_scale_max            = std::stoi(argv[7]); }
+      if(argc > 6)  { params.bytes_scale_min            = std::stoi(argv[6]); }
+      if(argc > 7)  { params.bytes_scale_max            = std::stoi(argv[7]); }
 
-      if(argc > 8) { params.reblock_multiplier         = std::stoi(argv[8]); }
-      if(argc > 9) { params.barrier_reblock_multiplier = std::stoi(argv[9]); }
+      if(argc > 8)  { params.reblock_multiplier         = std::stoi(argv[8]); }
+      if(argc > 9)  { params.barrier_reblock_multiplier = std::stoi(argv[9]); }
+      if(argc > 10) { possible_parts_file               = argv[10];           }
 
       {
         table_t table(4);
@@ -250,6 +311,7 @@ int main(int argc, char **argv)
         table << "bytes_scale_min    " << params.bytes_scale_min    << table.endl;
         table << "bytes_scale_max    " << params.bytes_scale_max    << table.endl;
         table << "reblock_multiplier " << params.reblock_multiplier << table.endl;
+        table << "parts file         " << possible_parts_file       << table.endl;
         std::cout << table << std::endl;
       }
 
@@ -258,7 +320,7 @@ int main(int argc, char **argv)
       vector<vector<int>> partition = run_partition(
         dag,
         params,
-        build_possible_parts(dag, params.num_workers));
+        build_possible_parts(dag, params.num_workers, possible_parts_file));
 
       DCB01("C build relations next...");
 
