@@ -68,20 +68,21 @@ solver_t::solver_t(
   DCB01("sover_t constructor enter");
 
   // For each relation, compute the total bytes and flops size.
-  relation_bytes.resize(dag.size());
-  relation_flops.resize(dag.size());
+  relation_bytes.reserve(dag.size());
+  relation_flops.reserve(dag.size());
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
     node_t const& node = dag[nid];
 
     relation_flops.push_back(product(node.dims));
     relation_bytes.push_back(product(dag.get_out(node.dims, nid)));
   }
+
   // Now scale the relations_x sizings to be in the windows proivded
   {
     uint64_t max_flops = *std::max_element(relation_flops.begin(), relation_flops.end());
     uint64_t max_bytes = *std::max_element(relation_bytes.begin(), relation_bytes.end());
-    int rng_flops = params.flops_scale_max - params.flops_scale_min;
-    int rng_bytes = params.bytes_scale_max - params.bytes_scale_min;
+    uint64_t rng_flops = params.flops_scale_max - params.flops_scale_min;
+    uint64_t rng_bytes = params.bytes_scale_max - params.bytes_scale_min;
     for(nid_t i = 0; i != dag.size(); ++i) {
       relation_flops[i] = params.flops_scale_min + (relation_flops[i] * rng_flops) / max_flops;
       relation_bytes[i] = params.bytes_scale_min + (relation_bytes[i] * rng_bytes) / max_bytes;
@@ -578,9 +579,15 @@ uint64_t solver_t::coster_t::cost_node(
 
     // Each block has an input form each input relation
     uint64_t total_bytes = 0;
+    uint64_t max_inn_bytes = 0; 
     for(nid_t const& down_nid: node.downs) {
       total_bytes += self->relation_bytes[down_nid];
+      if(self->relation_bytes[down_nid] > max_inn_bytes) {
+        max_inn_bytes = self->relation_bytes[down_nid];
+      }
     }
+    // We don't "move" the largest relation
+    total_bytes -= max_inn_bytes;
 
     // This relation has this many flops
     uint64_t const& total_flops = self->relation_flops[nid];

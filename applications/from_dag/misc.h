@@ -1,12 +1,16 @@
 #pragma once
 
 #include <vector>
+#include <cstdint>
 
 namespace bbts { namespace dag {
 
-template <typename T>
-T product(std::vector<T> const& xs) {
-  T ret = 1;
+// TODO(cleanup): this is a source of bugs: 
+//   myint = product(vector<int>{...}) is a silent killer..
+// Use product_to_int, product_to_uint64_t and so on...
+template <typename T, typename U=uint64_t>
+U product(std::vector<T> const& xs) {
+  U ret = 1;
   for(auto x: xs) {
     ret *= x;
   }

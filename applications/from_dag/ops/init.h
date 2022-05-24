@@ -27,8 +27,8 @@ struct info_t {
 
 std::vector<std::string> _input_files {
   "",  // nothing at index 0..
-  "/home/ubuntu/data/X_1024.raw",
-  "/home/ubuntu/data/Y_1024.raw"
+  "/home/ubuntu/data/X.raw",
+  "/home/ubuntu/data/Y.raw"
 };
 
 void load_block(float* data, info_t const& params) {
@@ -108,7 +108,7 @@ struct op {
     size_t n = product_dims(p.dims);
     cu_t& out = _out.get<0>().as<cu_t>();
     float* data = (float*)out.data();
-#ifdef CU_INIT_OFF
+#ifndef CU_INIT_OFF
     if(p.which == 0) {
       VSLStreamStatePtr stream;
       vslNewStream(&stream, VSL_BRNG_MCG31, time(nullptr));
@@ -125,8 +125,7 @@ struct op {
     } else if(p.which == 1) {
       std::fill(data, data + n, p.t.constant.val);
     } else {
-      throw std::runtime_error("read from file: not implemented");
-      //load_block(data, p);
+      load_block(data, p);
     }
 #endif
   }
