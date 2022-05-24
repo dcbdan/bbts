@@ -26,8 +26,8 @@ struct search_params_t {
   int flops_scale_max;
   int bytes_scale_min;
   int bytes_scale_max;
-  int reblock_multiplier;
-  int barrier_reblock_multiplier;
+  int reblock_intercept;
+  int barrier_reblock_intercept;
 };
 
 // For each possible join node,

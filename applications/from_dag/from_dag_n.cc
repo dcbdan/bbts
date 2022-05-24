@@ -253,8 +253,8 @@ int main(int argc, char **argv)
       //   MAX DEPTH
       //   F_MIN F_MAX
       //   B_MIN B_MAX
-      //   REBLOCK MULTIPLIER
-      //   BARRIER REBLOCK MULTIPLIER
+      //   REBLOCK INTERCEPT 
+      //   BARRIER REBLOCK INTERCEPT
       //   POSSIBLE_PARTS_FILE
       if(argc < 3) {
         throw std::runtime_error("not enough arguments");
@@ -280,8 +280,8 @@ int main(int argc, char **argv)
         .flops_scale_max              = 100,
         .bytes_scale_min              = 1,
         .bytes_scale_max              = 100,
-        .reblock_multiplier           = 1,
-        .barrier_reblock_multiplier   = 2
+        .reblock_intercept            = 1,
+        .barrier_reblock_intercept    = 2
       };
       std::string possible_parts_file = "possible_parts";
 
@@ -296,8 +296,8 @@ int main(int argc, char **argv)
       if(argc > 6)  { params.bytes_scale_min            = std::stoi(argv[6]); }
       if(argc > 7)  { params.bytes_scale_max            = std::stoi(argv[7]); }
 
-      if(argc > 8)  { params.reblock_multiplier         = std::stoi(argv[8]); }
-      if(argc > 9)  { params.barrier_reblock_multiplier = std::stoi(argv[9]); }
+      if(argc > 8)  { params.reblock_intercept          = std::stoi(argv[8]); }
+      if(argc > 9)  { params.barrier_reblock_intercept  = std::stoi(argv[9]); }
       if(argc > 10) { possible_parts_file               = argv[10];           }
 
       {
@@ -310,7 +310,9 @@ int main(int argc, char **argv)
         table << "flops_scale_max    " << params.flops_scale_max    << table.endl;
         table << "bytes_scale_min    " << params.bytes_scale_min    << table.endl;
         table << "bytes_scale_max    " << params.bytes_scale_max    << table.endl;
-        table << "reblock_multiplier " << params.reblock_multiplier << table.endl;
+        table << "reblock_intercept  " << params.reblock_intercept  << table.endl;
+	table << "barrier r intercpet" << params.barrier_reblock_intercept
+		                                                    << table.endl;
         table << "parts file         " << possible_parts_file       << table.endl;
         std::cout << table << std::endl;
       }

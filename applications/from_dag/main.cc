@@ -17,6 +17,7 @@
 #include "greedy_placement.h"
 
 #include "print_table.h"
+#include "arg_reader.h"
 
 #include "../../src/commands/command.h"
 
@@ -27,117 +28,162 @@
 using namespace bbts::dag;
 using namespace Gecode;
 
-class PartitionOptions : public Gecode::BaseOptions {
-  Driver::IplOption         _ipl;
-  Driver::UnsignedIntOption _restart_scale;
-  Driver::UnsignedIntOption _seed;
-  Driver::StringValueOption _dag_file;
-  Driver::UnsignedIntOption _num_workers;
-  Driver::DoubleOption _flops_per_time;
-  Driver::DoubleOption _bytes_per_time;
-  Driver::IntOption _min_cost;
-  Driver::IntOption _input_bytes_multiplier;
-  Driver::IntOption _output_bytes_multiplier;
-  Driver::IntOption _flops_multiplier;
-  Driver::IntOption _max_units;
-  Driver::IntOption _min_units;
-  Driver::IntOption _barrier_reblock_cost;
-  Driver::UnsignedIntOption _search_compute_threads;
-  Driver::UnsignedIntOption _search_restart_scale;
-  Driver::UnsignedIntOption _search_time_per_cover;
-  Driver::UnsignedIntOption _cover_size;
-
-  bool _called_help;
-public:
-  void help() { _called_help = true; Gecode::BaseOptions::help(); }
-  bool called_help() const { return _called_help; }
-
-  // Initialize options
-  PartitionOptions(const char* n):
-    BaseOptions(n),
-    _restart_scale("restart-scale","scale factor for restart sequence",150),
-    _seed("seed","random number generator seed",1U),
-    _dag_file("dag-file", "File containing the dag to partition", "matmul.dag"),
-    _num_workers("num-workers", "Number of workers", 24),
-    _flops_per_time("flops-per-time", "flops thinger", 1e8),
-    _bytes_per_time("bytes-per-time", "bytes thinger", 1e8),
-    _min_cost("m-intercept", "...", 0),
-    _input_bytes_multiplier("m-input-bytes", "...", 1),
-    _output_bytes_multiplier("m-output-bytes", "...", 1),
-    _flops_multiplier("m-flops", "...", 1),
-    _max_units("max-units", "...", 100000),
-    _min_units("min-units", "...", -1),
-    _barrier_reblock_cost("barrier-reblock-cost", "...", 0),
-    _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 4),
-    _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
-    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
-    _cover_size("cover-size", "...", 20),
-    _called_help(false)
-  {
-    add(_ipl);
-    add(_seed);
-    add(_restart_scale);
-    add(_dag_file);
-    add(_num_workers);
-
-    add(_min_cost);
-    add(_flops_per_time);
-    add(_bytes_per_time);
-    add(_input_bytes_multiplier);
-    add(_output_bytes_multiplier);
-
-    add(_flops_multiplier);
-    add(_max_units);
-    add(_min_units);
-    add(_barrier_reblock_cost);
-
-    add(_search_compute_threads);
-    add(_search_restart_scale);
-    add(_search_time_per_cover);
-
-    add(_cover_size);
-  }
-
-  // Parse options from arguments
-  void parse(int& argc, char* argv[])
-  {
-    BaseOptions::parse(argc,argv);
-  }
-
-  std::shared_ptr<partition_options_t>
-  get_options() {
-    return std::make_shared<partition_options_t>(
-      parse_dag(_dag_file.value()),
-      _ipl.value(),
-      static_cast<int>(_restart_scale.value()),
-      static_cast<int>(_seed.value()),
-      static_cast<int>(_num_workers.value()),
-      _flops_per_time.value(),
-      _bytes_per_time.value(),
-      _min_cost.value(),
-      _input_bytes_multiplier.value(),
-      _output_bytes_multiplier.value(),
-      _flops_multiplier.value(),
-      _max_units.value(),
-      _min_units.value(),
-      _barrier_reblock_cost.value(),
-      static_cast<int>(_search_compute_threads.value()),
-      static_cast<int>(_search_restart_scale.value()),
-      static_cast<int>(_search_time_per_cover.value()),
-      static_cast<int>(_cover_size.value()));
-  }
-};
+//class PartitionOptions : public Gecode::BaseOptions {
+//  Driver::IplOption         _ipl;
+//  Driver::UnsignedIntOption _restart_scale;
+//  Driver::UnsignedIntOption _seed;
+//  Driver::StringValueOption _dag_file;
+//  Driver::UnsignedIntOption _num_workers;
+//  Driver::DoubleOption _flops_per_time;
+//  Driver::DoubleOption _bytes_per_time;
+//  Driver::IntOption _min_cost;
+//  Driver::IntOption _input_bytes_multiplier;
+//  Driver::IntOption _output_bytes_multiplier;
+//  Driver::IntOption _flops_multiplier;
+//  Driver::IntOption _max_units;
+//  Driver::IntOption _min_units;
+//  Driver::IntOption _barrier_reblock_cost;
+//  Driver::UnsignedIntOption _search_compute_threads;
+//  Driver::UnsignedIntOption _search_restart_scale;
+//  Driver::UnsignedIntOption _search_time_per_cover;
+//  Driver::UnsignedIntOption _cover_size;
+//
+//  bool _called_help;
+//public:
+//  void help() { _called_help = true; Gecode::BaseOptions::help(); }
+//  bool called_help() const { return _called_help; }
+//
+//  // Initialize options
+//  PartitionOptions(const char* n):
+//    BaseOptions(n),
+//    _restart_scale("restart-scale","scale factor for restart sequence",150),
+//    _seed("seed","random number generator seed",1U),
+//    _dag_file("dag-file", "File containing the dag to partition", "matmul.dag"),
+//    _num_workers("num-workers", "Number of workers", 24),
+//    _flops_per_time("flops-per-time", "flops thinger", 1e8),
+//    _bytes_per_time("bytes-per-time", "bytes thinger", 1e8),
+//    _min_cost("m-intercept", "...", 0),
+//    _input_bytes_multiplier("m-input-bytes", "...", 1),
+//    _output_bytes_multiplier("m-output-bytes", "...", 1),
+//    _flops_multiplier("m-flops", "...", 1),
+//    _max_units("max-units", "...", 100000),
+//    _min_units("min-units", "...", -1),
+//    _barrier_reblock_cost("barrier-reblock-cost", "...", 0),
+//    _search_compute_threads("search-compute-threads", "Number of threads for gecode to search with", 4),
+//    _search_restart_scale("search-restart-scale", "Restart scale param", Search::Config::slice),
+//    _search_time_per_cover("search-time-per-cover", "How long each iteration can take, ms", 4000),
+//    _cover_size("cover-size", "...", 20),
+//    _called_help(false)
+//  {
+//    add(_ipl);
+//    add(_seed);
+//    add(_restart_scale);
+//    add(_dag_file);
+//    add(_num_workers);
+//
+//    add(_min_cost);
+//    add(_flops_per_time);
+//    add(_bytes_per_time);
+//    add(_input_bytes_multiplier);
+//    add(_output_bytes_multiplier);
+//
+//    add(_flops_multiplier);
+//    add(_max_units);
+//    add(_min_units);
+//    add(_barrier_reblock_cost);
+//
+//    add(_search_compute_threads);
+//    add(_search_restart_scale);
+//    add(_search_time_per_cover);
+//
+//    add(_cover_size);
+//  }
+//
+//  // Parse options from arguments
+//  void parse(int& argc, char* argv[])
+//  {
+//    BaseOptions::parse(argc,argv);
+//  }
+//
+//  std::shared_ptr<partition_options_t>
+//  get_options() {
+//    return std::make_shared<partition_options_t>(
+//      parse_dag(_dag_file.value()),
+//      _ipl.value(),
+//      static_cast<int>(_restart_scale.value()),
+//      static_cast<int>(_seed.value()),
+//      static_cast<int>(_num_workers.value()),
+//      _flops_per_time.value(),
+//      _bytes_per_time.value(),
+//      _min_cost.value(),
+//      _input_bytes_multiplier.value(),
+//      _output_bytes_multiplier.value(),
+//      _flops_multiplier.value(),
+//      _max_units.value(),
+//      _min_units.value(),
+//      _barrier_reblock_cost.value(),
+//      static_cast<int>(_search_compute_threads.value()),
+//      static_cast<int>(_search_restart_scale.value()),
+//      static_cast<int>(_search_time_per_cover.value()),
+//      static_cast<int>(_cover_size.value()));
+//  }
+//};
 
 std::shared_ptr<partition_options_t> get_options(int argc, char** argv) {
-  PartitionOptions opt("from_dag");
-  opt.parse(argc, argv);
-  // here, the parse is unsuccessful if and only if help was called,
-  // which is not great.
-  if(opt.called_help()) {
-    return nullptr;
-  } else {
-    return opt.get_options();
-  }
+  arg_reader_t reader;
+  reader.register_int("--restart-scale", 150);
+  reader.register_int("--seed", 1);
+  reader.register_int("--num-workers", 1);
+  reader.register_float("--flops-per-time", 1e8);
+  reader.register_float("--bytes-per-time", 1e8);
+  reader.register_int("--flops-multiplier", 1);
+  reader.register_int("--m-intercept", 1);
+  reader.register_int("--m-input-bytes", 1);
+  reader.register_int("--m-output-bytes", 1);
+  reader.register_int("--m-flops", 1);
+  reader.register_int("--max-units", 100000);
+  reader.register_int("--min-units", -1);
+  reader.register_int("--barrier-reblock-cost", 0);
+  reader.register_int("--search-compute-threads", 4);
+  reader.register_int("--search-restart-scale", Search::Config::slice);
+  reader.register_int("--search-time-per-cover", 1000);
+  reader.register_int("--cover-size", 4);
+  reader.register_string("--dag-file", "matmul.dag");
+
+  reader.read(argc, argv);
+
+  return std::make_shared<partition_options_t>(
+    parse_dag(reader.get_string("--dag-file")),
+    IPL_DEF, 
+    reader.get_int("--restart-scale"),
+    reader.get_int("--seed"),
+    reader.get_int("--num-workers"),
+    reader.get_float("--flops-per-time"),
+    reader.get_float("--bytes-per-time"),
+    reader.get_int("--m-intercept"),
+    reader.get_int("--m-input-bytes"),
+    reader.get_int("--m-output-bytes"),
+    reader.get_int("--m-flops"),
+    reader.get_int("--max-units"),
+    reader.get_int("--min-units"),
+    reader.get_int("--barrier-reblock-cost"),
+    reader.get_int("--search-compute-threads"),
+    reader.get_int("--search-restart-scale"),
+    reader.get_int("--search-time-per-cover"),
+    reader.get_int("--cover-size"));
+
+//
+//   
+//
+//  PartitionOptions opt("from_dag");
+//  opt.parse(argc, argv);
+//  // here, the parse is unsuccessful if and only if help was called,
+//  // which is not great.
+//  if(opt.called_help()) {
+//    return nullptr;
+//  } else {
+//    return opt.get_options();
+//  }
 }
 
 ud_info_t load_kernel_lib(

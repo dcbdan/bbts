@@ -396,7 +396,7 @@ uint64_t solver_t::coster_t::cost_super_node(
     out_partition = partition;
   }
 
-  if(params.reblock_multiplier > 0 && params.include_outside_up_reblock) {
+  if(params.include_outside_up_reblock) {
     // Now get the compute nids of the up SUPER node... All up nodes will be reblocks.
     for(nid_t const& up_reblock_nid: dag[super_top].ups) {
       nid_t compute_nid = dag[up_reblock_nid].ups[0];
@@ -416,7 +416,7 @@ uint64_t solver_t::coster_t::cost_super_node(
     }
   }
 
-  if(params.reblock_multiplier > 0 && params.include_outside_down_reblock) {
+  if(params.include_outside_down_reblock) {
     // Now any reblocks below this guy that are not included in the coster
     // have to be included
     for(nid_t const& reblock_nid: node.downs) {
@@ -628,15 +628,19 @@ uint64_t solver_t::coster_t::cost_reblock(
       break;
     }
   }
-  int barrier_multiplier = is_barrier
-        ? params.barrier_reblock_multiplier
-        : 1
-        ;
+  //int barrier_multiplier = is_barrier
+  //      ? params.barrier_reblock_multiplier
+  //      : 1
+  //      ;
 
   DCB_B("case: reblock");
 
-  return barrier_multiplier * params.reblock_multiplier *
-           _cost(num_bytes + num_flops, num_blk);
+  uint64_t intercept = params.reblock_intercept + 
+		(is_barrier ? params.barrier_reblock_intercept : 0);
+  return intercept + _cost(num_bytes + num_flops, num_blk);
+
+  //return barrier_multiplier * params.reblock_multiplier *
+  //         _cost(num_bytes + num_flops, num_blk);
 }
 
 }}

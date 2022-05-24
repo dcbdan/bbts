@@ -54,7 +54,7 @@ vector<int> partition_options_t::_set_possible_parts()
   // just powers of 2s and multiples of 12,
   // early multiples of 3
   for(int x: {1,2,3,4,6,8,9,12,15,18,21,24,32,36,48,
-              60,64,72,84,96,108,120,132,144,256})
+              60,64,72,84,96,108,120,128,132,144,256})
   {
     if(x <= num_workers()) {
       ret.push_back(x);
