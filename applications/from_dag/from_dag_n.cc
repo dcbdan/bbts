@@ -395,10 +395,10 @@ int main(int argc, char **argv)
         // A round robin placement to each relation
         items[3] = dumb_solve_placement(relations, node.get_num_nodes());
 
-        uint64_t cost_ft = total_move_cost(relations, items[0]);
-        uint64_t cost_ff = total_move_cost(relations, items[1]);
-        uint64_t cost_dy = total_move_cost(relations, items[2]);
-        uint64_t cost_dd = total_move_cost(relations, items[3]);
+        uint64_t cost_ft = total_move_cost(relations, items[0]) / 10000000;
+        uint64_t cost_ff = total_move_cost(relations, items[1]) / 10000000;
+        uint64_t cost_dy = total_move_cost(relations, items[2]) / 10000000;
+        uint64_t cost_dd = total_move_cost(relations, items[3]) / 10000000;
 
         table_t table(2);
         table << "which method" << "cost" << table.endl;

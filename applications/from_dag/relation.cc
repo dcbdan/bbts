@@ -268,4 +268,32 @@ bool relation_t::set_is_no_op() {
   return true;
 }
 
+vector<uint64_t> relation_t::input_tensor_sizes(vector<int> const& bid) const {
+  auto const& node = dag[nid];
+  if(node.type == node_t::node_type::reblock) {
+    vector<uint64_t> ret;
+    expand_indexer_t e_indexer(
+      rels(node.downs[0]).partition,
+      partition);
+    auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
+    ret.reserve(inputs.size());
+    for(auto const& which_inn: inputs) {
+      ret.push_back(1);
+      // take the product of the expand dim sizes
+      for(auto expand_dim: e_indexer.get_expand_dim(node.dims, which_inn, bid)) {
+        ret.back() *= expand_dim.interval;
+      }
+    }
+    return ret;
+  } else {
+    vector<uint64_t> ret;
+    auto inputs = get_inputs(bid);
+    ret.reserve(inputs.size());
+    for(auto [input_nid, _0]: get_inputs(bid)) {
+      ret.push_back(rels(input_nid).tensor_size());
+    }
+    return ret;
+  }
+}
+
 }}

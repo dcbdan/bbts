@@ -390,6 +390,22 @@ uint64_t total_move_cost(
     }
   };
 
+  auto move_to_reblock = [&](nid_t an_nid, vector<int> const& an_bid) {
+    int an_idx = relations[an_nid].bid_to_idx(an_bid);
+
+    int rank = placements[an_nid].computes[an_idx];
+
+    auto input_sizes = relations[an_nid].input_tensor_sizes(an_bid);
+    auto inputs = relations[an_nid].get_inputs(an_idx);
+    for(int i = 0; i != inputs.size(); ++i) {
+      auto const& [input_nid, input_idx] = inputs[i];
+      auto const& input_size = input_sizes[i];
+      if(placements[input_nid].locs[input_idx].count(rank) == 0) {
+        total += input_size;
+      }
+    }
+  };
+
   // Given a reduce block, move the locally aggregated inputs to it
   auto move_to_reduce = [&](nid_t an_nid, int an_idx) {
     int reduce_rank = placements[an_nid].computes[an_idx];
@@ -418,10 +434,19 @@ uint64_t total_move_cost(
       continue;
     }
 
-    int num_blocks = relations[nid].get_num_blocks();
-    for(int idx = 0; idx != num_blocks; ++idx) {
+    //int num_blocks = relations[nid].get_num_blocks();
+    //for(int idx = 0; idx != num_blocks; ++idx) 
+
+    indexer_t indexer(relations[nid].partition);
+    do {
+      auto const& bid = indexer.idx;
+      int idx = relations[nid].bid_to_idx(bid);
+
       if(dag[nid].type == node_t::node_type::agg) {
         move_to_reduce(nid, idx);
+      } else
+      if(dag[nid].type == node_t::node_type::reblock) {
+        move_to_reblock(nid, bid);
       } else {
         int rank = placements[nid].computes[idx];
         auto const& inputs = relations[nid].get_inputs(idx);
@@ -429,7 +454,7 @@ uint64_t total_move_cost(
           assure_moved_to(input_nid, input_idx, rank);
         }
       }
-    }
+    } while(indexer.increment());
   }
 
   return total;

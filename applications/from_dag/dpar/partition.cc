@@ -52,6 +52,22 @@ vector<vector<int>> run_partition(
     }
   }
 
+  solver.params.include_outside_up_reblock = true;
+
+  for(nid_t nid: dag.breadth_dag_order()) {
+    if(dag[nid].type == node_t::node_type::input) {
+      // You can form a graph at an input node and solve it,
+      // but it does not good since all inputs currently have zero cost.
+      continue;
+    }
+    if(solver.can_solve_at(nid)) {
+      // This will happen at every join node, basically. Regardless of
+      // the depth at nid.. One could say only if the depth is deep enough
+      // or it is an output node, solve.
+      solver.solve(nid);
+    }
+  }
+
   DCB01("exit run partition");
   return solver.get_partition();
 }
@@ -535,7 +551,7 @@ inline uint64_t solver_t::coster_t::_cost(uint64_t total, int num_parallel) cons
   auto const& params = self->params;
   auto const& num_workers = params.num_workers;
 
-  uint64_t cost_per_block =
+  uint64_t cost_per_block = 
     (total * params.num_workers) / std::min(num_parallel, num_workers);
 
   uint64_t parallel_multiplier = (num_parallel + num_workers - 1) / num_workers;
@@ -577,17 +593,23 @@ uint64_t solver_t::coster_t::cost_node(
     int num_blk = product(inc_partition);
     int num_agg = product(dag.get_agg(inc_partition, nid));
 
-    // Each block has an input form each input relation
+    int mult;
+
+    // Each block has an input from each input relation
     uint64_t total_bytes = 0;
     uint64_t max_inn_bytes = 0; 
     for(nid_t const& down_nid: node.downs) {
       total_bytes += self->relation_bytes[down_nid];
       if(self->relation_bytes[down_nid] > max_inn_bytes) {
         max_inn_bytes = self->relation_bytes[down_nid];
+	mult = product(dag.get_out_for_input(inc_partition, nid, down_nid)) / num_agg;
       }
     }
     // We don't "move" the largest relation
     total_bytes -= max_inn_bytes;
+
+    // But we broadcast to the largest location
+    //total_bytes *= mult;
 
     // This relation has this many flops
     uint64_t const& total_flops = self->relation_flops[nid];

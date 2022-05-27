@@ -77,7 +77,7 @@ struct solver_t {
   // TODO
   uint64_t cost() const { throw std::runtime_error("not implemented"); return 0; }
 
-private:
+//private:
   // This guy holds a tree of computations and provides the necessary info
   // for calling the tree solver
   struct coster_t {
@@ -117,7 +117,7 @@ private:
   };
   using cost_node_ptr = std::unique_ptr<cost_node_t>;
 
-private:
+//private:
   // Store for every join and input node, the current partiiton
   vector<vector<int>> partition;
 
@@ -133,7 +133,7 @@ private:
   dag_t const& dag;
   std::unordered_map<int, vector<int>> possible_parts;
 
-  search_params_t const params;
+  search_params_t params;
   vector<uint64_t> relation_bytes;
   vector<uint64_t> relation_flops;
 };
