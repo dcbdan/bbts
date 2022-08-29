@@ -68,7 +68,7 @@ vector<vector<int>> run_partition(
     }
   }
 
-  DCB01("exit run partition");
+  //DCB01("exit run partition");
   return solver.get_partition();
 }
 

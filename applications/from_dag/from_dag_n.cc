@@ -17,7 +17,7 @@
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
 
-#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl
+#define DCB01(x) std::cout << __LINE__ << " " << x << std::endl
 
 using namespace bbts::dag;
 
@@ -208,24 +208,139 @@ std::unordered_map<int, vector<int>> build_possible_parts(
     if(ret.count(d) > 0) {
       continue;
     }
-    // The (dumb) default is to pick 1, 2 and the 2 biggest
-    for(int x: {1,2,256,128,64,32,16,8,4}) {
-      if(x <= num_workers && d % x == 0 && ret[d].size() < 3) {
+    for(int x: {1,2,4,8,16,32,64,128,256}) {
+      if(x <= num_workers && d % x == 0) {
         ret[d].push_back(x);
       }
     }
   }
 
-  for(auto const& [d,ps]: ret) {
-    std::cout << d << ": ";
-    for(auto const& p: ps) {
-      std::cout << p << " ";
+  return ret;
+}
+
+struct partition_solution_t {
+  partition_solution_t(dag_t const& dag, vector<vector<int>> const& partition):
+    relations(dag, partition)
+  {}
+
+  relations_t relations;
+  uint64_t cost;
+  vector<vector<int>> compute_locs;
+};
+
+partition_solution_t* build_partition_info(
+  dag_t const& dag,
+  search_params_t const& params,
+  std::unordered_map<int, vector<int>> const& possible_parts,
+  int num_ranks)
+{
+  vector<vector<int>> partition = run_partition(
+    dag,
+    params,
+    possible_parts);
+
+  partition_solution_t* ret = new partition_solution_t(dag, partition);
+  auto& relations = ret->relations;
+
+  vector<vector<vector<int>>> items {
+    just_computes(greedy_solve_placement(false, true,  relations, num_ranks)),
+    just_computes(greedy_solve_placement(false, false, relations, num_ranks)),
+    just_computes(dyn_solve_placement(relations, num_ranks)),
+    dumb_solve_placement(relations, num_ranks)
+  };
+
+  vector<uint64_t> costs;
+  if(num_ranks > 1) {
+    for(auto const& item: items) {
+      costs.push_back(total_move_cost(relations, item));
     }
+
+    auto iter = std::min_element(costs.begin(), costs.end());
+    int which = std::distance(costs.begin(), iter);
+
+    ret->cost = *iter;
+    ret->compute_locs = items[which];
+  } else {
+    // When there is only one rank, move costs isn't a good metric...
+    // Just pick the one with the most number of no ops
+    ret->cost = 1000000000;
+    for(int i = 0; i != ret->relations.size(); ++i) {
+      if(ret->relations[i].is_no_op()) {
+        ret->cost--;
+      }
+    }
+    ret->compute_locs = items[0]; // all 'items' are the same
+  }
+
+
+  // now that ret is set, just print out all the info
+
+  {
+    int num_agg = 0;
+    int num_reb = 0;
+
+    table_t table(2);
+    table << "nid" << "inputs" << "partition" << "unit" << "node" << table.endl;
+    for(nid_t const& nid: dag.breadth_dag_order()) {
+      auto const& node = dag[nid];
+      table << nid << node.downs << relations[nid].partition;
+
+      int num_unit;
+      if(relations[nid].is_no_op()) {
+        num_unit = 0;
+      } else {
+        num_unit = product(relations[nid].partition);
+      }
+      table << num_unit;
+
+      if(node.type == node_t::node_type::input) {
+        table << "I";
+      } else
+      if(node.type == node_t::node_type::join) {
+        table << "J";
+      } else
+      if(node.type == node_t::node_type::reblock) {
+        table << "R";
+        if(num_unit > 0) { num_reb++; }
+      } else {
+        table << "A";
+        if(num_unit > 0) { num_agg++; }
+      }
+      table << table.endl;
+    }
+    std::cout << table << std::endl;
+    std::cout << "num aggregation: " << num_agg << std::endl;
+    std::cout << "num reblock:     " << num_reb << std::endl;
     std::cout << std::endl;
+  }
+
+  { // Print out the parts table
+    table_t table(2);
+    table << "dim " << "parts..." << table.endl;
+    for(auto const& [dim, ps]: possible_parts) {
+      table << dim;
+      for(auto const& p: ps) {
+        table << p;
+      }
+      table << table.endl;
+    }
+    std::cout << table << std::endl;
+  }
+
+  if(num_ranks > 1) { // Print out the costs
+    table_t table(2);
+    table << "which method" << "cost" << table.endl;
+    table << "ft" << (costs[0] / 10000000) << table.endl;
+    table << "ff" << (costs[1] / 10000000) << table.endl;
+    table << "dy" << (costs[2] / 10000000) << table.endl;
+    table << "dd" << (costs[3] / 10000000) << table.endl;
+    std::cout << table << std::endl;
   }
 
   return ret;
 }
+
+
 
 int main(int argc, char **argv)
 {
@@ -288,16 +403,24 @@ int main(int argc, char **argv)
       params.num_workers =                      std::stoi(argv[2]);
       DCB01("num workers: " << params.num_workers);
 
+      DCB01(argv[3]);
       if(argc > 3)  { params.max_depth                  = std::stoi(argv[3]); }
 
+      DCB01("a");
       if(argc > 4)  { params.flops_scale_min            = std::stoi(argv[4]); }
+      DCB01("b");
       if(argc > 5)  { params.flops_scale_max            = std::stoi(argv[5]); }
 
+      DCB01("c");
       if(argc > 6)  { params.bytes_scale_min            = std::stoi(argv[6]); }
+      DCB01("d");
       if(argc > 7)  { params.bytes_scale_max            = std::stoi(argv[7]); }
 
+      DCB01("e");
       if(argc > 8)  { params.reblock_intercept          = std::stoi(argv[8]); }
+      DCB01("f");
       if(argc > 9)  { params.barrier_reblock_intercept  = std::stoi(argv[9]); }
+      DCB01("g");
       if(argc > 10) { possible_parts_file               = argv[10];           }
 
       {
@@ -317,110 +440,52 @@ int main(int argc, char **argv)
         std::cout << table << std::endl;
       }
 
-      DCB01("B run_partition next...");
+      int num_ranks = node.get_num_nodes();
 
-      vector<vector<int>> partition = run_partition(
-        dag,
-        params,
-        build_possible_parts(dag, params.num_workers, possible_parts_file));
-
-      DCB01("C build relations next...");
-
-      relations_t relations(dag, partition);
-
-      DCB01("D table next...");
-
-      {
-        int num_agg = 0;
-        int num_reb = 0;
-
-        table_t table(2);
-        table << "nid" << "inputs" << "partition" << "unit" << "node" << table.endl;
-        for(nid_t const& nid: dag.breadth_dag_order()) {
-          auto const& node = dag[nid];
-          table << nid << node.downs << partition[nid];
-
-          int num_unit;
-          if(relations[nid].is_no_op()) {
-            num_unit = 0;
-          } else {
-            num_unit = product(partition[nid]);
-          }
-          table << num_unit;
-
-          if(node.type == node_t::node_type::input) {
-            table << "I";
-          } else
-          if(node.type == node_t::node_type::join) {
-            table << "J";
-          } else
-          if(node.type == node_t::node_type::reblock) {
-            table << "R";
-            if(num_unit > 0) { num_reb++; }
-          } else {
-            table << "A";
-            if(num_unit > 0) { num_agg++; }
-          }
-          table << table.endl;
+      vector<std::unordered_map<int, vector<int>>> parts(5); 
+      auto all_parts = build_possible_parts(dag, params.num_workers, possible_parts_file);
+      for(auto [dim, ps]: all_parts) {
+        if(ps.size() <= 4) {
+          parts[0][dim] = ps;
+          parts[1][dim] = ps;
+          parts[2][dim] = ps;
+	  parts[3][dim] = ps;
+	  parts[4][dim] = ps;
+        } else {
+          // *  *  *  *  *
+	  // 0  1  2  3
+	  //    3  2  1  0
+       	  auto v0 = ps[0];
+          auto v1 = ps[1];
+          auto v2 = ps[3];
+          auto v3 = ps[4];
+	  auto v4 = ps[5];
+          auto m3 = ps[ps.size()-4];
+          auto m2 = ps[ps.size()-3];
+          auto m1 = ps[ps.size()-2];
+          auto m0 = ps[ps.size()-1];
+          parts[0][dim] = {v0, v1, v2, v3, m0};
+          parts[1][dim] = {v0, m3, m2, m1, m0};
+          parts[2][dim] = {v0, v1, m2, m1, m0};
+          parts[3][dim] = {v0, m3, m2};
+	  parts[4][dim] = {v0, v1, m2, m1};
         }
-        std::cout << table << std::endl;
-        std::cout << "num aggregation: " << num_agg << std::endl;
-        std::cout << "num reblock:     " << num_reb << std::endl;
-        std::cout << std::endl;
       }
 
-      DCB01("D compute_locs next...");
-
-      vector<vector<int>> compute_locs;
-
-      {
-        vector<vector<vector<int>>> items;
-        items.resize(4);
-
-        {
-          // The first bool: in each relation, should the minimum move costed block be chosen, or just
-          //                 do in order
-          // The second bool: should the cost of outputs be included
-          //
-          // If first bool is true, scales n^2 where n is the most number of blocks in all relations.
-          auto x0 = greedy_solve_placement(false, true,  relations, node.get_num_nodes());
-          auto x1 = greedy_solve_placement(false, false, relations, node.get_num_nodes());
-          auto x2 = dyn_solve_placement(relations, node.get_num_nodes());
-
-          items[0] = just_computes(x0);
-          items[1] = just_computes(x1);
-          items[2] = just_computes(x2);
-        }
-
-        // A round robin placement to each relation
-        items[3] = dumb_solve_placement(relations, node.get_num_nodes());
-
-        uint64_t cost_ft = total_move_cost(relations, items[0]) / 10000000;
-        uint64_t cost_ff = total_move_cost(relations, items[1]) / 10000000;
-        uint64_t cost_dy = total_move_cost(relations, items[2]) / 10000000;
-        uint64_t cost_dd = total_move_cost(relations, items[3]) / 10000000;
-
-        table_t table(2);
-        table << "which method" << "cost" << table.endl;
-        table << "ft" << cost_ft << table.endl;
-        table << "ff" << cost_ff << table.endl;
-        table << "dy" << cost_dy << table.endl;
-        table << "dd" << cost_dd << table.endl;
-        std::cout << table;
-
-        vector<uint64_t> costs =
-          {
-            cost_ft,
-            cost_ff,
-            cost_dy,
-            cost_dd
-          };
-
-        auto iter = std::min_element(costs.begin(), costs.end());
-        int which = std::distance(costs.begin(), iter);
-        std::cout << "which: " << which << std::endl;
-        compute_locs = items[which];
+      partition_solution_t* info = nullptr;
+      for(auto const& partI: parts) {
+        auto maybe = build_partition_info(dag, params, partI, num_ranks);
+	if(info == nullptr || maybe->cost < info->cost) {
+	  if(info != nullptr) {
+            delete info;
+	  }
+          info = maybe;
+	} else {
+          delete maybe;
+	} 
       }
+
+      std::cout << "Best cost: " << (info->cost / 10000000) << std::endl;
 
       DCB01("E load kernel lib next...");
 
@@ -428,12 +493,17 @@ int main(int argc, char **argv)
 
       DCB01("F generate commands next...");
 
+      DCB01("?? " << info->relations.size());
+      DCB01("?# " << info->cost);
+
       generate_commands_t g(
         dag,
-        relations,
-        compute_locs,
+        info->relations,
+        info->compute_locs,
         ud_info,
-        node.get_num_nodes());
+	num_ranks);
+
+      DCB01("!!! " << info->cost);
 
       auto [input_cmds, run_cmds] = g.extract();
 
@@ -454,6 +524,8 @@ int main(int argc, char **argv)
       if(!did_shutdown) {
         throw std::runtime_error("did not shutdown: " + message);
       }
+
+      delete info;
     });
   }
 

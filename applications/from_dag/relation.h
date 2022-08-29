@@ -89,7 +89,7 @@ struct relation_t {
   // The cache holding the connection info
   cache_t const& cache;
   // This partition
-  std::vector<int> const& partition;
+  std::vector<int> partition;
   // Access to all other relations
   std::function<relation_t const& ( nid_t )> rels;
 

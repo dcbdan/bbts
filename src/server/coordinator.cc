@@ -194,7 +194,7 @@ std::tuple<bool, std::string> bbts::coordinator_t::run_commands() {
   auto end = high_resolution_clock::now();
   auto duration = (double) duration_cast<microseconds>(end - start).count() / (double) duration_cast<microseconds>(1s).count();
 
-  return {true, "Finished running commands in " + std::to_string(duration) + "s \n"};
+  return {true, "Finished running commands in " + std::to_string(duration) + " s \n"};
 }
 
 std::tuple<bool, std::string> bbts::coordinator_t::set_verbose(bool val) {
