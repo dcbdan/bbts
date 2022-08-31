@@ -126,7 +126,7 @@ struct solver_t {
   // All dags have the following constraints:
   // - Agg has one input, a join
   // - Reblock has one input
-  // - Reblock has ont output, and it is a join
+  // - Reblock has one output, and it is a join
   // And note that
   // - For a Join - Join connection, they must have the same partition,
   //   i.e. belong to the same cost node.

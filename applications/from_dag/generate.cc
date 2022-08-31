@@ -173,7 +173,7 @@ vector<int> from_to(vector<int> const& inn, vector<int> out) {
 // remedy this, permutations may have to be  applied to the inputs of the
 // join op or to the output.
 //
-// This handler computes all of those requirements and figures out that
+// This handler computes all of those requirements and figures out what
 // the necessary params will be. Then generate_commands_t::add_node uses
 // that info to generate the necessary commands.
 
@@ -718,7 +718,7 @@ void generate_commands_t::add_node(nid_t nid) {
         partition_down));
   }
 
-  // Here are somet things specific to join, but don't need to be
+  // Here are some things specific to join, but don't need to be
   // created over and over for every block
   std::unique_ptr<join_handler_t> join_handler(nullptr);
   if(node.type == node_t::node_type::join) {
