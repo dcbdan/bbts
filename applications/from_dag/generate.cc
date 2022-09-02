@@ -184,6 +184,8 @@ class join_handler_t {
   bool _post_permute;
   vector<bbts::command_param_t> _post_permute_params;
 
+  bool _is_no_op_unary_ew;
+
   struct einsum_order_t {
     einsum_order_t(
       vector<int> const& modes_lhs,
@@ -307,6 +309,8 @@ public:
     node_t::join_kernel_type kernel,
     vector<param_t> const& params)
   {
+    _is_no_op_unary_ew = false;
+
     if(kernel == node_t::join_kernel_type::contraction) {
       // From BuildDag:
       //   (nl,nr,no), left_modes, right_modes, out_modes, alpha
@@ -525,6 +529,9 @@ public:
           .f = params[i++].get_float()
         });
       }
+      if(_op_params.back().i == 8) {
+        _is_no_op_unary_ew = true;
+      }
       _op_params.push_back(bbts::command_param_t {
         .f = params[i++].get_float()
       });
@@ -551,6 +558,13 @@ public:
       }
 
       _post_permute = false;
+
+      if(_is_no_op_unary_ew) {
+        if(_post_permute || !has_input_permute) {
+          throw std::runtime_error("no op uneary ew ops must have a pre "
+                                   "permute and no post permute");
+        }
+      }
     } else
     if(kernel == node_t::join_kernel_type::binary_elementwise) {
       // FromDag
@@ -662,6 +676,8 @@ public:
   op_params() const { return _op_params; }
 
   bool has_post_permute() const { return _post_permute; }
+
+  bool is_just_permute() const { return _is_no_op_unary_ew; }
 
   vector<bbts::command_param_t> const&
   post_permute_params() const
@@ -823,14 +839,19 @@ void generate_commands_t::add_node(nid_t nid) {
           {now}));
       }
 
-      tid_loc_t after_op{ next_tid(), compute_location };
-      commands.emplace_back(command_t::create_apply(
-        next_command_id(),
-        ud_info.get_join_ud(node.join_kernel),
-        false,
-        join_handler->op_params(),
-        join_inputs,
-        {after_op}));
+      tid_loc_t after_op;
+      if(join_handler->is_just_permute()) {
+        after_op = join_inputs[0];
+      } else {
+        after_op = tid_loc_t{ next_tid(), compute_location };
+        commands.emplace_back(command_t::create_apply(
+          next_command_id(),
+          ud_info.get_join_ud(node.join_kernel),
+          false,
+          join_handler->op_params(),
+          join_inputs,
+          {after_op}));
+      }
 
       tid_loc_t cur;
       if(join_handler->has_post_permute()) {
@@ -848,15 +869,19 @@ void generate_commands_t::add_node(nid_t nid) {
       }
 
       // now do the clean up
-      for(auto [which_input, permute_params]: join_handler->input_permutes()) {
-        commands.emplace_back(command_t::create_delete(
-          next_command_id(),
-          {join_inputs[which_input]}));
-      }
-      if(join_handler->has_post_permute()) {
-        commands.emplace_back(command_t::create_delete(
-          next_command_id(),
-          {after_op}));
+      // (if this whole op was just a permute, then don't do the cleanup;
+      //  also only one of the pre or post permutes happened)
+      if(!join_handler->is_just_permute()) {
+        for(auto [which_input, permute_params]: join_handler->input_permutes()) {
+          commands.emplace_back(command_t::create_delete(
+            next_command_id(),
+            {join_inputs[which_input]}));
+        }
+        if(join_handler->has_post_permute()) {
+          commands.emplace_back(command_t::create_delete(
+            next_command_id(),
+            {after_op}));
+        }
       }
 
       get_tid_loc(nid, bid) = cur;

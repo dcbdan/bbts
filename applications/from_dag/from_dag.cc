@@ -17,7 +17,7 @@
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
 
-#define DCB01(x) std::cout << __LINE__ << " " << x << std::endl
+#define DCB01(x) // std::cout << "from_dag.cc " << __LINE__ << " " << x << std::endl
 
 using namespace bbts::dag;
 
@@ -234,13 +234,17 @@ partition_solution_t* build_partition_info(
   std::unordered_map<int, vector<int>> const& possible_parts,
   int num_ranks)
 {
+  DCB01("X0");
   vector<vector<int>> partition = run_partition(
     dag,
     params,
     possible_parts);
+  DCB01("X1");
 
   partition_solution_t* ret = new partition_solution_t(dag, partition);
   auto& relations = ret->relations;
+
+  DCB01("X2");
 
   vector<vector<vector<int>>> items {
     just_computes(greedy_solve_placement(false, true,  relations, num_ranks)),
@@ -248,6 +252,8 @@ partition_solution_t* build_partition_info(
     just_computes(dyn_solve_placement(relations, num_ranks)),
     dumb_solve_placement(relations, num_ranks)
   };
+
+  DCB01("X3");
 
   vector<uint64_t> costs;
   if(num_ranks > 1) {
@@ -272,6 +278,7 @@ partition_solution_t* build_partition_info(
     ret->compute_locs = items[0]; // all 'items' are the same
   }
 
+  DCB01("X4");
 
   // now that ret is set, just print out all the info
 
@@ -387,6 +394,9 @@ int main(int argc, char **argv)
       superize(nodes);
       dag_t dag(nodes);
       DCB01("did the superize!");
+      for(auto const& n: nodes) {
+        std::cout << n << std::endl;
+      }
 
       search_params_t params {
         .num_workers                  = 0,
@@ -437,8 +447,8 @@ int main(int argc, char **argv)
         table << "bytes_scale_min    " << params.bytes_scale_min    << table.endl;
         table << "bytes_scale_max    " << params.bytes_scale_max    << table.endl;
         table << "reblock_intercept  " << params.reblock_intercept  << table.endl;
-	table << "barrier r intercpet" << params.barrier_reblock_intercept
-		                                                    << table.endl;
+        table << "barrier r intercpet" << params.barrier_reblock_intercept
+                                                                    << table.endl;
         table << "parts file         " << possible_parts_file       << table.endl;
         std::cout << table << std::endl;
       }
@@ -452,17 +462,17 @@ int main(int argc, char **argv)
           parts[0][dim] = ps;
           parts[1][dim] = ps;
           parts[2][dim] = ps;
-	  parts[3][dim] = ps;
-	  parts[4][dim] = ps;
+           parts[3][dim] = ps;
+           parts[4][dim] = ps;
         } else {
           // *  *  *  *  *
-	  // 0  1  2  3
-	  //    3  2  1  0
-       	  auto v0 = ps[0];
+          // 0  1  2  3
+          //    3  2  1  0
+          auto v0 = ps[0];
           auto v1 = ps[1];
           auto v2 = ps[3];
           auto v3 = ps[4];
-	  auto v4 = ps[5];
+          auto v4 = ps[5];
           auto m3 = ps[ps.size()-4];
           auto m2 = ps[ps.size()-3];
           auto m1 = ps[ps.size()-2];
@@ -471,22 +481,25 @@ int main(int argc, char **argv)
           parts[1][dim] = {v0, m3, m2, m1, m0};
           parts[2][dim] = {v0, v1, m2, m1, m0};
           parts[3][dim] = {v0, m3, m2};
-	  parts[4][dim] = {v0, v1, m2, m1};
+          parts[4][dim] = {v0, v1, m2, m1};
         }
       }
 
       partition_solution_t* info = nullptr;
       for(auto const& partI: parts) {
         auto maybe = build_partition_info(dag, params, partI, num_ranks);
-	      if(info == nullptr || maybe->cost < info->cost) {
-	        if(info != nullptr) {
-                  delete info;
-	        }
-                info = maybe;
-	      } else {
-                delete maybe;
-	      }
+        if(info == nullptr || maybe->cost < info->cost) {
+          if(info != nullptr) {
+            delete info;
+          }
+          info = maybe;
+          std::cout << "winner @ " << info->cost << std::endl;
+        } else {
+          delete maybe;
+        }
       }
+
+      DCB01("did the partitioning...");
 
       std::cout << "Best cost: " << (info->cost / 10000000) << std::endl;
 
@@ -504,20 +517,23 @@ int main(int argc, char **argv)
         info->relations,
         info->compute_locs,
         ud_info,
-      	num_ranks);
+        num_ranks);
 
-      DCB01("!!! " << info->cost);
+      DCB01("!!! ");
 
       auto [input_cmds, run_cmds] = g.extract();
 
       DCB01("G run commands next...");
 
       //{
-      //  std::cout << "printing command dag to commands_for_js.txt" << std::endl;
+      //  //std::cout << "printing command dag to commands_for_js.txt" << std::endl;
 
-      //  std::ofstream f("commands_for_js.txt");
-      //  print_commands(f, input_cmds);
-      //  print_commands(f, run_cmds);
+      //  //std::ofstream f("commands_for_js.txt");
+      //  //print_commands(f, input_cmds);
+      //  //print_commands(f, run_cmds);
+
+      //  //print_commands(std::cout, input_cmds);
+      //  //print_commands(std::cout, run_cmds);
       //}
 
       run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
