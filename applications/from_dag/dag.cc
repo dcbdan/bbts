@@ -275,7 +275,9 @@ nid_t dag_t::get_part_owner(nid_t nid) const {
     return nid;
   }
 
-  if(node.type == node_t::node_type::reblock) {
+  if(node.type == node_t::node_type::reblock ||
+     node.type == node_t::node_type::mergesplit)
+  {
     assert(node.ups.size() == 1);
     node_t const& join_node = dag[node.ups[0]];
     assert(join_node.type == node_t::node_type::join);
@@ -325,6 +327,7 @@ vector<int> dag_t::get_agg(vector<int> const& xs, nid_t nid) const {
     }
     return ret;
   } else {
+    assert(false);  // TODO(if this gets hit): fix; should return empty vector?
     return xs;
   }
 }
@@ -344,6 +347,9 @@ vector<int> dag_t::get_out_for_input(
   if(upp.type == node_t::node_type::reblock) {
     return up_inc;
   } else
+  if(upp.type == node_t::node_type::mergesplit) {
+    return up_inc;
+  }
   if(upp.type == node_t::node_type::join) {
     // continue on
   } else {
@@ -393,6 +399,9 @@ vector<int> dag_t::get_out_from_owner_incident(
   if(node.type == node_t::node_type::input) {
     return inc;
   }
+  if(node.type == node_t::node_type::mergesplit) {
+    return get_out_for_input(inc, node.ups[0], nid);
+  }
   throw std::runtime_error("get_out_from_owner_incident: invalid node type");
   return {};
 }
@@ -406,6 +415,10 @@ vector<int> dag_t::get_node_incident(vector<int> const& inc, nid_t nid) const {
   node_t const& node = dag[nid];
 
   if(node.type == node_t::node_type::reblock) {
+    return get_out_for_input(inc, node.ups[0], nid);
+  }
+
+  if(node.type == node_t::node_type::mergesplit) {
     return get_out_for_input(inc, node.ups[0], nid);
   }
 

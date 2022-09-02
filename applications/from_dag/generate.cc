@@ -709,13 +709,35 @@ void generate_commands_t::add_node(nid_t nid) {
   // created over and over for every block
   std::unique_ptr<expand_indexer_t> expand_indexer_ptr(nullptr);
   if(node.type == node_t::node_type::reblock) {
-    auto const& partition_here = relations[nid].partition;
-    auto const& partition_down = relations[node.downs[0]].partition;
+    auto const& inn_partition = relations[node.downs[0]].partition;
+    auto const& out_partition = relations[nid].partition;
 
     expand_indexer_ptr = std::unique_ptr<expand_indexer_t>(
       new expand_indexer_t(
-        partition_here,
-        partition_down));
+        inn_partition,
+        out_partition));
+  }
+
+  // Turns out if we're gonna do a mergesplit, its basically a reblock
+  if(node.type == node_t::node_type::mergesplit) {
+    vector<int> inn_partition;
+    vector<int> out_partition;
+
+    auto const& input_nid = node.downs[0];
+    if(node.is_merge) {
+      // IJij -> Kk (= 1K1k)
+      inn_partition = relations[input_nid].partition;
+      out_partition = expand1(relations[nid].partition);
+    } else {
+      // Kk (= 1K1k) -> IJij
+      inn_partition = expand1(relations[input_nid].partition);
+      out_partition = relations[nid].partition;
+    }
+
+    expand_indexer_ptr = std::unique_ptr<expand_indexer_t>(
+      new expand_indexer_t(
+        inn_partition,
+        out_partition));
   }
 
   // Here are some things specific to join, but don't need to be
@@ -878,9 +900,32 @@ void generate_commands_t::add_node(nid_t nid) {
 
       get_tid_loc(nid, bid) = cur;
     }
-    else if(node.type == node_t::node_type::reblock)
+    else if(node.type == node_t::node_type::reblock ||
+            node.type == node_t::node_type::mergesplit)
     {
       expand_indexer_t const& expand_indexer = *expand_indexer_ptr;
+
+      vector<int> inn_partition;
+      vector<int> out_partition;
+      vector<int> bid_fixed;       // bid_fixed is with respect to a reblock
+
+      if(node.type == node_t::node_type::reblock) {
+        inn_partition = relations[node.downs[0]].partition;
+        out_partition = relations[nid].partition;
+        bid_fixed = bid;
+      } else {
+        if(node.is_merge) {
+          // IJij -> Kk (= 1K1k)
+          inn_partition = relations[node.downs[0]].partition;
+          out_partition = expand1(relations[nid].partition);
+          bid_fixed = squeeze(bid);
+        } else {
+          // Kk (= 1K1k) -> IJij
+          inn_partition = expand1(relations[node.downs[0]].partition);
+          out_partition = relations[nid].partition;
+          bid_fixed = bid;
+        }
+      }
 
       // the same reblock params are used for each of the inputs
       vector<command_param_t> reblock_params;
@@ -892,9 +937,9 @@ void generate_commands_t::add_node(nid_t nid) {
       auto const& partition_down = relations[node.downs[0]].partition;
       for(int r = 0; r != node.dims.size(); ++r) {
         insert(node.dims[r]);
-        insert(partition_down[r]);
-        insert(partition_here[r]);
-        insert(bid[r]);
+        insert(inn_partition[r]);
+        insert(out_partition[r]);
+        insert(bid_fixed[r]);
       }
 
       tid_loc_t cur{ next_tid(), compute_location };
@@ -908,8 +953,8 @@ void generate_commands_t::add_node(nid_t nid) {
 
         column_major_expand_t expand(expand_indexer.get_expand_dim(
           node.dims,
-          expand_indexer.get_which_input(bid, which_input),
-          bid));
+          expand_indexer.get_which_input(bid_fixed, which_input),
+          bid_fixed));
 
         bool compact_is_new = false;
         tid_t compact_tid = tid;
@@ -954,6 +999,7 @@ void generate_commands_t::add_node(nid_t nid) {
         }
       }
 
+      // do _not_ used bid_fixed here! This assigns the output at bid
       get_tid_loc(nid, bid) = cur;
     } else {
       throw std::runtime_error("should not reach");

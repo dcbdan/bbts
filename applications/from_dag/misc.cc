@@ -26,5 +26,25 @@ std::vector<std::vector<int>> cartesian(
   return ret;
 }
 
+std::vector<int> expand1(std::vector<int> const& xs)
+{
+  std::vector<int> ret(xs.size() + 1);
+  ret[0] = 1;
+  std::copy(xs.begin(), xs.end(), ret.begin() + 1);
+  return ret;
+}
+
+std::vector<int> expand0(std::vector<int> const& xs)
+{
+  std::vector<int> ret(xs.size() + 1);
+  ret[0] = 0;
+  std::copy(xs.begin(), xs.end(), ret.begin() + 1);
+  return ret;
+}
+
+std::vector<int> squeeze(std::vector<int> const& xs)
+{
+  return std::vector<int>(xs.begin() + 1, xs.end());
+}
 
 }}

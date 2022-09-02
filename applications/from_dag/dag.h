@@ -70,7 +70,8 @@ struct node_t {
     input,
     reblock,
     join,
-    agg
+    agg,
+    mergesplit
   };
 
   enum join_kernel_type {
@@ -101,6 +102,9 @@ struct node_t {
   vector<std::vector<rank_t>> ordering;
   vector<rank_t> aggs;
   join_kernel_type join_kernel;
+
+  // only valid if type == mergesplit
+  bool is_merge;
 
   // Does this node "own" a partitioning
   bool is_part_owner() const {

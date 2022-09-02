@@ -302,6 +302,9 @@ partition_solution_t* build_partition_info(
       if(node.type == node_t::node_type::reblock) {
         table << "R";
         if(num_unit > 0) { num_reb++; }
+      } else
+      if(node.type == node_t::node_type::mergesplit) {
+        table << "M";
       } else {
         table << "A";
         if(num_unit > 0) { num_agg++; }
@@ -368,7 +371,7 @@ int main(int argc, char **argv)
       //   MAX DEPTH
       //   F_MIN F_MAX
       //   B_MIN B_MAX
-      //   REBLOCK INTERCEPT 
+      //   REBLOCK INTERCEPT
       //   BARRIER REBLOCK INTERCEPT
       //   POSSIBLE_PARTS_FILE
       if(argc < 3) {
@@ -442,7 +445,7 @@ int main(int argc, char **argv)
 
       int num_ranks = node.get_num_nodes();
 
-      vector<std::unordered_map<int, vector<int>>> parts(5); 
+      vector<std::unordered_map<int, vector<int>>> parts(5);
       auto all_parts = build_possible_parts(dag, params.num_workers, possible_parts_file);
       for(auto [dim, ps]: all_parts) {
         if(ps.size() <= 4) {
@@ -475,14 +478,14 @@ int main(int argc, char **argv)
       partition_solution_t* info = nullptr;
       for(auto const& partI: parts) {
         auto maybe = build_partition_info(dag, params, partI, num_ranks);
-	if(info == nullptr || maybe->cost < info->cost) {
-	  if(info != nullptr) {
-            delete info;
-	  }
-          info = maybe;
-	} else {
-          delete maybe;
-	} 
+	      if(info == nullptr || maybe->cost < info->cost) {
+	        if(info != nullptr) {
+                  delete info;
+	        }
+                info = maybe;
+	      } else {
+                delete maybe;
+	      }
       }
 
       std::cout << "Best cost: " << (info->cost / 10000000) << std::endl;
@@ -501,7 +504,7 @@ int main(int argc, char **argv)
         info->relations,
         info->compute_locs,
         ud_info,
-	num_ranks);
+      	num_ranks);
 
       DCB01("!!! " << info->cost);
 

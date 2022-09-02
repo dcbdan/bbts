@@ -115,7 +115,6 @@ relation_t::_get_bid_inputs(vector<int> const& bid) const
   }
 
   if(node.type == node_t::node_type::reblock) {
-
     nid_t input_nid = node.downs[0];
 
     if(is_no_op()) {
@@ -139,6 +138,58 @@ relation_t::_get_bid_inputs(vector<int> const& bid) const
       }
       return ret;
     }
+  }
+
+  if(node.type == node_t::node_type::mergesplit) {
+    // This is the same as the reblock case, except with the added complication
+    // of working around merge and split.
+
+    nid_t input_nid = node.downs[0];
+
+    if(is_no_op()) {
+      if(node.is_merge) {
+        // ij->k; is no op means 1Kij -> Kk ... this means the input
+        // just needs a 0 added to the front
+        return {{input_nid, expand0(bid)}};
+      } else {
+        // k->ij; is no op means Kk -> 1Kij ... this means that the input
+        // doesn't need the zero front
+        return {{input_nid, squeeze(bid)}};
+      }
+    }
+
+    vector<int> inn_partition;
+    vector<int> out_partition;
+    if(node.is_merge) {
+      // IJij -> Kk (= 1K1k)
+      inn_partition = rels(input_nid).partition;
+      out_partition = expand1(partition);
+    } else {
+      // Kk (= 1K1k) -> IJij
+      inn_partition = expand1(rels(input_nid).partition);
+      out_partition = partition;
+    }
+
+    vector<tuple<nid_t, vector<int>>> ret;
+    // the expander can figure out which inputs touch
+    // this output.
+    expand_indexer_t e_indexer(inn_partition, out_partition);
+
+    // get all those inputs
+    auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
+
+    ret.reserve(inputs.size());
+    if(node.is_merge) {
+      for(auto const& input_bid: inputs) {
+        ret.emplace_back(input_nid, input_bid);
+      }
+    } else {
+      // In the split case, squeeze out the dummy dimension
+      for(auto const& input_bid: inputs) {
+        ret.emplace_back(input_nid, squeeze(input_bid));
+      }
+    }
+    return ret;
   }
 
   if(node.type == node_t::node_type::join) {
@@ -176,6 +227,19 @@ relation_t::operator[](vector<int> const& bid) const
       // so use the same bid
       nid_t input_nid = node.downs[0];
       return rels(input_nid)[bid];
+    }
+
+    if(node.type == node_t::node_type::mergesplit) {
+      // if this is a no op, the input relation has the same shape sans some ones and
+      // zeros...
+      nid_t input_nid = node.downs[0];
+      if(node.is_merge) {
+        // 1Kij -> Kk
+        return rels(input_nid)[expand0(bid)];
+      } else {
+        // Kk -> 1Kij
+        return rels(input_nid)[squeeze(bid)];
+      }
     }
 
     if(node.type == node_t::node_type::agg) {
@@ -258,6 +322,24 @@ bool relation_t::set_is_no_op() {
     auto const& input_blocking = rels(node.downs[0]).partition;
     return my_blocking == input_blocking;
   }
+  if(node.type == node_t::node_type::mergesplit) {
+    // 1Jij <-> Kk <-> 1K1k
+    auto const& my_blocking    = partition;
+    auto const& input_blocking = rels(node.downs[0]).partition;
+    if(node.is_merge) {
+      // ij->k
+      if(input_blocking[0] != 1) {
+        return false;
+      }
+      return squeeze(input_blocking) == my_blocking;
+    } else {
+      // k->ij; split
+      if(my_blocking[0] != 1) {
+        return false;
+      }
+      return squeeze(my_blocking) == input_blocking;
+    }
+  }
   if(node.type == node_t::node_type::agg) {
     auto const& my_blocking    = rels(nid).partition;
     auto const& join_blocking  = rels(node.downs[0]).partition;
@@ -270,17 +352,39 @@ bool relation_t::set_is_no_op() {
 
 vector<uint64_t> relation_t::input_tensor_sizes(vector<int> const& bid) const {
   auto const& node = dag[nid];
-  if(node.type == node_t::node_type::reblock) {
+  if(node.type == node_t::node_type::reblock ||
+     node.type == node_t::node_type::mergesplit)
+  {
+    vector<int> inn_partition;
+    vector<int> out_partition;
+    vector<int> dims;
+    if(node.type == node_t::node_type::reblock) {
+      inn_partition = rels(node.downs[0]).partition;
+      out_partition = partition;
+      dims = node.dims;
+    } else {
+      auto const& input_nid = node.downs[0];
+      if(node.is_merge) {
+        // IJij -> Kk (= 1K1k)
+        inn_partition = rels(input_nid).partition;
+        out_partition = expand1(partition);
+        dims = expand1(node.dims);
+      } else {
+        // Kk (= 1K1k) -> IJij
+        inn_partition = expand1(rels(input_nid).partition);
+        out_partition = partition;
+        dims = node.dims;
+      }
+    }
     vector<uint64_t> ret;
-    expand_indexer_t e_indexer(
-      rels(node.downs[0]).partition,
-      partition);
+    expand_indexer_t e_indexer(inn_partition, out_partition);
+
     auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
     ret.reserve(inputs.size());
     for(auto const& which_inn: inputs) {
       ret.push_back(1);
       // take the product of the expand dim sizes
-      for(auto expand_dim: e_indexer.get_expand_dim(node.dims, which_inn, bid)) {
+      for(auto expand_dim: e_indexer.get_expand_dim(dims, which_inn, bid)) {
         ret.back() *= expand_dim.interval;
       }
     }

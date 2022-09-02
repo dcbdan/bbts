@@ -80,6 +80,7 @@ struct relation_t {
 
   uint64_t tensor_size() const;
 
+  // For reblock and splitmerge, the sizes are assuming all inputs are compacted.
   vector<uint64_t> input_tensor_sizes(vector<int> const& bid) const;
 
   // This nid

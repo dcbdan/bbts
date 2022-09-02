@@ -100,7 +100,11 @@ struct solver_t {
     // This is coster for use by the actual node; they may use the search params in
     // the computation
     uint64_t cost_node(nid_t nid, vector<int> const& partition) const;
-    uint64_t cost_reblock(nid_t nid, vector<int> const& p_up, vector<int> const& p_down) const;
+    uint64_t cost_reblock_or_mergesplit(
+                             nid_t nid, vector<int> const& p_up, vector<int> const& p_down) const;
+    uint64_t cost_reblock(   nid_t nid, vector<int> const& p_up, vector<int> const& p_down) const;
+    uint64_t cost_mergesplit(nid_t nid, vector<int> const& p_up, vector<int> const& p_down) const;
+
   private:
     solver_t* self;
 

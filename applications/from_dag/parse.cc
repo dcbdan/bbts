@@ -66,6 +66,8 @@ struct tokenizer_t {
         case 'A':
           n = node_t::node_type::agg;
           return t_node;
+        case 'M':
+          n = node_t::node_type::mergesplit;
         case '$':
           return t_dollar;
         case '|':
@@ -181,6 +183,9 @@ std::vector<int> read_list(tokenizer_t& tk, token_t stop)
 //   R1[i<ud>...ud params...]|50,60
 //   J2[i<ud>...ud params...],0,1$3,1,2:1|40,50,60
 //   A4[i<ud>...ud params...]|40,60
+//
+// MergeSplit node
+// M[i<is_merge_or_not>]...
 void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
   tokenizer_t tk(filename);
 
@@ -209,6 +214,10 @@ void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
       // The first param of a join node better be an int
       n.join_kernel = static_cast<node_t::join_kernel_type>(tk.ps[0].get_int());
 
+      start_ps = 1;
+      end_ps = tk.ps.size();
+    } else if(n.type == node_t::node_type::mergesplit) {
+      n.is_merge = tk.ps[0].get_bool();
       start_ps = 1;
       end_ps = tk.ps.size();
     } else {
@@ -243,6 +252,11 @@ void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
         n.aggs = read_list(tk, t_bar);
         break;
       case node_t::node_type::agg:
+        tk.expect(t_uint);
+        n.downs.push_back(tk.i);
+        tk.expect(t_bar);
+        break;
+      case node_t::node_type::mergesplit:
         tk.expect(t_uint);
         n.downs.push_back(tk.i);
         tk.expect(t_bar);

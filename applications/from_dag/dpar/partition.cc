@@ -235,7 +235,9 @@ vector<vector<int>> solver_t::get_partition() const {
       nid_t const& join_nid = node.downs[0];
       ret[nid] = dag.get_out(partition[join_nid], join_nid);
     } else
-    if(node.type == node_t::node_type::reblock) {
+    if(node.type == node_t::node_type::reblock ||
+       node.type == node_t::node_type::mergesplit)
+    {
       nid_t const& join_nid = node.ups[0];
       ret[nid] = dag.get_out_for_input(partition[join_nid], join_nid, nid);
     } else {
@@ -276,7 +278,9 @@ void superize(vector<node_t>& dag) {
 
     for(nid_t& down_nid: dag[join_nid].downs) {
       node_t& down_node = dag[down_nid];
-      if(down_node.type == node_t::node_type::reblock) {
+      if(down_node.type == node_t::node_type::reblock ||
+         down_node.type == node_t::node_type::mergesplit)
+      {
         continue;
       }
       DCB_SUPERIZE("nid " << join_nid << " connected down to "
@@ -428,7 +432,7 @@ uint64_t solver_t::coster_t::cost_super_node(
         self->partition[compute_nid], compute_nid, up_reblock_nid);
 
       auto const& partition_down = out_partition;
-      ret += cost_reblock(up_reblock_nid, partition_up, partition_down);
+      ret += cost_reblock_or_mergesplit(up_reblock_nid, partition_up, partition_down);
     }
   }
 
@@ -458,7 +462,7 @@ uint64_t solver_t::coster_t::cost_super_node(
       auto partition_up = dag.get_out_for_input(
         partition, nid, reblock_nid);
 
-      ret += cost_reblock(reblock_nid, partition_up, partition_down);
+      ret += cost_reblock_or_mergesplit(reblock_nid, partition_up, partition_down);
     }
   }
 
@@ -486,15 +490,18 @@ uint64_t solver_t::coster_t::cost_super_edge(
   }
 
   for(nid_t const& up_reblock_nid: dag[super_top].ups) {
-    if(dag[up_reblock_nid].type != node_t::node_type::reblock) {
-      throw std::runtime_error("invalid up reblock nid!!!");
+    if(dag[up_reblock_nid].type != node_t::node_type::reblock &&
+       dag[up_reblock_nid].type != node_t::node_type::mergesplit)
+    {
+      throw std::runtime_error("invalid up reblock or mergesplit nid!!!");
     }
+
     nid_t compute_nid = dag[up_reblock_nid].ups[0];
     if(compute_nid == parent_nid) {
       auto upp_partition = dag.get_out_for_input(
         parent_partition, compute_nid, up_reblock_nid);
 
-      return cost_reblock(up_reblock_nid, upp_partition, inn_partition);
+      return cost_reblock_or_mergesplit(up_reblock_nid, upp_partition, inn_partition);
     }
   }
 
@@ -551,7 +558,7 @@ inline uint64_t solver_t::coster_t::_cost(uint64_t total, int num_parallel) cons
   auto const& params = self->params;
   auto const& num_workers = params.num_workers;
 
-  uint64_t cost_per_block = 
+  uint64_t cost_per_block =
     (total * params.num_workers) / std::min(num_parallel, num_workers);
 
   uint64_t parallel_multiplier = (num_parallel + num_workers - 1) / num_workers;
@@ -597,7 +604,7 @@ uint64_t solver_t::coster_t::cost_node(
 
     // Each block has an input from each input relation
     uint64_t total_bytes = 0;
-    uint64_t max_inn_bytes = 0; 
+    uint64_t max_inn_bytes = 0;
     for(nid_t const& down_nid: node.downs) {
       total_bytes += self->relation_bytes[down_nid];
       if(self->relation_bytes[down_nid] > max_inn_bytes) {
@@ -619,6 +626,45 @@ uint64_t solver_t::coster_t::cost_node(
 
   throw std::runtime_error("cost_node: should not reach");
   return 0;
+}
+
+uint64_t solver_t::coster_t::cost_reblock_or_mergesplit(
+  nid_t up_reblock_nid, vector<int> const& out_part, vector<int> const& inn_part) const
+{
+  auto const& dag = self->dag;
+
+  if(dag[up_reblock_nid].type == node_t::node_type::mergesplit)
+  {
+    return cost_mergesplit(up_reblock_nid, out_part, inn_part);
+  }
+  if(dag[up_reblock_nid].type == node_t::node_type::reblock)
+  {
+    return cost_reblock(   up_reblock_nid, out_part, inn_part);
+  }
+  throw std::runtime_error("must have either a reblock or a mergesplit node");
+  return 0;
+}
+
+uint64_t solver_t::coster_t::cost_mergesplit(
+  nid_t nid, vector<int> const& out_part, vector<int> const& inn_part) const
+{
+  // Find the equivalent reblock and just call cost_reblock
+
+  vector<int> inn_part_fixed;
+  vector<int> out_part_fixed;
+
+  auto const& node = self->dag[nid];
+  if(node.is_merge) {
+    // IJij -> Kk (= 1K1k)
+    inn_part_fixed = inn_part;
+    out_part_fixed = expand1(out_part);
+  } else {
+    // Kk (= 1K1k) -> IJij
+    inn_part_fixed = expand1(inn_part);
+    out_part_fixed = out_part;
+  }
+
+  return this->cost_reblock(nid, out_part_fixed, inn_part_fixed);
 }
 
 uint64_t solver_t::coster_t::cost_reblock(
@@ -657,7 +703,7 @@ uint64_t solver_t::coster_t::cost_reblock(
 
   DCB_B("case: reblock");
 
-  uint64_t intercept = params.reblock_intercept + 
+  uint64_t intercept = params.reblock_intercept +
 		(is_barrier ? params.barrier_reblock_intercept : 0);
   return intercept + _cost(num_bytes + num_flops, num_blk);
 

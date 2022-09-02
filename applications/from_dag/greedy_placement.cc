@@ -381,9 +381,11 @@ uint64_t total_move_cost(
   // make sure that this block lives at rank
   auto assure_moved_to = [&](nid_t nid, int idx, int rank) {
     if(placements[nid].locs[idx].count(rank) == 0) {
-      // Touches don't actually move the whole, tensor,
+      // Touches don't actually move the whole tensor,
       // they move some part of the tensor.
-      if(dag[nid].type != node_t::node_type::reblock) {
+      if(dag[nid].type != node_t::node_type::reblock &&
+         dag[nid].type != node_t::node_type::mergesplit)
+      {
         placements[nid].locs[idx].insert(rank);
       }
       total += relations[nid].tensor_size();
@@ -435,7 +437,7 @@ uint64_t total_move_cost(
     }
 
     //int num_blocks = relations[nid].get_num_blocks();
-    //for(int idx = 0; idx != num_blocks; ++idx) 
+    //for(int idx = 0; idx != num_blocks; ++idx)
 
     indexer_t indexer(relations[nid].partition);
     do {
@@ -445,7 +447,9 @@ uint64_t total_move_cost(
       if(dag[nid].type == node_t::node_type::agg) {
         move_to_reduce(nid, idx);
       } else
-      if(dag[nid].type == node_t::node_type::reblock) {
+      if(dag[nid].type == node_t::node_type::reblock ||
+         dag[nid].type == node_t::node_type::mergesplit)
+      {
         move_to_reblock(nid, bid);
       } else {
         int rank = placements[nid].computes[idx];
@@ -681,7 +685,7 @@ vector<placement_t> dyn_solve_placement(
     }
 
     // This is an unassigned node, but is it chosen?
-    //   reblock                         not chosen
+    //   reblock or mergesplit           not chosen
     //   agg                             chosen
     //   join
     //     paired with agg               not chosen
@@ -691,7 +695,9 @@ vector<placement_t> dyn_solve_placement(
     node_t const& node = dag[nid];
 
     // Reblock nodes are never assigned directly
-    if(node.type == node_t::node_type::reblock) {
+    if(node.type == node_t::node_type::reblock ||
+       node.type == node_t::node_type::mergesplit)
+    {
       continue;
     }
     // If this is a join paired with an agg THAT IS NOT A NO OP, solve at the agg so pass

@@ -5,7 +5,7 @@
 
 namespace bbts { namespace dag {
 
-// TODO(cleanup): this is a source of bugs: 
+// TODO(cleanup): this is a source of bugs:
 //   myint = product(vector<int>{...}) is a silent killer..
 // Use product_to_int, product_to_uint64_t and so on...
 template <typename T, typename U=uint64_t>
@@ -42,5 +42,9 @@ struct indexer_t {
 
 std::vector<std::vector<int>> cartesian(
   std::vector<std::vector<int> > const& vs);
+
+std::vector<int> expand1(std::vector<int> const& xs);
+std::vector<int> expand0(std::vector<int> const& xs);
+std::vector<int> squeeze(std::vector<int> const& xs);
 
 }}
