@@ -185,7 +185,7 @@ std::vector<int> read_list(tokenizer_t& tk, token_t stop)
 //   A4[i<ud>...ud params...]|40,60
 //
 // MergeSplit node
-// M[i<is_merge_or_not>]...
+// M[i<split size for leading dim or 0 if merge>]...
 void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
   tokenizer_t tk(filename);
 
@@ -217,7 +217,7 @@ void parse_dag_into(std::string filename, std::vector<node_t>& ret) {
       start_ps = 1;
       end_ps = tk.ps.size();
     } else if(n.type == node_t::node_type::mergesplit) {
-      n.is_merge = tk.ps[0].get_bool();
+      n.is_merge = tk.ps[0].get_int() == 0;
       start_ps = 1;
       end_ps = tk.ps.size();
     } else {

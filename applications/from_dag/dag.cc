@@ -78,7 +78,11 @@ std::ostream& node_t::print(std::ostream& os) const
       print_params();
       os << downs[0];
       break;
-
+    case node_type::mergesplit:
+      os << "M";
+      print_params();
+      os << downs[0];
+      break;
   }
   os << "|";
   print_list(os, dims);
