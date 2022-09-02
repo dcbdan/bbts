@@ -43,6 +43,13 @@ struct param_t {
     assert(which == which_t::B);
     return val.b;
   }
+
+  static param_t make_int(int int_val) {
+    param_t ret;
+    ret.which = which_t::I;
+    ret.val.i = int_val;
+    return ret;
+  }
 };
 
 bbts::command_param_t to_bbts_param(param_t p);

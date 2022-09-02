@@ -80,7 +80,11 @@ std::ostream& node_t::print(std::ostream& os) const
       break;
     case node_type::mergesplit:
       os << "M";
-      print_params();
+      if(is_merge) {
+        os << "[" << param_t::make_int(0) << "]";
+      } else {
+        os << "[" << param_t::make_int(dims[0]) << "]";
+      }
       os << downs[0];
       break;
   }

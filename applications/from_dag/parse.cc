@@ -68,6 +68,7 @@ struct tokenizer_t {
           return t_node;
         case 'M':
           n = node_t::node_type::mergesplit;
+          return t_node;
         case '$':
           return t_dollar;
         case '|':
