@@ -103,6 +103,7 @@ void reference(
     } else if(p.op.i == 7) {
       throw std::runtime_error(errmsg + "can't check dropout");
     } else {
+      // TODO(not important): implement 8 and 9 ops
       throw std::runtime_error(errmsg + "no op!");
     }
     r *= p.alpha;
@@ -193,11 +194,22 @@ struct op_t {
           data_out[i] = data_out[i] <= prob_dropped ? 0.0 : data_inn[i];
         }
       }
+    } else if(info.op.i == 8) {
+      // NoOp should explicitly handled
+      throw std::runtime_error(
+          "NoOp in unary_ew kernel. NoOp explicitly designed to not"
+          " have unary ew called--it is only for permutations");
+    } else if(info.op.i == 9) {
+      // absorb scale by alpha here
+      float op_alpha = info.alpha * info.op.f;
+      // data_out = op_alpha * data_inn + 0.0 * data_out
+      cblas_saxpby(n, op_alpha, data_inn, 1,
+                      0.0,      data_out, 1);
     } else {
       assert(false);
     }
 
-    if(info.alpha != 1.0) {
+    if(info.alpha != 1.0 && info.op.i != 9) {
       cblas_sscal(n, info.alpha, data_out, 1);
     }
 

@@ -524,7 +524,10 @@ public:
       _op_params.push_back(bbts::command_param_t {
           .i = params[i++].get_int()
       });
-      if(_op_params.back().i == 6 || _op_params.back().i == 7) {
+      if(_op_params.back().i == 6 ||
+         _op_params.back().i == 7 ||
+         _op_params.back().i == 9)
+      {
         _op_params.push_back(bbts::command_param_t {
           .f = params[i++].get_float()
         });
