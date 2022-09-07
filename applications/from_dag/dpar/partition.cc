@@ -22,7 +22,7 @@ std::ostream& operator<<(std::ostream& os, std::vector<T> const& xs)
 }
 
 
-#define DCB01(x)        std::cout << "dpar " << __LINE__ << " " << x << std::endl
+#define DCB01(x)        // std::cout << "dpar " << __LINE__ << " " << x << std::endl
 #define DCB_SUPERIZE(x) // std::cout << "dpar super " << __LINE__ << " " << x << std::endl
 #define DCB_B(x) //std::cout << "batch prob " << __LINE__ << "| " << x << std::endl
 #define DCB_X(x) //std::cout << x << std::endl
@@ -35,7 +35,6 @@ vector<vector<int>> run_partition(
   search_params_t const& params,
   unordered_map<int, vector<int>> const& possible_parts)
 {
-  DCB01("enter run partition");
   solver_t solver(dag, params, possible_parts);
 
   for(nid_t nid: dag.breadth_dag_order()) {
@@ -68,7 +67,6 @@ vector<vector<int>> run_partition(
     }
   }
 
-  //DCB01("exit run partition");
   return solver.get_partition();
 }
 
@@ -81,8 +79,6 @@ solver_t::solver_t(
     possible_parts(possible_parts_),
     partition(dag_.size())
 {
-  DCB01("sover_t constructor enter");
-
   // For each relation, compute the total bytes and flops size.
   relation_bytes.reserve(dag.size());
   relation_flops.reserve(dag.size());
@@ -153,7 +149,6 @@ solver_t::solver_t(
       cost_nodes.push_back(nullptr);
     }
   }
-  DCB01("sover_t constructor exit");
 }
 
 solver_t::coster_t::coster_t(nid_t top_nid, solver_t* self):
@@ -187,12 +182,8 @@ solver_t::coster_t::coster_t(nid_t top_nid, solver_t* self):
 void solver_t::solve(nid_t nid) {
   using namespace std::placeholders;
 
-  DCB01("solve A");
-
   // Set up the tree to solve with the dynamic programming algorithm
   coster_t coster(nid, this);
-
-  DCB01("solve B; with nids " << std::vector<int>(coster.s_nids.begin(), coster.s_nids.end()));
 
   tree::f_cost_node_t<vector<int>> f_cost_node =
     std::bind(&solver_t::coster_t::cost_super_node, &coster, _1, _2);
@@ -208,14 +199,11 @@ void solver_t::solve(nid_t nid) {
 
   // Update the partition values here
   for(nid_t const& nid: coster.s_nids) {
-    DCB01("solve found for " << nid << " a partition of " << solved[nid]);
     // TODO(wish, maybe):
     //   updating partition values should update the total cost, so that the
     //   solver maintains an accurate cost always
     partition[nid] = solved[nid];
   }
-
-  DCB01("solve exit");
 }
 
 vector<vector<int>> solver_t::get_partition() const {
@@ -260,8 +248,6 @@ vector<vector<int>> solver_t::get_partition() const {
 // TODO(WISH): create a partiitoner where reblocks don't have to be
 //             everywhere
 void superize(vector<node_t>& dag) {
-
-  DCB01("enter superize");
   for(nid_t join_nid = 0; join_nid != dag.size(); ++join_nid) {
     if(dag[join_nid].type != node_t::node_type::join) {
       continue;
@@ -319,7 +305,6 @@ void superize(vector<node_t>& dag) {
       if(!found_it) { throw std::runtime_error("error in superize"); }
     }
   }
-  DCB01("exit superize");
 }
 
 vector<vector<int>> solver_t::coster_t::get_options(nid_t nid) {

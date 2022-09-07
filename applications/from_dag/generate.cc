@@ -6,7 +6,7 @@
 #include <numeric>
 #include <map>
 
-#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl
+#define DCB01(x) // std::cout << "generate " << __LINE__ << " " << x << std::endl
 #define HAS_PERMUTE(x) // std::cout << "HAS PERMUTE " << x << std::endl
 
 namespace bbts { namespace dag {
@@ -946,7 +946,7 @@ void generate_commands_t::add_node(nid_t nid) {
           // IJij -> Kk (= 1K1k)
           inn_partition = relations[node.downs[0]].partition;
           out_partition = expand1(relations[nid].partition);
-          bid_fixed = squeeze(bid);
+          bid_fixed = expand0(bid);
         } else {
           // Kk (= 1K1k) -> IJij
           inn_partition = expand1(relations[node.downs[0]].partition);

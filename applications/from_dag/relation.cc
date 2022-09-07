@@ -14,12 +14,8 @@ relations_t::relations_t(
   vector<vector<int>> const& partition):
     dag(dag_), cache(dag_.size())
 {
-  DCB01("enter: constructor realtions");
-
   std::function<relation_t const& (nid_t)> get_rel = std::bind(
     &relations_t::operator[], this, std::placeholders::_1);
-
-  DCB01("A");
 
   relations.reserve(dag.size());
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
@@ -27,27 +23,19 @@ relations_t::relations_t(
       nid, partition[nid], dag, cache, get_rel);
   }
 
-  DCB01("B");
-
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
     if(!relations[nid].is_no_op()) {
       auto num_blk = relations[nid].get_num_blocks();
-      DCB01("                        |   " << nid << " " << dag[nid] << " : " << num_blk);
       cache.inns[nid].resize(num_blk);
       cache.outs[nid].resize(num_blk);
     }
   }
 
-  DCB01("C");
-
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
     if(!relations[nid].is_no_op()) {
-      DCB01("nid " << nid << "      " << dag[nid]);
       relations[nid].write_cache(cache);
     }
   }
-
-  DCB01("exit: constructor realtions");
 }
 
 relation_t::relation_t(
@@ -77,10 +65,7 @@ vector<tuple<nid_t, int>> relation_t::_get_inputs(vector<int> const& bid) const
 }
 
 void relation_t::write_cache(cache_t& cache) const {
-  DCB01("enter write cache");
-
   indexer_t indexer(partition);
-
   do {
     auto const& bid = indexer.idx;
     int idx = bid_to_idx(bid);
@@ -90,12 +75,7 @@ void relation_t::write_cache(cache_t& cache) const {
     for(auto const& [input_nid, input_idx]: cache.inns[nid][idx]) {
       cache.outs[input_nid][input_idx].emplace_back(nid, idx);
     }
-
-    DCB01("B");
-
   } while (indexer.increment());
-
-  DCB01("exit write cache");
 }
 
 
