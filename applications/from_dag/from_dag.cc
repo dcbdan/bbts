@@ -17,7 +17,7 @@
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
 
-#define DCB01(x) // std::cout << "from_dag.cc " << __LINE__ << " " << x << std::endl
+#define DCB01(x) std::cout << "from_dag.cc " << __LINE__ << " " << x << std::endl
 
 using namespace bbts::dag;
 
@@ -526,23 +526,23 @@ int main(int argc, char **argv)
       DCB01("G run commands next...");
 
       //{
-      //  //std::cout << "printing command dag to commands_for_js.txt" << std::endl;
+        //std::cout << "printing command dag to commands_for_js.txt" << std::endl;
 
       //  //std::ofstream f("commands_for_js.txt");
       //  //print_commands(f, input_cmds);
       //  //print_commands(f, run_cmds);
-
-      //  //print_commands(std::cout, input_cmds);
-      //  //print_commands(std::cout, run_cmds);
       //}
 
-      run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
-      run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
+      print_commands(std::cout, input_cmds);
+      print_commands(std::cout, run_cmds);
 
-      auto [did_shutdown, message] = node.shutdown_cluster();
-      if(!did_shutdown) {
-        throw std::runtime_error("did not shutdown: " + message);
-      }
+      //run_commands(node, input_cmds, "Loaded input commands",   "Ran input commands");
+      //run_commands(node, run_cmds,   "Loaded compute commands", "Ran compute commands");
+
+      //auto [did_shutdown, message] = node.shutdown_cluster();
+      //if(!did_shutdown) {
+      //  throw std::runtime_error("did not shutdown: " + message);
+      //}
 
       delete info;
     });

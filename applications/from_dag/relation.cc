@@ -4,7 +4,7 @@
 
 namespace bbts { namespace dag {
 
-#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl
+#define DCB01(x) // std::cout << "relation.cc " << __LINE__ << " " << x << std::endl
 
 using utils::expand::expand_indexer_t;
 using utils::expand::column_major_expand_t;
@@ -14,8 +14,12 @@ relations_t::relations_t(
   vector<vector<int>> const& partition):
     dag(dag_), cache(dag_.size())
 {
+  DCB01("enter: constructor realtions");
+
   std::function<relation_t const& (nid_t)> get_rel = std::bind(
     &relations_t::operator[], this, std::placeholders::_1);
+
+  DCB01("A");
 
   relations.reserve(dag.size());
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
@@ -23,18 +27,27 @@ relations_t::relations_t(
       nid, partition[nid], dag, cache, get_rel);
   }
 
-  for(nid_t nid = 0; nid != dag.size(); ++nid) {
-    if(!relations[nid].is_no_op()) {
-      cache.inns[nid].resize(relations[nid].get_num_blocks());
-      cache.outs[nid].resize(relations[nid].get_num_blocks());
-    }
-  }
+  DCB01("B");
 
   for(nid_t nid = 0; nid != dag.size(); ++nid) {
     if(!relations[nid].is_no_op()) {
+      auto num_blk = relations[nid].get_num_blocks();
+      DCB01("                        |   " << nid << " " << dag[nid] << " : " << num_blk);
+      cache.inns[nid].resize(num_blk);
+      cache.outs[nid].resize(num_blk);
+    }
+  }
+
+  DCB01("C");
+
+  for(nid_t nid = 0; nid != dag.size(); ++nid) {
+    if(!relations[nid].is_no_op()) {
+      DCB01("nid " << nid << "      " << dag[nid]);
       relations[nid].write_cache(cache);
     }
   }
+
+  DCB01("exit: constructor realtions");
 }
 
 relation_t::relation_t(
@@ -64,6 +77,8 @@ vector<tuple<nid_t, int>> relation_t::_get_inputs(vector<int> const& bid) const
 }
 
 void relation_t::write_cache(cache_t& cache) const {
+  DCB01("enter write cache");
+
   indexer_t indexer(partition);
 
   do {
@@ -76,16 +91,17 @@ void relation_t::write_cache(cache_t& cache) const {
       cache.outs[input_nid][input_idx].emplace_back(nid, idx);
     }
 
+    DCB01("B");
+
   } while (indexer.increment());
+
+  DCB01("exit write cache");
 }
+
 
 vector<tuple<nid_t, vector<int>>>
 relation_t::_get_bid_inputs(vector<int> const& bid) const
 {
-  if(bid.size() != partition.size()) {
-    throw std::runtime_error("bid size is incorrect");
-  }
-
   node_t const& node = dag[nid];
 
   if(node.type == node_t::node_type::agg) {
@@ -160,14 +176,17 @@ relation_t::_get_bid_inputs(vector<int> const& bid) const
 
     vector<int> inn_partition;
     vector<int> out_partition;
+    vector<int> bid_fixed;
     if(node.is_merge) {
       // IJij -> Kk (= 1K1k)
       inn_partition = rels(input_nid).partition;
       out_partition = expand1(partition);
+      bid_fixed     = expand0(bid);
     } else {
       // Kk (= 1K1k) -> IJij
       inn_partition = expand1(rels(input_nid).partition);
       out_partition = partition;
+      bid_fixed     = bid;
     }
 
     vector<tuple<nid_t, vector<int>>> ret;
@@ -176,7 +195,7 @@ relation_t::_get_bid_inputs(vector<int> const& bid) const
     expand_indexer_t e_indexer(inn_partition, out_partition);
 
     // get all those inputs
-    auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
+    auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid_fixed));
 
     ret.reserve(inputs.size());
     if(node.is_merge) {

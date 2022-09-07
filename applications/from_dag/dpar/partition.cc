@@ -22,7 +22,7 @@ std::ostream& operator<<(std::ostream& os, std::vector<T> const& xs)
 }
 
 
-#define DCB01(x)        // std::cout << "dpar " << __LINE__ << " " << x << std::endl
+#define DCB01(x)        std::cout << "dpar " << __LINE__ << " " << x << std::endl
 #define DCB_SUPERIZE(x) // std::cout << "dpar super " << __LINE__ << " " << x << std::endl
 #define DCB_B(x) //std::cout << "batch prob " << __LINE__ << "| " << x << std::endl
 #define DCB_X(x) //std::cout << x << std::endl
@@ -182,7 +182,6 @@ solver_t::coster_t::coster_t(nid_t top_nid, solver_t* self):
       }
     }
   }
-  DCB01("COSTER has nids of " << std::vector<int>(s_nids.begin(), s_nids.end()));
 }
 
 void solver_t::solve(nid_t nid) {
@@ -193,7 +192,7 @@ void solver_t::solve(nid_t nid) {
   // Set up the tree to solve with the dynamic programming algorithm
   coster_t coster(nid, this);
 
-  DCB01("solve B");
+  DCB01("solve B; with nids " << std::vector<int>(coster.s_nids.begin(), coster.s_nids.end()));
 
   tree::f_cost_node_t<vector<int>> f_cost_node =
     std::bind(&solver_t::coster_t::cost_super_node, &coster, _1, _2);
@@ -609,7 +608,7 @@ uint64_t solver_t::coster_t::cost_node(
       total_bytes += self->relation_bytes[down_nid];
       if(self->relation_bytes[down_nid] > max_inn_bytes) {
         max_inn_bytes = self->relation_bytes[down_nid];
-	mult = product(dag.get_out_for_input(inc_partition, nid, down_nid)) / num_agg;
+        mult = product(dag.get_out_for_input(inc_partition, nid, down_nid)) / num_agg;
       }
     }
     // We don't "move" the largest relation
@@ -704,7 +703,7 @@ uint64_t solver_t::coster_t::cost_reblock(
   DCB_B("case: reblock");
 
   uint64_t intercept = params.reblock_intercept +
-		(is_barrier ? params.barrier_reblock_intercept : 0);
+    (is_barrier ? params.barrier_reblock_intercept : 0);
   return intercept + _cost(num_bytes + num_flops, num_blk);
 
   //return barrier_multiplier * params.reblock_multiplier *
