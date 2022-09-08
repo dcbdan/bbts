@@ -1,8 +1,8 @@
 #include "greedy_placement.h"
 #include "dpar/min_cost_tree.h"
 
-#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl;
-
+#define DCB01(x) // std::cout << x << std::endl
+#define DCB02(x) // std::cout << x << std::endl
 
 namespace bbts { namespace dag {
 
@@ -191,8 +191,6 @@ vector<placement_t> greedy_solve_placement(
   relations_t const& relations,
   int num_nodes)
 {
-  DCB01("A");
-
   auto const& dag = relations[0].dag;
 
   // Start offset_rank at 1 since rank 0 is the master node
@@ -211,8 +209,6 @@ vector<placement_t> greedy_solve_placement(
   ret.resize(relations.size());
   // A relation with zero inputs is either (1) a no op or (2) not yet computed
 
-  DCB01("B");
-
   // Round robin assign all inputs
   for(nid_t nid = 0; nid != relations.size(); ++nid) {
     node_t const& node = dag[nid];
@@ -230,11 +226,7 @@ vector<placement_t> greedy_solve_placement(
     }
   }
 
-  DCB01("C");
-
   compute_score_t compute_scores(with_outputs, num_nodes, relations, ret);
-
-  DCB01("D");
 
   // For each non input, compute relation, assing the compute locations
   // and update where each block ends up being moved to
@@ -359,8 +351,6 @@ vector<placement_t> greedy_solve_placement(
       }
     }
   }
-
-  DCB01("E");
 
   return ret;
 }
@@ -530,6 +520,7 @@ struct dyn_solver_t {
 
   // Reach past dummy joins
   vector<tuple<nid_t, int>> get_useful_inputs(nid_t an_nid, int an_idx) const;
+
   void solve_and_update(nid_t nid, int bid) {
     tree_t t(nid, bid, this);
     t.solve_and_update();
@@ -562,7 +553,15 @@ struct dyn_solver_t {
   struct tree_t {
     tree_t(nid_t nid, int id, dyn_solver_t* self);
 
-    bool insert(int parent_idx, nid_t nid, int id);
+    enum children_t {
+      IN_TREE,   // this children is another tree
+      IS_SET,    // this (nid,id) has a compute location already
+      DUPLICATE  // this (nid,id) is a node in the tree elsewhere
+    };
+
+    children_t insert(int parent_idx, nid_t nid, int id);
+
+    bool in_tree(nid_t nid, int id);
 
     uint64_t cost_node(int idx,    int const& rank) const;
     uint64_t cost_edge(int idx_up, int const& rank_up,
@@ -572,7 +571,7 @@ struct dyn_solver_t {
 
     tree::tree_t<vector<int>> options;
 
-    vector<vector<tuple<nid_t, int, bool>>> idx_to_children;
+    vector<vector<tuple<nid_t, int, children_t>>> idx_to_children;
 
     vector<tuple<nid_t, int>> idx_to_id;
 
@@ -619,7 +618,6 @@ vector<placement_t> dyn_solve_placement(
       offset_rank = 0;
     }
   };
-
 
   // Round robin assign all inputs
   for(nid_t nid = 0; nid != relations.size(); ++nid) {
@@ -673,7 +671,7 @@ vector<placement_t> dyn_solve_placement(
   // It also reaches past dummy joins and doesn't set them.
   dyn_solver_t solver(relations, num_nodes, placements, load_limits);
 
-  // For each non input, compute relation, assing the compute locations
+  // For each non input, compute relation, assign the compute locations
   // and update where each block ends up being moved to
   for(nid_t const& nid: dag.breadth_dag_order()) {
     // Skip no ops, input nodes and nodes that are already assigned
@@ -822,22 +820,30 @@ dyn_solver_t::tree_t::tree_t(nid_t nid, int id, dyn_solver_t* self_): self(self_
 
   idx_to_id.emplace_back(nid, id);
 
-  idx_to_children.push_back(vector<tuple<nid_t, int, bool>>());
+  idx_to_children.push_back(vector<tuple<nid_t, int, children_t>>());
   idx_to_children.back().reserve(children.size());
 
   options.insert_root(0, self->options(nid, id));
+
   for(auto const& [down_nid, down_id]: children) {
     // recursively build the tree
-    bool did_add = insert(0, down_nid, down_id);
-    idx_to_children[0].emplace_back(down_nid, down_id, did_add);
+    children_t add_type = insert(0, down_nid, down_id);
+    idx_to_children[0].emplace_back(down_nid, down_id, add_type);
   }
 }
 
-bool dyn_solver_t::tree_t::insert(int parent_idx, nid_t nid, int id) {
+dyn_solver_t::tree_t::children_t
+dyn_solver_t::tree_t::insert(int parent_idx, nid_t nid, int id)
+{
   // This node doesn't belong in the tree since it has
   // been set.
   if(self->is_set(nid, id)) {
-    return false;
+    return children_t::IS_SET;
+  }
+  // And it could also be the case that this (nid,id) is already accounted
+  // for in this tree
+  if(in_tree(nid, id)) {
+    return children_t::DUPLICATE;
   }
 
   int idx = idx_to_id.size();
@@ -846,16 +852,25 @@ bool dyn_solver_t::tree_t::insert(int parent_idx, nid_t nid, int id) {
 
   idx_to_id.emplace_back(nid, id);
 
-  idx_to_children.push_back(vector<tuple<nid_t, int, bool>>());
+  idx_to_children.push_back(vector<tuple<nid_t, int, children_t>>());
   idx_to_children.back().reserve(children.size());
 
   options.insert_child(parent_idx, idx, self->options(nid, id));
 
   for(auto const& [down_nid, down_id]: children) {
-    bool did_add = insert(idx, down_nid, down_id);
-    idx_to_children[idx].emplace_back(down_nid, down_id, did_add);
+    children_t add_type = insert(idx, down_nid, down_id);
+    idx_to_children[idx].emplace_back(down_nid, down_id, add_type);
   }
-  return true;
+  return children_t::DUPLICATE;
+}
+
+bool dyn_solver_t::tree_t::in_tree(nid_t nid, int id) {
+  for(auto const& [other_nid, other_id]: idx_to_id) {
+    if(other_nid == nid && other_id == id) {
+      return true;
+    }
+  }
+  return false;
 }
 
 uint64_t dyn_solver_t::tree_t::cost_node(
@@ -866,8 +881,8 @@ uint64_t dyn_solver_t::tree_t::cost_node(
   //   move cost will be included as an edge cost.
   //   Otherwise, include any move cost that might occur.
   uint64_t total = 0;
-  for(auto const& [down_nid, down_id, is_in_tree]: idx_to_children[idx]) {
-    if(!is_in_tree) {
+  for(auto const& [down_nid, down_id, add_type]: idx_to_children[idx]) {
+    if(add_type == children_t::IS_SET) {
       if(!self->has_at(down_nid, down_id, rank)) {
         total += self->relations[down_nid].tensor_size();
       }

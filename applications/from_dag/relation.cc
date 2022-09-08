@@ -357,6 +357,7 @@ vector<uint64_t> relation_t::input_tensor_sizes(vector<int> const& bid) const {
     vector<int> inn_partition;
     vector<int> out_partition;
     vector<int> dims;
+    vector<int> bid_fixed;
     if(node.type == node_t::node_type::reblock) {
       inn_partition = rels(node.downs[0]).partition;
       out_partition = partition;
@@ -368,22 +369,24 @@ vector<uint64_t> relation_t::input_tensor_sizes(vector<int> const& bid) const {
         inn_partition = rels(input_nid).partition;
         out_partition = expand1(partition);
         dims = expand1(node.dims);
+        bid_fixed     = expand0(bid);
       } else {
         // Kk (= 1K1k) -> IJij
         inn_partition = expand1(rels(input_nid).partition);
         out_partition = partition;
         dims = node.dims;
+        bid_fixed     = bid;
       }
     }
     vector<uint64_t> ret;
     expand_indexer_t e_indexer(inn_partition, out_partition);
 
-    auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid));
+    auto inputs = expand_indexer_t::cartesian(e_indexer.get_inputs(bid_fixed));
     ret.reserve(inputs.size());
     for(auto const& which_inn: inputs) {
       ret.push_back(1);
       // take the product of the expand dim sizes
-      for(auto expand_dim: e_indexer.get_expand_dim(dims, which_inn, bid)) {
+      for(auto expand_dim: e_indexer.get_expand_dim(dims, which_inn, bid_fixed)) {
         ret.back() *= expand_dim.interval;
       }
     }
