@@ -24,7 +24,7 @@ vector<int64_t> compute_stride(vector<int64_t> const& dims, vector<int64_t> whic
   int64_t p = 1;
   int idx_inn = 0;
   for(int idx_out = 0; idx_out != dims.size(); ++idx_out) {
-    if(idx_out == which[idx_inn]) {
+    if(idx_inn < which.size() && idx_out == which[idx_inn]) {
       ret.push_back(p);
 
       // Now we have to increase p
