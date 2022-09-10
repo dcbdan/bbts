@@ -17,6 +17,14 @@ struct info_t {
   int64_t nj;
   int64_t nk;
   int64_t nb;
+
+  void print() const {
+    std::cout << "alpha: " << alpha << std::endl;
+    std::cout << "t l, r: " << t_lhs << ", " << t_rhs << std::endl;
+    std::cout << "num i j k b: "
+      << ni << ", " << nj << ", " << nk << ", " << nb
+      << std::endl;
+  }
 };
 
 info_t parse(bbts::ud_impl_t::tensor_params_t const& params)
@@ -29,7 +37,7 @@ info_t parse(bbts::ud_impl_t::tensor_params_t const& params)
 
   ret.t_lhs = params.get_int<0>();
   ret.t_rhs = params.get_int<1>();
-  ret.alpha = params.get_int<2>();
+  ret.alpha = params.get_float<2>();
 
   ret.ni = params.get_int<3>();
   ret.nj = params.get_int<4>();

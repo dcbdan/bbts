@@ -4,6 +4,12 @@
 #include <cstdint>
 #include <stdexcept>
 
+#define PRINT_VEC(x, vec)   \
+  std::cout << x << " ";    \
+  for(auto const& v: vec) { \
+    std::cout << v << " ";  \
+  } std::cout << std::endl
+
 namespace bbts { namespace dag {
 
 // TODO(cleanup): this is a source of bugs:
