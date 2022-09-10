@@ -7,10 +7,10 @@
 #include <string>
 #include <cctype>
 #include <iostream>
-#include <cassert>
 #include <map>
 #include <functional>
 
+#include "misc.h"
 #include "../../src/utils/cache_holder.h"
 #include "../../src/commands/command_utils.h"
 
@@ -32,15 +32,15 @@ struct param_t {
   val_t val;
 
   int get_int() const {
-    assert(which == which_t::I);
+    dcb_assert(which == which_t::I);
     return val.i;
   }
   float get_float() const {
-    assert(which == which_t::F);
+    dcb_assert(which == which_t::F);
     return val.f;
   }
   bool get_bool() const {
-    assert(which == which_t::B);
+    dcb_assert(which == which_t::B);
     return val.b;
   }
 

@@ -68,7 +68,7 @@ bool is_permutation(vector<int> ps) {
 
 template <typename T>
 vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
-  assert(is_permutation(ps));
+  dcb_assert(is_permutation(ps));
 
   vector<T> ret(ps.size());
   for(int i = 0; i != ps.size(); ++i) {
@@ -78,7 +78,7 @@ vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
 }
 
 vector<int> inverse(vector<int> const& ps) {
-  assert(is_permutation(ps));
+  dcb_assert(is_permutation(ps));
 
   vector<int> ret(ps.size());
   for(int i = 0; i != ps.size(); ++i) {
@@ -101,7 +101,7 @@ vector<int> from_to(vector<int> const& inn, vector<int> out) {
     i = relabel[i];
   }
 
-  assert(is_permutation(out));
+  dcb_assert(is_permutation(out));
   return out;
 }
 
@@ -177,6 +177,32 @@ vector<int> from_to(vector<int> const& inn, vector<int> out) {
 // the necessary params will be. Then generate_commands_t::add_node uses
 // that info to generate the necessary commands.
 
+void add_vector_to_param(vector<bbts::command_param_t>& ps, vector<int> const& vs)
+{
+  ps.push_back(bbts::command_param_t{ .i = (int)vs.size() });
+  for(int const& v: vs) {
+    ps.push_back(bbts::command_param_t{ .i = v });
+  }
+}
+
+vector<bbts::command_param_t> make_permutation_params(
+  vector<int> const& shape, // THE INPUT SHAPE
+  vector<int> const& perm)  // 012345->perm
+{
+  dcb_assert(is_permutation(perm));
+  for(auto const& val: shape) {
+    dcb_assert(val > 0);
+  }
+
+  vector<bbts::command_param_t> ret;
+  ret.reserve(shape.size() + perm.size() + 2);
+
+  add_vector_to_param(ret, shape);
+  add_vector_to_param(ret, perm);
+
+  return ret;
+}
+
 class join_handler_t {
   vector<tuple<int, vector<bbts::command_param_t>>> _input_permutes;
   vector<bbts::command_param_t> _op_params;
@@ -204,7 +230,7 @@ class join_handler_t {
         if(in_rhs) {
           ks.push_back(m);
         } else {
-          assert(false);
+          dcb_assert(false);
         }
       }
       for(auto const& m: modes_lhs) {
@@ -250,13 +276,13 @@ class join_handler_t {
   private:
     vector<int> is, js, ks, bs;
 
-    bool is_(
+    static bool is_(
       vector<int> const& modes,
       vector<int> const& as,
       vector<int> const& bs,
-      vector<int> const& cs) const
+      vector<int> const& cs)
     {
-      assert(modes.size() == (as.size() + bs.size() + cs.size()));
+      dcb_assert(modes.size() == (as.size() + bs.size() + cs.size()));
 
       int i = 0;
       for(int const& a: as) { if(modes[i++] != a) { return false; } }
@@ -266,11 +292,11 @@ class join_handler_t {
       return true;
     }
 
-    vector<int> permute_to_(
+    static vector<int> permute_to_(
       vector<int> const& modes_inn,
       vector<int> const& as,
       vector<int> const& bs,
-      vector<int> const& cs) const
+      vector<int> const& cs)
     {
       vector<int> modes_out;
 
@@ -279,16 +305,16 @@ class join_handler_t {
       for(int const& b: bs) { modes_out.push_back(b); }
       for(int const& c: cs) { modes_out.push_back(c); }
 
-      assert(modes_inn.size() == modes_out.size());
+      dcb_assert(modes_inn.size() == modes_out.size());
 
       return from_to(modes_inn, modes_out);
     }
 
-    vector<int> permute_from_(
+    static vector<int> permute_from_(
       vector<int> const& as,
       vector<int> const& bs,
       vector<int> const& cs,
-      vector<int> const& modes_out) const
+      vector<int> const& modes_out)
     {
       vector<int> modes_inn;
 
@@ -297,7 +323,7 @@ class join_handler_t {
       for(int const& b: bs) { modes_inn.push_back(b); }
       for(int const& c: cs) { modes_inn.push_back(c); }
 
-      assert(modes_inn.size() == modes_out.size());
+      dcb_assert(modes_inn.size() == modes_out.size());
 
       return from_to(modes_inn, modes_out);
     }
@@ -306,6 +332,7 @@ class join_handler_t {
 
 public:
   join_handler_t(
+    vector<vector<int>> const& all_the_dims,
     node_t::join_kernel_type kernel,
     vector<param_t> const& params)
   {
@@ -328,7 +355,7 @@ public:
       int num_rhs = params[1].get_int();
       int num_out = params[2].get_int();
 
-      assert(params.size() == 4 + num_lhs + num_rhs + num_out);
+      dcb_assert(params.size() == 4 + num_lhs + num_rhs + num_out);
 
       int beg_lhs = 3;
       int end_lhs = beg_lhs + num_lhs;
@@ -338,6 +365,10 @@ public:
 
       int beg_out = end_rhs;
       int end_out = beg_out + num_out;
+
+      vector<int> const& dims_lhs = all_the_dims[0];
+      vector<int> const& dims_rhs = all_the_dims[1];
+      vector<int> const& dims_out = all_the_dims[2];
 
       vector<int> modes_lhs; modes_lhs.reserve(num_lhs);
       vector<int> modes_rhs; modes_rhs.reserve(num_rhs);
@@ -362,13 +393,14 @@ public:
       } else {
         t_lhs = false;
 
-        vector<bbts::command_param_t> perm;
-        for(auto const& a: info.permute_to_ijb(modes_lhs)) {
-          perm.push_back(bbts::command_param_t { .i = a });
-        }
-
         HAS_PERMUTE("contraction input left rank " << perm.size());
-        _input_permutes.emplace_back(0, perm);
+
+        _input_permutes.emplace_back(
+          0,
+          make_permutation_params(
+            dims_lhs,
+            info.permute_to_ijb(modes_lhs)
+          ));
       }
 
       bool t_rhs;
@@ -379,13 +411,16 @@ public:
       } else {
         t_rhs = false;
 
-        vector<bbts::command_param_t> perm;
-        for(auto const& a: info.permute_to_jkb(modes_rhs)) {
-          perm.push_back(bbts::command_param_t { .i = a });
-        }
-
         HAS_PERMUTE("contraction input right rank " << perm.size());
-        _input_permutes.emplace_back(1, perm);
+
+        info.permute_to_jkb(modes_rhs);
+
+        _input_permutes.emplace_back(
+          1,
+          make_permutation_params(
+            dims_rhs,
+            info.permute_to_jkb(modes_rhs)
+          ));
       }
 
       // Add the params
@@ -403,9 +438,12 @@ public:
       // Are the output modes already in ikb form? If not, permute it.
 
       if(!info.is_ikb(modes_out)) {
-        for(auto const& a: info.permute_from_ikb(modes_out)) {
-          _post_permute_params.push_back(bbts::command_param_t { .i = a });
-        }
+        auto perm = info.permute_from_ikb(modes_out);
+        auto inn_dims_before_perm = permute(inverse(perm), dims_out);
+        _post_permute_params = make_permutation_params(
+          inn_dims_before_perm,
+          perm);
+
         HAS_PERMUTE("contraction post rank " << _post_permute_params.size());
         _post_permute = true;
       } else {
@@ -419,7 +457,10 @@ public:
       // From BuildDag:
       //   binary op, alpha, num input rank, out modes
       // For Kernel Library
-      //   binary op, alpha, num modes i, num modes j
+      //   binary op, alpha, i dim, j dim
+
+      vector<int> const& inn_dims = all_the_dims[0];
+      vector<int> const& out_dims = all_the_dims[1];
 
       int input_rank = params[2].get_int();
       vector<int> out_modes;
@@ -438,7 +479,17 @@ public:
       int num_agg = static_cast<int>(agg_modes.size());
       int num_out = static_cast<int>(out_modes.size());
 
-      assert(num_agg + num_out == input_rank);
+      int total_dim = 1;
+      for(auto d: inn_dims) {
+        total_dim *= d;
+      }
+      int j_dim = 1;
+      for(auto d: out_dims) {
+        j_dim *= d;
+      }
+      int i_dim = total_dim / j_dim;
+
+      dcb_assert(num_agg + num_out == input_rank);
 
       _op_params.push_back(bbts::command_param_t {
         .i = params[0].get_int()
@@ -447,10 +498,10 @@ public:
         .f = params[1].get_float()
       });
       _op_params.push_back(bbts::command_param_t {
-        .i = num_agg
+        .i = i_dim
       });
       _op_params.push_back(bbts::command_param_t {
-        .i = num_out
+        .i = j_dim
       });
 
       bool agg_then_out;
@@ -480,30 +531,34 @@ public:
           // The output modes aren't ascending and contigous, and so need to be
           // fixed..First, subtract 3 -> [0,2,1] and that is the permutation
 
-          _post_permute_params.reserve(out_modes.size());
-          for(auto const& o: out_modes) {
-            _post_permute_params.push_back(bbts::command_param_t {
-              .i = o - num_agg
-            });
+          vector<int> perm;
+          for(auto m: out_modes) {
+            perm.push_back(m - num_agg);
           }
+          auto out_dims_but_before_permute = permute(inverse(perm), out_dims);
+          _post_permute_params = make_permutation_params(
+            out_dims_but_before_permute,
+            perm);
+
           HAS_PERMUTE("reduction post rank " << _post_permute_params.size());
         }
       } else {
         // In this case, permute it so that the aggs come first and then the out
         // modes in the order requested.
-        vector<bbts::command_param_t> perm;
-        perm.reserve(agg_modes.size() + out_modes.size());
+        vector<int> perm;
         for(auto const& a: agg_modes) {
-          perm.push_back(bbts::command_param_t { .i = a });
+          perm.push_back(a);
         }
         for(auto const& o: out_modes) {
-          perm.push_back(bbts::command_param_t { .i = o });
+          perm.push_back(o);
         }
 
-        HAS_PERMUTE("reduction input rank " << perm.size());
-        _input_permutes.emplace_back(0, perm);
+        _input_permutes.emplace_back(0,
+          make_permutation_params(
+            inn_dims,
+            perm));
 
-        _post_permute = false;
+        HAS_PERMUTE("reduction input rank " << perm.size());
       }
 
       // 1. Are t? If so, don't permute anything
@@ -512,10 +567,13 @@ public:
       //    we are done.
     } else
     if(kernel == node_t::join_kernel_type::unary_elementwise) {
+      auto const& inn_dims = all_the_dims[0];
+      auto const& out_dims = all_the_dims[1];
+
       // From BuildDag:
       //   uop (which may be one or two params), alpha, out modes
       // For Kernel Library:
-      //   uop (one or two params), alpha
+      //   uop (one or two params), alpha, num elem
       //
       // If the permutation specified in out modes is not the
       // identitiy permutation, permute the input. (One could
@@ -538,26 +596,23 @@ public:
       _op_params.push_back(bbts::command_param_t {
         .f = params[i++].get_float()
       });
+      _op_params.push_back(bbts::command_param_t {
+        .i = product_to_int(inn_dims)
+      });
 
-      vector<bbts::command_param_t> out_perm;
+      vector<int> out_perm;
       out_perm.reserve(params.size());
       while(i != params.size()) {
-        out_perm.push_back(bbts::command_param_t {
-          .i = params[i++].get_int()
-        });
+        out_perm.push_back(params[i++].get_int());
       }
 
-      bool has_input_permute = false;
-      for(int x = 0; x != out_perm.size(); ++x) {
-        if(x != out_perm[x].i) {
-          has_input_permute = true;
-          break;
-        }
-      }
-
+      bool has_input_permute = !std::is_sorted(out_perm.begin(), out_perm.end());
       if(has_input_permute) {
         HAS_PERMUTE("unary input rank " << out_perm.size());
-        _input_permutes.push_back({ 0, out_perm });
+        _input_permutes.push_back({ 0,
+          make_permutation_params(
+            inn_dims,
+            out_perm) });
       }
 
       _post_permute = false;
@@ -574,6 +629,12 @@ public:
       //   bop alpha (nLhs, lhsOrd) (nRhs, rhsOrd)
       // For Kernel Library
       //   bop alpha (lhsOrd sorted) (rhsOrd sorted)
+      // For Kernel Library
+      //   which, alpha, dims_out, lhs_which, rhs_which
+
+      auto const& lhs_dims = all_the_dims[0];
+      auto const& rhs_dims = all_the_dims[1];
+      auto const& out_dims = all_the_dims[2];
 
       int n_lhs = params[2].get_int();  // 3.. 3,4,5.. start at 6.
       int beg_lhs = 3;
@@ -583,7 +644,7 @@ public:
       int beg_rhs = end_lhs + 1;
       int end_rhs = beg_rhs + n_rhs;
 
-      assert(end_rhs == params.size());
+      dcb_assert(end_rhs == params.size());
 
       vector<int> lhs_ord;
       lhs_ord.reserve(n_lhs);
@@ -612,39 +673,43 @@ public:
       // In other words:
       //   If lhsOrd or rhsOrd are not sorted, a permutation needs to happen.
       //   The permutation params are the inverse of the provided ord.
+      //
+      // Note:
+      //   [2,0],[0,1,2] -> [0,1,2]
+      // requires permuting the first input to [0,2].
 
       if(!std::is_sorted(lhs_ord.begin(), lhs_ord.end())) {
         // add a permutation to the lhs
 
-        vector<bbts::command_param_t> perm;
-        perm.reserve(lhs_ord.size());
-        for(auto which: inverse(lhs_ord)) {
-          perm.push_back(bbts::command_param_t {
-            .i = which
-          });
-        }
+        vector<int> lhs_ord_sorted = lhs_ord;
+        std::sort(lhs_ord_sorted.begin(), lhs_ord_sorted.end());
+
+        vector<int> perm = from_to(lhs_ord, lhs_ord_sorted);
 
         HAS_PERMUTE("binary input left " << perm.size());
-        _input_permutes.emplace_back(0, perm);
+        _input_permutes.emplace_back(0,
+          make_permutation_params(
+            lhs_dims,
+            perm));
 
-        std::sort(lhs_ord.begin(), lhs_ord.end());
+        lhs_ord = lhs_ord_sorted;
       }
 
       if(!std::is_sorted(rhs_ord.begin(), rhs_ord.end())) {
         // add a permutation to the rhs
 
-        vector<bbts::command_param_t> perm;
-        perm.reserve(lhs_ord.size());
-        for(auto which: inverse(rhs_ord)) {
-          perm.push_back(bbts::command_param_t {
-            .i = which
-          });
-        }
+        vector<int> rhs_ord_sorted = rhs_ord;
+        std::sort(rhs_ord_sorted.begin(), rhs_ord_sorted.end());
+
+        vector<int> perm = from_to(rhs_ord, rhs_ord_sorted);
 
         HAS_PERMUTE("binary input right " << perm.size());
-        _input_permutes.emplace_back(1, perm);
+        _input_permutes.emplace_back(1,
+          make_permutation_params(
+            rhs_dims,
+            perm));
 
-        std::sort(rhs_ord.begin(), rhs_ord.end());
+        rhs_ord = rhs_ord_sorted;
       }
 
       _op_params.push_back(bbts::command_param_t {
@@ -654,21 +719,14 @@ public:
         .f = params[1].get_float()
       });
 
-      for(auto const& x: lhs_ord) {
-        _op_params.push_back(bbts::command_param_t {
-          .i = x
-        });
-      }
-      for(auto const& x: rhs_ord) {
-        _op_params.push_back(bbts::command_param_t {
-          .i = x
-        });
-      }
+      add_vector_to_param(_op_params, out_dims);
+      add_vector_to_param(_op_params, lhs_ord);
+      add_vector_to_param(_op_params, rhs_ord);
 
       _post_permute = false;
 
     } else {
-      assert(false);
+      dcb_assert(false);
     }
   }
 
@@ -685,7 +743,7 @@ public:
   vector<bbts::command_param_t> const&
   post_permute_params() const
   {
-    assert(has_post_permute());
+    dcb_assert(has_post_permute());
     return _post_permute_params;
   }
 };
@@ -715,6 +773,39 @@ generate_commands_t::get_tid_loc(nid_t an_nid, vector<int> const& an_bid)
   return tid_locs[nid][idx];
 }
 
+vector<vector<int>> all_the_local_dims(
+  nid_t const& nid,
+  dag_t const& dag,
+  relations_t const& relations)
+{
+  node_t const& node = dag[nid];
+
+  vector<vector<int>> ret;
+  ret.reserve(node.downs.size() + 1);
+
+  for(auto const& input_nid: dag[nid].downs) {
+    vector<int> const& dims = dag[input_nid].dims;
+    vector<int> const& part = relations[input_nid].partition;
+    vector<int> local_dims;
+    local_dims.reserve(dims.size());
+    for(int i = 0; i != dims.size(); ++i) {
+      local_dims.push_back(dims[i] / part[i]);
+    }
+    ret.push_back(local_dims);
+  }
+
+  vector<int> const& dims = dag[nid].dims;
+  vector<int> const& part = relations[nid].partition;
+  vector<int> local_dims;
+  local_dims.reserve(dims.size());
+  for(int i = 0; i != dims.size(); ++i) {
+    local_dims.push_back(dims[i] / part[i]);
+  }
+  ret.push_back(local_dims);
+
+  return ret;
+}
+
 void generate_commands_t::add_node(nid_t nid) {
   // don't do anything if this is actually a no op!
   // get_inputs will reach past no ops.
@@ -723,6 +814,7 @@ void generate_commands_t::add_node(nid_t nid) {
   }
 
   node_t const& node = dag[nid];
+  auto all_the_dims = all_the_local_dims(nid, dag, relations);
 
   // Here are some things specific to reblocking, but don't need to be
   // created over and over for every block
@@ -764,7 +856,10 @@ void generate_commands_t::add_node(nid_t nid) {
   std::unique_ptr<join_handler_t> join_handler(nullptr);
   if(node.type == node_t::node_type::join) {
     join_handler = std::unique_ptr<join_handler_t>(
-      new join_handler_t(node.join_kernel, node.params));
+      new join_handler_t(
+            all_the_dims,
+            node.join_kernel,
+            node.params));
   }
 
   // for each bid, add the command(s) to get the output
@@ -892,6 +987,8 @@ void generate_commands_t::add_node(nid_t nid) {
     // Create a reduce command
     else if(node.type == node_t::node_type::agg)
     {
+      auto const& inn_dims = all_the_dims[0];
+
       tid_loc_t cur{ next_tid(), compute_location };
 
       // If all the inputs are not at compute_location, this guy will not work.
@@ -903,6 +1000,11 @@ void generate_commands_t::add_node(nid_t nid) {
           break;
         }
       }
+
+      vector<bbts::command_param_t> params = node.get_bbts_params();
+      dcb_assert(params.size() == 1);
+      params.push_back(bbts::command_param_t { .i = product_to_int(inn_dims) });
+
       if(!has_one_input_at_compute_loc) {
         auto const& [input_tid, input_loc] = inputs[0];
         assure_moved_to(commands, input_tid, input_loc, compute_location);
@@ -913,7 +1015,7 @@ void generate_commands_t::add_node(nid_t nid) {
           next_command_id(),
           ud_info.castable_elementwise,
           false,
-          node.get_bbts_params(),
+          params,
           inputs_copy,
           cur));
       } else {
@@ -921,7 +1023,7 @@ void generate_commands_t::add_node(nid_t nid) {
           next_command_id(),
           ud_info.castable_elementwise,
           false,
-          node.get_bbts_params(),
+          params,
           inputs,
           cur));
       }

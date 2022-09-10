@@ -19,42 +19,14 @@ struct info_t {
   vector<int64_t> dims, permutation;
 };
 
-}
-
-std::ostream& operator<<(std::ostream& os, _register_permute::info_t const& info) {
-  os << "dims, permutation: " << info.dims << ", " << info.permutation;
-  return os;
-}
-
-namespace _register_permute {
-
-info_t parse(
-  bbts::ud_impl_t::tensor_params_t const& params,
-  cu_shape_t const& meta_inn)
+info_t parse(bbts::ud_impl_t::tensor_params_t const& params)
 {
   info_t ret;
-
-  ret.dims = cu_shape_as_vec(meta_inn);
-
-  assert(params.num_parameters() == ret.dims.size());
-
-  for(int i = 0; i != ret.dims.size(); ++i) {
-    ret.permutation.push_back(params.get_raw(i).i);
-  }
-
+  int i = 0;
+  i = parse_vector(params, i, ret.dims);
+  i = parse_vector(params, i, ret.permutation);
   return ret;
 }
-
-void set_out_meta(info_t info, cu_shape_t& meta_out)
-{
-  meta_out.rank = info.dims.size();
-
-  // permute the input dimensions into meta_out
-  for(int idx_out = 0; idx_out != info.dims.size(); ++idx_out) {
-    auto const& idx_inn = info.permutation[idx_out];
-    meta_out.dims[idx_out] = info.dims[idx_inn];
-  }
-};
 
 struct permute_t {
   permute_t(int64_t min_block_size): min_block_size(min_block_size) {}
@@ -411,11 +383,9 @@ struct op_t {
   {
     cu_debug_write_t("permute");
 
-    cu_shape_t const& meta_inn = ins.get<0>().as<cu_meta_t>().m();
-    cu_shape_t      & meta_out = ous.get<0>().as<cu_meta_t>().m();
-
-    info_t info = parse(params, meta_inn);
-    set_out_meta(info, meta_out);
+    info_t info = parse(params);
+    int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
+    size_out = product_dims(info.dims);
 
     float* data_inn = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
@@ -445,8 +415,8 @@ struct f: public ud_impl_t {
   size_t get_complexity_hint(const bbts::ud_impl_t::tensor_params_t &params,
                              const meta_args_t &_in) override
   {
-    cu_shape_t const& meta_inn = _in.get<0>().as<cu_meta_t>().m();
-    return product_dims(cu_shape_as_vec(meta_inn));
+    info_t info = parse(params);
+    return product_dims(info.dims);
   }
 
   void get_out_meta(
@@ -454,13 +424,9 @@ struct f: public ud_impl_t {
     const meta_args_t &_in,
     meta_args_t &_out) const override
   {
-    cu_shape_t const& meta_inn = _in.get<0>().as<cu_meta_t>().m();
-    cu_shape_t      & meta_out = _out.get<0>().as<cu_meta_t>().m();
-
-    info_t info = parse(params, meta_inn);
-    set_out_meta(info, meta_out);
-
-    DCB01("info|inn,out: " << info << "| " << meta_inn << ", " << meta_out);
+    info_t info = parse(params);
+    int64_t& size_out = _out.get<0>().as<cu_meta_t>().size();
+    size_out = product_dims(info.dims);
   }
 };
 

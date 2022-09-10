@@ -1,5 +1,5 @@
 #include "dag.h"
-#include <cassert>
+#include "misc.h"
 #include <algorithm>
 #include <queue>
 
@@ -21,7 +21,7 @@ bbts::command_param_t to_bbts_param(param_t p) {
   if(p.which == param_t::which_t::I) {
     // TODO: die violently if the integer is too big
     using unsigned_integer_type = decltype(bbts::command_param_t().u);
-    assert(p.val.i >= 0);
+    dcb_assert(p.val.i >= 0);
     return { .u = static_cast<unsigned_integer_type>(p.val.i) };
   }
 
@@ -286,20 +286,20 @@ nid_t dag_t::get_part_owner(nid_t nid) const {
   if(node.type == node_t::node_type::reblock ||
      node.type == node_t::node_type::mergesplit)
   {
-    assert(node.ups.size() == 1);
+    dcb_assert(node.ups.size() == 1);
     node_t const& join_node = dag[node.ups[0]];
-    assert(join_node.type == node_t::node_type::join);
+    dcb_assert(join_node.type == node_t::node_type::join);
     return join_node.id;
   }
 
   if(node.type == node_t::node_type::agg) {
-    assert(node.downs.size() == 1);
+    dcb_assert(node.downs.size() == 1);
     node_t const& join_node = dag[node.downs[0]];
-    assert(join_node.type == node_t::node_type::join);
+    dcb_assert(join_node.type == node_t::node_type::join);
     return join_node.id;
   }
 
-  assert(false);
+  dcb_assert(false);
   return 0;
 }
 
@@ -335,7 +335,7 @@ vector<int> dag_t::get_agg(vector<int> const& xs, nid_t nid) const {
     }
     return ret;
   } else {
-    assert(false);  // TODO(if this gets hit): fix; should return empty vector?
+    dcb_assert(false);  // TODO(if this gets hit): fix; should return empty vector?
     return xs;
   }
 }
@@ -361,7 +361,7 @@ vector<int> dag_t::get_out_for_input(
   if(upp.type == node_t::node_type::join) {
     // continue on
   } else {
-    assert(false);
+    dcb_assert(false);
     return {};
   }
 
@@ -378,10 +378,10 @@ vector<int> dag_t::get_out_for_input(
     throw std::runtime_error("up join node doesn't have correct down");
   }
 
-  assert(join_node.ordering.size() == join_node.downs.size());
+  dcb_assert(join_node.ordering.size() == join_node.downs.size());
   auto const& ordering = join_node.ordering[which_input];
 
-  assert(ordering.size() == dwn.dims.size());
+  dcb_assert(ordering.size() == dwn.dims.size());
 
   vector<dim_t> ret;
   for(auto which_inc: ordering) {
@@ -443,7 +443,7 @@ vector<int> dag_t::combine_out_agg(
   vector<int> const& out,
   vector<int> const& agg)
 {
-  assert(agg.size() == which_aggs.size());
+  dcb_assert(agg.size() == which_aggs.size());
 
   auto is_agg = [&which_aggs](int const& i) {
     return std::find(which_aggs.begin(), which_aggs.end(), i) != which_aggs.end();

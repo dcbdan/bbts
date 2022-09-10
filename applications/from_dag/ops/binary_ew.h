@@ -4,30 +4,19 @@ namespace _register_binary_ew {
 
 // binary ew does this:
 //   traversing the lhs, rhs arrays in order,
-//     out[offset] = op(alpha*lhs[lhs_offset], beta*rhs[rhs_offset])
+//     out[offset] = alpha * op(lhs[lhs_offset], rhs[rhs_offset])
 struct info_t {
   int which;
   float alpha; // scale the output
 
-  vector<int64_t> dims;
+  vector<int64_t> dims; // output dims
+
   vector<int64_t> str_lhs;
   vector<int64_t> str_rhs;
 };
 
-}
-
-std::ostream& operator<<(std::ostream& os, _register_binary_ew::info_t const& info) {
-  os << "ew info[op " << info.which << ". alpha " << info.alpha << ". dims " << info.dims
-    << ". str lhs " << info.str_lhs
-    << ". str rhs " << info.str_rhs << "]";
-  return os;
-}
-
-namespace _register_binary_ew {
-
-
 // Now compute the strides
-vector<int64_t> compute_stride(vector<int64_t> const& dims, vector<int> which)
+vector<int64_t> compute_stride(vector<int64_t> const& dims, vector<int64_t> which)
 {
   vector<int64_t> ret;
   ret.reserve(dims.size());
@@ -54,84 +43,26 @@ vector<int64_t> compute_stride(vector<int64_t> const& dims, vector<int> which)
   return ret;
 };
 
-void parse_dims_which(
-  bbts::ud_impl_t::tensor_params_t const& params,
-  cu_shape_t const& meta_lhs,
-  cu_shape_t const& meta_rhs,
-  vector<int64_t>& dims,
-  vector<int>& which_lhs,
-  vector<int>& which_rhs)
-{
-  which_lhs.resize(0);
-  which_lhs.reserve(meta_lhs.rank);
-  int i = 2;
-  for(; i != 2 + meta_lhs.rank; ++i) {
-    which_lhs.push_back(params.get_raw(i).i);
-  }
-
-  which_rhs.resize(0);
-  which_rhs.reserve(meta_rhs.rank);
-  int rest = i + meta_rhs.rank;
-  for(; i != rest; ++i) {
-    which_rhs.push_back(params.get_raw(i).i);
-  }
-  assert(i == params.num_parameters());
-
-  int rank_out = 0;
-  for(auto const& w: which_lhs) {
-    rank_out = std::max(w + 1, rank_out);
-  }
-  for(auto const& w: which_rhs) {
-    rank_out = std::max(w + 1, rank_out);
-  }
-
-  dims = vector<int64_t>(rank_out, 0);
-  for(int idx_lhs = 0; idx_lhs != which_lhs.size(); ++idx_lhs) {
-    int idx_out = which_lhs[idx_lhs];
-    dims[idx_out] = meta_lhs.dims[idx_lhs];
-  }
-
-  for(int idx_rhs = 0; idx_rhs != which_rhs.size(); ++idx_rhs) {
-    int idx_out = which_rhs[idx_rhs];
-    if(dims[idx_out] > 0) {
-      assert(dims[idx_out] == meta_rhs.dims[idx_rhs]);
-    } else {
-      dims[idx_out] = meta_rhs.dims[idx_rhs];
-    }
-  }
-
-  for(auto const& d: dims) {
-    assert(d > 0);
-  }
-}
-
+// Params: which, alpha, <dims out>, <lhs_which>, <rhs_which>
 info_t parse(
-  bbts::ud_impl_t::tensor_params_t const& params,
-  cu_shape_t const& meta_lhs,
-  cu_shape_t const& meta_rhs)
+  bbts::ud_impl_t::tensor_params_t const& params)
 {
   info_t ret;
 
-  ret.which = params.get_int<0>();
-  ret.alpha = params.get_float<1>();
+  int i = 0;
+  ret.which = params.get_raw(i++).i;
+  ret.alpha = params.get_raw(i++).f;
 
-  vector<int> lhs_which, rhs_which;
-  parse_dims_which(
-    params, meta_lhs, meta_rhs,
-    ret.dims, lhs_which, rhs_which);
+  i = parse_vector(params, i, ret.dims);
+
+  std::vector<int64_t> lhs_which, rhs_which;
+  i = parse_vector(params, i, lhs_which);
+  i = parse_vector(params, i, rhs_which);
 
   ret.str_lhs = compute_stride(ret.dims, lhs_which);
   ret.str_rhs = compute_stride(ret.dims, rhs_which);
 
   return ret;
-}
-
-void set_out_meta(info_t info, cu_shape_t& meta_out)
-{
-  meta_out.rank = info.dims.size();
-  for(int i = 0; i != info.dims.size(); ++i) {
-    meta_out.dims[i] = info.dims[i];
-  }
 }
 
 inline float _add(float lhs, float rhs){ return lhs + rhs; }
@@ -196,52 +127,53 @@ void reference(
   const tensor_args_t &ins,
   const tensor_args_t &ous)
 {
-  std::cout << "REFERENCE BINARY EW" << std::endl;
-  std::string errmsg = "binary elementwise reference error. ";
-
-  cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
-  cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
-  cu_shape_t const& meta_out = ous.get<0>().as<cu_meta_t>().m();
-
-  float* data_lhs = (float*)(ins.get<0>().as<cu_t>().data());
-  float* data_rhs = (float*)(ins.get<1>().as<cu_t>().data());
-  float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
-
-  int which = params.get_int<0>();
-  float alpha = params.get_float<1>();
-
-  vector<int64_t> dims;
-  vector<int> lhs_which;
-  vector<int> rhs_which;
-
-  // assuming this parse is correct
-  parse_dims_which(
-    params, meta_lhs, meta_rhs,
-    dims, lhs_which, rhs_which);
-
-  decltype(_add) *binary_op;
-  switch(which) {
-    case 0: binary_op = _add; break;
-    case 1: binary_op = _max; break;
-    case 2: binary_op = _min; break;
-    case 3: binary_op = _mul; break;
-    case 4: binary_op = _sub; break;
-    case 5: binary_op = _div; break;
-  }
-
-  reference_indexer_t indexer(dims, lhs_which, rhs_which);
-  do {
-    float v = alpha * binary_op(data_lhs[indexer.lhs()], data_rhs[indexer.rhs()]);
-
-    float err = std::abs(v - data_out[indexer.out()]);
-
-    if(err > 0.00001) {
-      std::cout << indexer.idx << std::endl;
-      std::cout << dims << ", " << lhs_which << ", " << rhs_which << std::endl;
-      std::cout << v << ", " << err << std::endl;
-      throw std::runtime_error(errmsg);
-    };
-  } while(indexer.increment());
+  throw std::runtime_error("not implemented");
+//  std::cout << "REFERENCE BINARY EW" << std::endl;
+//  std::string errmsg = "binary elementwise reference error. ";
+//
+//  cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
+//  cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
+//  cu_shape_t const& meta_out = ous.get<0>().as<cu_meta_t>().m();
+//
+//  float* data_lhs = (float*)(ins.get<0>().as<cu_t>().data());
+//  float* data_rhs = (float*)(ins.get<1>().as<cu_t>().data());
+//  float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
+//
+//  int which = params.get_int<0>();
+//  float alpha = params.get_float<1>();
+//
+//  vector<int64_t> dims;
+//  vector<int> lhs_which;
+//  vector<int> rhs_which;
+//
+//  // assuming this parse is correct
+//  parse_dims_which(
+//    params, meta_lhs, meta_rhs,
+//    dims, lhs_which, rhs_which);
+//
+//  decltype(_add) *binary_op;
+//  switch(which) {
+//    case 0: binary_op = _add; break;
+//    case 1: binary_op = _max; break;
+//    case 2: binary_op = _min; break;
+//    case 3: binary_op = _mul; break;
+//    case 4: binary_op = _sub; break;
+//    case 5: binary_op = _div; break;
+//  }
+//
+//  reference_indexer_t indexer(dims, lhs_which, rhs_which);
+//  do {
+//    float v = alpha * binary_op(data_lhs[indexer.lhs()], data_rhs[indexer.rhs()]);
+//
+//    float err = std::abs(v - data_out[indexer.out()]);
+//
+//    if(err > 0.00001) {
+//      std::cout << indexer.idx << std::endl;
+//      std::cout << dims << ", " << lhs_which << ", " << rhs_which << std::endl;
+//      std::cout << v << ", " << err << std::endl;
+//      throw std::runtime_error(errmsg);
+//    };
+//  } while(indexer.increment());
 }
 
 struct op_t {
@@ -252,21 +184,16 @@ struct op_t {
   {
     cu_debug_write_t("binary_ew");
 
-    cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
-    cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
-    cu_shape_t      & meta_out = ous.get<0>().as<cu_meta_t>().m();
+    info_t info = parse(params);
 
-    info_t info = parse(params, meta_lhs, meta_rhs);
-    set_out_meta(info, meta_out);
+    int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
+    size_out = product_dims(info.dims);
 
     float* data_lhs = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_rhs = (float*)(ins.get<1>().as<cu_t>().data());
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
 
 #ifndef CU_BINARY_EW_OFF
-    //std::cout << info << " | " << meta_lhs << " | "
-    //                           << meta_rhs << " | "
-    //                           << meta_out << std::endl;
 
     decltype(_add) *binary_op;
     switch(info.which) {
@@ -364,9 +291,7 @@ struct f: public ud_impl_t {
   size_t get_complexity_hint(const bbts::ud_impl_t::tensor_params_t &params,
                              const meta_args_t &ins) override
   {
-    cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
-    cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
-    info_t info = parse(params, meta_lhs, meta_rhs);
+    info_t info = parse(params);
     return product_dims(info.dims);
   }
 
@@ -375,14 +300,9 @@ struct f: public ud_impl_t {
     const meta_args_t &ins,
     meta_args_t &ous) const override
   {
-    cu_shape_t const& meta_lhs = ins.get<0>().as<cu_meta_t>().m();
-    cu_shape_t const& meta_rhs = ins.get<1>().as<cu_meta_t>().m();
-    cu_shape_t      & meta_out = ous.get<0>().as<cu_meta_t>().m();
-
-    info_t info = parse(params, meta_lhs, meta_rhs);
-    set_out_meta(info, meta_out);
-
-    DCB01("lhs,rhs,out: " << meta_lhs << "," << meta_rhs << ", " << meta_out);
+    int64_t size_out = ous.get<0>().as<cu_meta_t>().size();
+    info_t info = parse(params);
+    size_out = product_dims(info.dims);
   }
 };
 

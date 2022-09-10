@@ -112,21 +112,16 @@ struct cu_shape_t {
 
 struct cu_meta_t : public tensor_meta_t {
 
-  // returns the shape
-  cu_shape_t& m() const {
+  int64_t& size() const {
     // which is placed at the start of the blob
-    return *((cu_shape_t*) _blob);
+    return *((int64_t*) _blob);
   }
 
   cu_meta_t(tfid_t _id) : tensor_meta_t{.fmt_id = _id} {}
 
   // init the tensor meta
-  cu_meta_t(tfid_t _id, std::vector<int64_t> dims) : tensor_meta_t{.fmt_id = _id} {
-    auto& meta = this->m();
-    meta.rank = dims.size();
-    for(int r = 0; r != meta.rank; ++r) {
-      meta.dims[r] = dims[r];
-    }
+  cu_meta_t(tfid_t _id, int64_t sz) : tensor_meta_t{.fmt_id = _id} {
+    this->size() = sz;
   }
 
   uint64_t get_data_size() const {
@@ -135,14 +130,7 @@ struct cu_meta_t : public tensor_meta_t {
   }
 
   uint64_t num_elem() const {
-    auto const& meta = this->m();
-
-    uint64_t num = 1;
-    for(int r = 0; r != meta.rank; ++r) {
-      num *= meta.dims[r];
-    }
-
-    return num;
+    return static_cast<uint64_t>(this->size());
   }
 };
 
@@ -176,39 +164,7 @@ struct cu_t : public tensor_t {
 
     auto pnt = [](const void* here, std::stringstream &ss) {
       auto &t = *(cu_t *) here;
-      auto rank = t.meta().m().rank;
-      auto dims = t.meta().m().dims;
-      float* data = (float*)t.data();
-
-      if(rank == 0) {
-        ss << "scalar[" << data[0] << "]" << std::endl;
-        return;
-      }
-
-      size_t n = 1;
-      ss << "dims[";
-      for(int r = 0; r != rank-1; ++r) {
-        ss << dims[r] << ",";
-        n *= dims[r];
-      }
-      ss << dims[rank-1] << "]" << std::endl;
-      n *= dims[rank-1];
-
-      if(rank != 2) {
-        for(int i = 0; i != n; ++i) {
-          ss << data[i] << " ";
-        }
-        ss << std::endl;
-      } else {
-        // cutensor is column major!
-        for(int row = 0; row != dims[0]; ++row) {
-          for(int col = 0; col != dims[1]; ++col) {
-            int idx = row + col*dims[0];
-            std::cout << data[idx] << " ";
-          }
-          std::cout << std::endl;
-        }
-      }
+      ss << "Tensor[" << t.meta().num_elem() << "]" << std::endl;
     };
 
     // return the tensor creation functions
@@ -317,4 +273,15 @@ int64_t product_ints(vector<int> const& ds) {
   return ret;
 }
 
+int parse_vector(
+  bbts::ud_impl_t::tensor_params_t const& params,
+  int& i,
+  vector<int64_t>& ret)
+{
+  ret.resize(params.get_raw(i++).i);
+  for(int64_t& val: ret) {
+    val = params.get_raw(i++).i;
+  }
+  return i;
+}
 

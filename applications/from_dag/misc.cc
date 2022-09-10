@@ -47,4 +47,10 @@ std::vector<int> squeeze(std::vector<int> const& xs)
   return std::vector<int>(xs.begin() + 1, xs.end());
 }
 
+void dcb_assert(bool b) {
+  if(!b) {
+    throw std::runtime_error("Failed dcb_assert");
+  }
+}
+
 }}

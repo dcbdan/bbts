@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <stdexcept>
 
 namespace bbts { namespace dag {
 
@@ -11,7 +12,16 @@ namespace bbts { namespace dag {
 template <typename T, typename U=uint64_t>
 U product(std::vector<T> const& xs) {
   U ret = 1;
-  for(auto x: xs) {
+  for(auto const& x: xs) {
+    ret *= x;
+  }
+  return ret;
+}
+
+template <typename T>
+int product_to_int(std::vector<T> const& xs) {
+  int ret =1;
+  for(auto const& x: xs) {
     ret *= x;
   }
   return ret;
@@ -46,5 +56,7 @@ std::vector<std::vector<int>> cartesian(
 std::vector<int> expand1(std::vector<int> const& xs);
 std::vector<int> expand0(std::vector<int> const& xs);
 std::vector<int> squeeze(std::vector<int> const& xs);
+
+void dcb_assert(bool b);
 
 }}

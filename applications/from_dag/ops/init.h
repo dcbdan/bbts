@@ -85,13 +85,6 @@ info_t parse(const bbts::ud_impl_t::tensor_params_t &params) {
   return ret;
 }
 
-void set_out_meta(info_t const& p, cu_shape_t& out) {
-  out.rank = p.dims.size();
-  for(int r = 0; r != out.rank; ++r) {
-    out.dims[r] = p.dims[r];
-  }
-}
-
 struct op {
   void operator()(
     const bbts::ud_impl_t::tensor_params_t &params,
@@ -101,13 +94,12 @@ struct op {
     cu_debug_write_t("init");
 
     info_t p = parse(params);
-
-    DCB01("init dims size of " << p.dims.size());
-
-    set_out_meta(p, _out.get<0>().as<cu_meta_t>().m());
     size_t n = product_dims(p.dims);
-    cu_t& out = _out.get<0>().as<cu_t>();
-    float* data = (float*)out.data();
+    int64_t& size_out = _out.get<0>().as<cu_meta_t>().size();
+    size_out = n;
+
+    float* data = (float*)(_out.get<0>().as<cu_t>().data());
+
 #ifndef CU_INIT_OFF
     if(p.which == 0) {
       VSLStreamStatePtr stream;
@@ -151,7 +143,8 @@ struct f : public ud_impl_t {
   // return the meta of the output
   void get_out_meta(const bbts::ud_impl_t::tensor_params_t &params,
                     const meta_args_t &_in, meta_args_t &_out) const override {
-    set_out_meta(parse(params), _out.get<0>().as<cu_meta_t>().m());
+    int64_t& size_out = _out.get<0>().as<cu_meta_t>().size();
+    size_out = product_dims(parse(params).dims);
   }
 };
 

@@ -7,6 +7,7 @@
 #include "dag.h"
 #include "partition_info.h"
 #include "relation.h"
+#include "misc.h"
 
 #include "../../src/commands/command.h"
 
@@ -48,7 +49,7 @@ struct ud_info_t {
       return binary_elementwise;
     }
 
-    assert(false);
+    dcb_assert(false);
     return init;
   }
 };

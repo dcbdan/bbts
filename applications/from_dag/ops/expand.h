@@ -70,8 +70,6 @@ struct expand : public ud_impl_t {
   {
     DCB01("");
 
-    auto &m = _out.get<0>().as<cu_meta_t>().m();
-
     auto [expander, compact] = _register_expand::get_expander(params);
 
     auto shape =
@@ -79,9 +77,10 @@ struct expand : public ud_impl_t {
       expander.compact_inn_shape() :
       expander.expand_out_shape()  ;
 
-    m.rank = shape.size();
-    for(int r = 0; r != m.rank; ++r) {
-      m.dims[r] = shape[r];
+    int64_t& size_out = _out.get<0>().as<cu_meta_t>().size();
+    size_out = 1;
+    for(int const& d: shape) {
+      size_out *= d;
     }
   }
 
@@ -91,38 +90,38 @@ struct expand : public ud_impl_t {
   {
     cu_debug_write_t("expand");
 
-    auto const& inn = ins.get<0>().as<cu_t>();
-    auto      & out = ous.get<0>().as<cu_t>();
-
-    float* inn_data = (float*)(ins.get<0>().as<cu_t>().data());
-    float* out_data = (float*)(ous.get<0>().as<cu_t>().data());
-
-    auto const& m_inn = inn.meta().m();
-    auto      & m_out = out.meta().m();
-
-    vector<int> inn_shape(m_inn.rank);
-    for(int r = 0; r != m_inn.rank; ++r) {
-      inn_shape[r] = m_inn.dims[r];
-    }
-
     auto [expander, compact] = _register_expand::get_expander(params);
 
     auto compact_shape   = expander.compact_inn_shape();
     auto final_out_shape = expander.expand_out_shape();
 
     auto const& out_shape = compact ? compact_shape : final_out_shape;
-    m_out.rank = out_shape.size();
-    for(int r = 0; r != m_out.rank; ++r) {
-      m_out.dims[r] = out_shape[r];
+
+    int64_t const& size_inn = ins.get<0>().as<cu_meta_t>().size();
+    int64_t&       size_out = ous.get<0>().as<cu_meta_t>().size();
+
+    size_out = 1;
+    for(int const& d: out_shape) {
+      size_out *= d;
     }
+
+    int64_t size_compact = 1;
+    for(auto const& d: compact_shape) {
+      size_compact *= d;
+    }
+
+    float* inn_data = (float*)(ins.get<0>().as<cu_t>().data());
+    float* out_data = (float*)(ous.get<0>().as<cu_t>().data());
 
 #ifndef CU_EXPAND_OFF
     if(compact) {
       expander.compact(inn_data, out_data);
     } else {
-      if(inn_shape == compact_shape) {
+      if(size_inn == size_compact) {
+        // If the input is compacted, uncompact it into out
         expander.uncompact(inn_data, out_data);
       } else {
+        // Otherwise, just do the whole thing
         expander.expand(inn_data, out_data);
       }
     }
