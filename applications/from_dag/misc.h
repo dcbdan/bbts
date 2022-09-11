@@ -26,11 +26,15 @@ U product(std::vector<T> const& xs) {
 
 template <typename T>
 int product_to_int(std::vector<T> const& xs) {
-  int ret =1;
+  uint64_t ret = 1;
   for(auto const& x: xs) {
     ret *= x;
   }
-  return ret;
+  uint64_t m = static_cast<uint64_t>(std::numeric_limits<int>::max());
+  if(ret > m) {
+    throw std::runtime_error("product_to_int: the inputs are too big");
+  }
+  return static_cast<int>(ret);
 }
 
 struct indexer_t {

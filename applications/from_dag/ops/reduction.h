@@ -76,6 +76,7 @@ struct op_t {
 
     int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
     size_out = info.nj;
+    assert(size_out > 0);
 
     float* data_inn = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
@@ -125,6 +126,7 @@ struct f: public ud_impl_t {
     int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
 
     size_out = info.nj;
+    assert(size_out > 0);
   }
 };
 

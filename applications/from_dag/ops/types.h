@@ -32,18 +32,19 @@ using std::tuple;
 // For debugging, you can turn off kernels entirely...
 // Useful if trying to figure out where something breaks.
 
-//#define CU_INIT_OFF
-//#define CU_PERMUTE_OFF
-//#define CU_UNARY_EW_OFF
-//#define CU_BINARY_EW_OFF
-//#define CU_CASTABLE_EW_OFF
-//#define CU_BATCH_MATMUL_OFF
-//#define CU_REDUCTION_OFF
-//#define CU_EXPAND_OFF
+// #define CU_INIT_OFF
+// #define CU_PERMUTE_OFF              // 7
+// #define CU_UNARY_EW_OFF             // 4
+// #define CU_BINARY_EW_OFF            // 3
+// #define CU_CASTABLE_EW_OFF          // 5
+// #define CU_BATCH_MATMUL_OFF         // 1
+// #define CU_REDUCTION_OFF            // 2
+// #define CU_EXPAND_OFF               // 6
 
 //#define CU_BARB_REFERENCE
 
 #define DCB01(x)
+#define DCB_BEW(x) std::cout << "bew " << __LINE__ << " | " << x << std::endl
 
 //std::mutex _dcb01_m;
 //#define DCB01(x) { \
@@ -232,7 +233,7 @@ struct unary_op_t {
   float f; // this scales the output
 };
 
-void parse_uop(
+int parse_uop(
   const bbts::ud_impl_t::tensor_params_t &params,
   unary_op_t& op,
   int& which) {
@@ -244,6 +245,8 @@ void parse_uop(
   if(op.i == 6 || op.i == 7) {
     op.f = params.get_raw(which++).f;
   }
+
+  return which;
 }
 
 vector<int64_t> cu_shape_as_vec(cu_shape_t s) {

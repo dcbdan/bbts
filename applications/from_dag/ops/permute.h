@@ -386,6 +386,7 @@ struct op_t {
     info_t info = parse(params);
     int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
     size_out = product_dims(info.dims);
+    assert(size_out > 0);
 
     float* data_inn = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
@@ -427,6 +428,7 @@ struct f: public ud_impl_t {
     info_t info = parse(params);
     int64_t& size_out = _out.get<0>().as<cu_meta_t>().size();
     size_out = product_dims(info.dims);
+    assert(size_out > 0);
   }
 };
 

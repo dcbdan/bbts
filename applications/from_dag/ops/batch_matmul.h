@@ -134,17 +134,25 @@ struct op_t {
     int64_t const& nk = info.nk;
 
     size_out = info.ni * info.nk * info.nb;
+    assert(size_out > 0);
 
     float* data_lhs = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_rhs = (float*)(ins.get<1>().as<cu_t>().data());
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
 
-#ifndef CU_BATCH_MATMUL_OFF
     bool const& t_lhs = info.t_lhs;
     bool const& t_rhs = info.t_rhs;
 
+    int64_t const& size_lhs = ins.get<0>().as<cu_meta_t>().size();
+    int64_t const& size_rhs = ins.get<1>().as<cu_meta_t>().size();
+
+    assert(ni > 0 && nj > 0 && nk > 0 && nb > 0);
+    assert(size_lhs == ni * nj * nb);
+    assert(size_rhs == nj * nk * nb);
+
+#ifndef CU_BATCH_MATMUL_OFF
     cblas_sgemm_batch_strided(CblasColMajor,
-      t_lhs ? CblasTrans : CblasNoTrans,
+     t_lhs ? CblasTrans : CblasNoTrans,
       t_rhs ? CblasTrans : CblasNoTrans,
       ni, nk, nj,
       info.alpha,
@@ -153,7 +161,6 @@ struct op_t {
       0.0,
       data_out,     ni,                 ni*nk,
       nb);
-
 #ifdef CU_BARB_REFERENCE
 //    reference(params, ins, ous);
 #endif
@@ -193,8 +200,8 @@ struct f: public ud_impl_t {
   {
     info_t info = parse(params);
     int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
-
     size_out = info.ni * info.nk * info.nb;
+    assert(size_out > 0);
   }
 };
 

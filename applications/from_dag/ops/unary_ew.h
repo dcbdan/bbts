@@ -6,13 +6,18 @@ struct info_t {
   unary_op_t op;
   float alpha;
   int64_t num_elem;
+
+  void print() {
+    std::cout << "unary info.  alpha " << alpha
+      << " num elem " << num_elem << std::endl;
+  }
 };
 
 info_t parse(bbts::ud_impl_t::tensor_params_t const& params)
 {
   info_t ret;
   int i = 0;
-  parse_uop(params, ret.op, i); // parse_uop writes to ret.uop and updates i
+  i = parse_uop(params, ret.op, i);
   ret.alpha = params.get_raw(i++).f;
   ret.num_elem = params.get_raw(i++).i;
   return ret;
@@ -112,6 +117,7 @@ struct op_t {
     info_t info = parse(params);
     int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
     size_out = info.num_elem;
+    assert(size_out > 0);
 
     float* data_inn = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_out = (float*)(ous.get<0>().as<cu_t>().data());
@@ -230,6 +236,7 @@ struct f: public ud_impl_t {
     int64_t& size_out = _out.get<0>().as<cu_meta_t>().size();
     info_t info = parse(params);
     size_out = info.num_elem;
+    assert(size_out > 0);
   }
 };
 

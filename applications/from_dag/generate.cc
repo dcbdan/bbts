@@ -625,6 +625,8 @@ public:
       // identitiy permutation, permute the input. (One could
       // also permute the output, it doesn't matter)
       int i = 0;
+
+      // the operator
       _op_params.push_back(bbts::command_param_t {
           .i = params[i++].get_int()
       });
@@ -639,11 +641,17 @@ public:
       if(_op_params.back().i == 8) {
         _is_no_op_unary_ew = true;
       }
+
+      // alpha
       _op_params.push_back(bbts::command_param_t {
         .f = params[i++].get_float()
       });
+
+      // the number of elements
+      int num_elem = product_to_int(inn_dims);
+      assert(num_elem > 0);
       _op_params.push_back(bbts::command_param_t {
-        .i = product_to_int(inn_dims)
+        .i = num_elem
       });
 
       vector<int> out_perm;

@@ -188,6 +188,7 @@ struct op_t {
 
     int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
     size_out = product_dims(info.dims);
+    assert(size_out > 0);
 
     float* data_lhs = (float*)(ins.get<0>().as<cu_t>().data());
     float* data_rhs = (float*)(ins.get<1>().as<cu_t>().data());
@@ -300,9 +301,10 @@ struct f: public ud_impl_t {
     const meta_args_t &ins,
     meta_args_t &ous) const override
   {
-    int64_t size_out = ous.get<0>().as<cu_meta_t>().size();
+    int64_t& size_out = ous.get<0>().as<cu_meta_t>().size();
     info_t info = parse(params);
     size_out = product_dims(info.dims);
+    assert(size_out > 0);
   }
 };
 
