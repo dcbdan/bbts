@@ -68,7 +68,7 @@ bool is_permutation(vector<int> ps) {
 
 template <typename T>
 vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
-  assert(is_permutation(ps));
+  dcb_assert(is_permutation(ps));
 
   vector<T> ret(ps.size());
   for(int i = 0; i != ps.size(); ++i) {
@@ -78,7 +78,7 @@ vector<T> permute(vector<int> const& ps, vector<T> const& xs) {
 }
 
 vector<int> inverse(vector<int> const& ps) {
-  assert(is_permutation(ps));
+  dcb_assert(is_permutation(ps));
 
   vector<int> ret(ps.size());
   for(int i = 0; i != ps.size(); ++i) {
@@ -101,7 +101,7 @@ vector<int> from_to(vector<int> const& inn, vector<int> out) {
     i = relabel[i];
   }
 
-  assert(is_permutation(out));
+  dcb_assert(is_permutation(out));
   return out;
 }
 
@@ -189,9 +189,9 @@ vector<bbts::command_param_t> make_permutation_params(
   vector<int> const& shape, // THE INPUT SHAPE
   vector<int> const& perm)  // 012345->perm
 {
-  assert(is_permutation(perm));
+  dcb_assert(is_permutation(perm));
   for(auto const& val: shape) {
-    assert(val > 0);
+    dcb_assert(val > 0);
   }
 
   vector<bbts::command_param_t> ret;
@@ -233,7 +233,7 @@ class join_handler_t {
         if(in_rhs) {
           ks.push_back(m);
         } else {
-          assert(false);
+          dcb_assert(false);
         }
       }
       for(auto const& m: modes_lhs) {
@@ -251,13 +251,13 @@ class join_handler_t {
         vector<int> const& ds,
         vector<int> const& ms)
       {
-        assert(ds.size() == ms.size());
+        dcb_assert(ds.size() == ms.size());
 
         for(int i = 0; i != ds.size(); ++i) {
           auto const& m = ms[i];
           auto const& d = ds[i];
           if(m_to_d.count(m) == 1) {
-            assert(m_to_d[m] == d);
+            dcb_assert(m_to_d[m] == d);
           } else {
             m_to_d[ms[i]] = ds[i];
           }
@@ -326,7 +326,7 @@ class join_handler_t {
       vector<int> const& bs,
       vector<int> const& cs)
     {
-      assert(modes.size() == (as.size() + bs.size() + cs.size()));
+      dcb_assert(modes.size() == (as.size() + bs.size() + cs.size()));
 
       int i = 0;
       for(int const& a: as) { if(modes[i++] != a) { return false; } }
@@ -349,7 +349,7 @@ class join_handler_t {
       for(int const& b: bs) { modes_out.push_back(b); }
       for(int const& c: cs) { modes_out.push_back(c); }
 
-      assert(modes_inn.size() == modes_out.size());
+      dcb_assert(modes_inn.size() == modes_out.size());
 
       return from_to(modes_inn, modes_out);
     }
@@ -367,7 +367,7 @@ class join_handler_t {
       for(int const& b: bs) { modes_inn.push_back(b); }
       for(int const& c: cs) { modes_inn.push_back(c); }
 
-      assert(modes_inn.size() == modes_out.size());
+      dcb_assert(modes_inn.size() == modes_out.size());
 
       return from_to(modes_inn, modes_out);
     }
@@ -399,7 +399,7 @@ public:
       int num_rhs = params[1].get_int();
       int num_out = params[2].get_int();
 
-      assert(params.size() == 4 + num_lhs + num_rhs + num_out);
+      dcb_assert(params.size() == 4 + num_lhs + num_rhs + num_out);
 
       int beg_lhs = 3;
       int end_lhs = beg_lhs + num_lhs;
@@ -535,7 +535,7 @@ public:
       }
       int i_dim = total_dim / j_dim;
 
-      assert(num_agg + num_out == input_rank);
+      dcb_assert(num_agg + num_out == input_rank);
 
       _op_params.push_back(bbts::command_param_t {
         .i = params[0].get_int()
@@ -649,7 +649,7 @@ public:
 
       // the number of elements
       int num_elem = product_to_int(inn_dims);
-      assert(num_elem > 0);
+      dcb_assert(num_elem > 0);
       _op_params.push_back(bbts::command_param_t {
         .i = num_elem
       });
@@ -698,7 +698,7 @@ public:
       int beg_rhs = end_lhs + 1;
       int end_rhs = beg_rhs + n_rhs;
 
-      assert(end_rhs == params.size());
+      dcb_assert(end_rhs == params.size());
 
       vector<int> lhs_ord;
       lhs_ord.reserve(n_lhs);
@@ -780,7 +780,7 @@ public:
       _post_permute = false;
 
     } else {
-      assert(false);
+      dcb_assert(false);
     }
   }
 
@@ -797,7 +797,7 @@ public:
   vector<bbts::command_param_t> const&
   post_permute_params() const
   {
-    assert(has_post_permute());
+    dcb_assert(has_post_permute());
     return _post_permute_params;
   }
 };
@@ -1053,7 +1053,7 @@ void generate_commands_t::add_node(nid_t nid) {
       }
 
       vector<bbts::command_param_t> params = node.get_bbts_params();
-      assert(params.size() == 1);
+      dcb_assert(params.size() == 1);
       params.push_back(bbts::command_param_t { .i = product_to_int(inn_dims) });
 
       if(!has_one_input_at_compute_loc) {
