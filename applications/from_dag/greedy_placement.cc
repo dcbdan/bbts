@@ -1,7 +1,7 @@
 #include "greedy_placement.h"
 #include "dpar/min_cost_tree.h"
 
-#define DCB01(x) // std::cout << x << std::endl
+#define DCB01(x) // std::cout << __LINE__ << " " << x << std::endl
 #define DCB02(x) // std::cout << x << std::endl
 
 namespace bbts { namespace dag {
@@ -388,6 +388,7 @@ uint64_t total_move_cost(
     int rank = placements[an_nid].computes[an_idx];
 
     auto input_sizes = relations[an_nid].input_tensor_sizes(an_bid);
+
     auto inputs = relations[an_nid].get_inputs(an_idx);
     for(int i = 0; i != inputs.size(); ++i) {
       auto const& [input_nid, input_idx] = inputs[i];

@@ -362,6 +362,7 @@ vector<uint64_t> relation_t::input_tensor_sizes(vector<int> const& bid) const {
       inn_partition = rels(node.downs[0]).partition;
       out_partition = partition;
       dims = node.dims;
+      bid_fixed = bid;
     } else {
       auto const& input_nid = node.downs[0];
       if(node.is_merge) {
